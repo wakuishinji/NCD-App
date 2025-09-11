@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>診療所一覧</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 text-gray-800 flex flex-col items-center min-h-screen">
+  <h1 class="text-2xl font-bold my-6">登録済み 診療所一覧</h1>
+
+  <div class="bg-white shadow p-6 rounded w-full max-w-2xl">
+    <table class="w-full border border-gray-300">
+      <thead>
+        <tr class="bg-gray-200 text-left">
+          <th class="p-2 border">#</th>
+          <th class="p-2 border">診療所名</th>
+        </tr>
+      </thead>
+      <tbody id="clinicTable"></tbody>
+    </table>
+  </div>
+
+  <script>
+  async function loadClinics() {
+    const tbody = document.getElementById("clinicTable");
+    tbody.innerHTML = "<tr><td colspan='2' class='p-2'>読み込み中...</td></tr>";
+
+    try {
+      const res = await fetch("https://ncd-app.altry.workers.dev/api/listClinics");
+      const data = await res.json();
+
+      if (res.ok && data.ok && data.clinics.length > 0) {
+        tbody.innerHTML = data.clinics
+          .map((c, i) => `
+            <tr>
+              <td class="p-2 border">${i + 1}</td>
+              <td class="p-2 border">${c.name}</td>
+            </tr>
+          `)
+          .join("");
+      } else {
+        tbody.innerHTML = "<tr><td colspan='2' class='p-2'>登録済みの診療所はありません。</td></tr>";
+      }
+    } catch (err) {
+      tbody.innerHTML = `<tr><td colspan='2' class='p-2 text-red-600'>エラー: ${err.message}</td></tr>`;
+    }
+  }
+
+  loadClinics();
+</script>
+</body>
+</html>

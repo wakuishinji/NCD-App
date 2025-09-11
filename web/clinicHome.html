@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>施設ホーム - NCD</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col">
+  <!-- ヘッダー -->
+  <header class="bg-blue-600 text-white shadow">
+    <div class="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
+      <h1 class="text-xl font-bold">施設ホーム</h1>
+      <nav class="flex items-center gap-4 text-sm">
+        <a href="index.html" class="underline">Top</a>
+        <a href="clinicList.html" class="underline">施設選択へ</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- メイン -->
+  <main class="flex-1 max-w-5xl mx-auto p-4 md:p-6 space-y-6">
+    <div class="bg-white rounded shadow p-6">
+      <div class="text-gray-500 text-sm mb-2">選択中の施設</div>
+      <div id="clinicName" class="text-2xl font-bold text-blue-800">-</div>
+      <div id="clinicId" class="text-xs text-gray-500 mt-1">ID: -</div>
+      <div id="clinicAddr" class="text-sm text-gray-700 mt-2">住所: -</div>
+    </div>
+
+    <div class="grid md:grid-cols-3 gap-4">
+      <a href="clinicDetail.html" class="bg-white rounded shadow p-6 hover:shadow-lg transition">
+        <div class="text-lg font-semibold text-blue-800 mb-2">基本情報入力</div>
+        <div class="text-sm text-gray-600">名称・住所・医師数・診療時間パターン/曜日設定など。</div>
+      </a>
+      <a href="clinicQualifications.html" class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">資格入力</a>
+      <a href="clinicTests.html" class="bg-white rounded shadow p-6 hover:shadow-lg transition">
+        <div class="text-lg font-semibold text-blue-800 mb-2">可能な検査入力</div>
+        <div class="text-sm text-gray-600">分類（〜検査）を選んで名称・説明を登録。マスターに自動集計。</div>
+      </a>
+      <a href="clinicServices.html" class="bg-white rounded shadow p-6 hover:shadow-lg transition">
+        <div class="text-lg font-semibold text-blue-800 mb-2">可能な診療入力</div>
+        <div class="text-sm text-gray-600">診療科系分類を選んで名称・説明を登録。マスターに自動集計。</div>
+      </a>
+    </div>
+  </main>
+
+  <!-- フッター -->
+  <footer class="bg-blue-600 text-white text-center py-4">
+    <p class="text-sm">© 2025 中野区医師会 - Nakano Clinic Database</p>
+  </footer>
+
+  <script>
+    function loadSelected() {
+      const s = localStorage.getItem('selectedClinic');
+      if (!s) return;
+      const c = JSON.parse(s);
+      document.getElementById('clinicName').textContent = c.name || '(名称未設定)';
+      document.getElementById('clinicId').textContent = "ID: " + (c.id || '-');
+      document.getElementById('clinicAddr').textContent = "住所: " + (c.address || '-');
+    }
+    loadSelected();
+  </script>
+</body>
+</html>

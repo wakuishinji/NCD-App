@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>診療入力 - NCD</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col">
+  <!-- Header -->
+  <header class="bg-blue-600 text-white shadow">
+    <div class="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <a href="index.html" class="bg-white/20 hover:bg-white/30 px-3 py-1 rounded">Top</a>
+        <a href="clinicHome.html" class="bg-white/20 hover:bg-white/30 px-3 py-1 rounded">Home</a>
+      </div>
+      <h1 class="text-lg font-bold">診療入力</h1>
+      <div class="text-sm opacity-90" id="clinicTitle"></div>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <main class="flex-1 max-w-4xl mx-auto p-4 md:p-6">
+    <div class="bg-white rounded shadow p-4 md:p-6 space-y-6">
+      <!-- 入力フォーム -->
+      <section class="space-y-3">
+        <h2 class="text-blue-800 font-semibold">診療の追加</h2>
+
+        <!-- 分類 -->
+        <div>
+          <label class="block text-sm text-gray-700 mb-1">分類</label>
+          <select id="svcCategory" class="w-full border rounded px-3 py-2"></select>
+        </div>
+
+        <!-- 既存マスター（承認済みのみ） -->
+        <div>
+          <label class="block text-sm text-gray-700 mb-1">既存マスターから選択（任意／承認済のみ）</label>
+          <select id="masterPickSvc" class="w-full border rounded px-3 py-2">
+            <option value="">（選択しない）</option>
+          </select>
+          <p class="text-xs text-gray-500 mt-1">※分類を選ぶと、この分類の承認済み診療が表示されます。選ぶと下の名称・説明に反映されます。</p>
+        </div>
+
+        <!-- 名称 -->
+        <div>
+          <label class="block text-sm text-gray-700 mb-1">診療名</label>
+          <input id="svcName" class="w-full border rounded px-3 py-2" placeholder="例: 不整脈外来"/>
+        </div>
+
+        <!-- 説明 -->
+        <div>
+          <label class="block text-sm text-gray-700 mb-1">説明</label>
+          <textarea id="svcDesc" rows="4" class="w-full border rounded px-3 py-2" placeholder="例: 診療目的や対象疾患、検査・治療の概要など"></textarea>
+          <div class="mt-2 flex items-center gap-2">
+            <button id="btnGenSvcDesc" class="bg-indigo-600 text-white px-3 py-2 rounded hover:bg-indigo-700">
+              AIで説明生成
+            </button>
+            <span id="svcHint" class="text-xs text-gray-500"></span>
+          </div>
+        </div>
+
+        <!-- 操作 -->
+        <div class="flex items-center gap-2">
+          <button id="btnSaveSvc" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">保存</button>
+          <button id="btnClearSvc" class="bg-gray-200 px-4 py-2 rounded hover:bg-gray-300">クリア</button>
+        </div>
+      </section>
+
+      <!-- 登録済み一覧 -->
+      <section>
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-blue-800 font-semibold">この診療所の診療（登録済）</h2>
+          <button id="btnReloadMineSvc" class="text-sm bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded">再読込</button>
+        </div>
+        <div id="myServices" class="divide-y bg-gray-50 border rounded"></div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="bg-blue-600 text-white text-center py-3">
+    <p class="text-xs">© 2025 中野区医師会 - Nakano Clinic Database</p>
+  </footer>
+
+<script>
+const BASE = "https://ncd-app.altry.workers.dev";
+
+let selectedClinic = null;
+function getClinicName(){ return selectedClinic?.name || ""; }
+
+function loadSelectedClinic(){
+  const s = localStorage.getItem("selectedClinic");
+  if (s) {
+    selectedClinic = JSON.parse(s);
+    document.getElementById("clinicTitle").textContent = selectedClinic.name || "";
+  } else {
+    document.getElementById("clinicTitle").textContent = "（未選択）";
+    alert("施設選択または新規登録後にお進みください。");
+  }
+}
+
+async function loadCategories(){
+  const r = await fetch(`${BASE}/api/listCategories?type=service`);
+  const d = await r.json();
+  const sel = document.getElementById("svcCategory");
+  sel.innerHTML = "";
+  const cats = (d.ok ? d.categories : []) || [];
+  if (cats.length === 0) {
+    sel.innerHTML = `<option value="">（分類なし）</option>`;
+  } else {
+    sel.innerHTML = cats.map(c=>`<option>${c}</option>`).join("");
+  }
+}
+
+async function loadApprovedMasterForCategory(){
+  const cat = document.getElementById("svcCategory").value;
+  const box = document.getElementById("masterPickSvc");
+  box.innerHTML = `<option value="">（選択しない）</option>`;
+
+  const url = new URL(`${BASE}/api/listMaster`);
+  url.searchParams.set("type","service");
+  url.searchParams.set("status","approved");
+  const r = await fetch(url.toString());
+  const d = await r.json();
+  const items = (d.ok ? d.items : []) || [];
+  const filtered = items.filter(it => it.category === cat);
+
+  filtered.forEach(it=>{
+    const label = `${it.name}${it.desc ? `（${it.desc}）` : (it.canonical_name ? `（別名:${it.canonical_name}）` : "")}`;
+    const opt = document.createElement("option");
+    opt.value = JSON.stringify({ name: it.name, desc: it.desc || "" });
+    opt.textContent = label;
+    box.appendChild(opt);
+  });
+}
+
+function onPickMaster(){
+  const v = document.getElementById("masterPickSvc").value;
+  if (!v) return;
+  try {
+    const obj = JSON.parse(v);
+    document.getElementById("svcName").value = obj.name || "";
+    if (obj.desc) document.getElementById("svcDesc").value = obj.desc;
+  } catch (_) {}
+}
+
+async function genDesc(){
+  const name = document.getElementById('svcName').value.trim();
+  const category = document.getElementById('svcCategory').value;
+  const descEl = document.getElementById('svcDesc');
+  const hintEl = document.getElementById('svcHint');
+  if(!name){ alert('診療名を入力してください'); return; }
+  hintEl.textContent='AI生成を試行中…';
+
+  let sys = "医療説明用のサンプルを作ってください";
+  try {
+    const rs = await fetch(`${BASE}/api/settings`);
+    const ds = await rs.json();
+    if (ds && ds.prompt_diagnosis) sys = ds.prompt_diagnosis;
+  } catch(_){}
+
+  try{
+    const r = await fetch(`${BASE}/api/generate`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        messages: [
+          { role:"system", content: sys },
+          { role:"user", content: `次の診療について、患者さん向けにやさしく100～150字で要点説明を書いてください。対象疾患や進め方、必要な検査があれば触れてください。\n分類: ${category}\n診療名: ${name}` }
+        ]
+      })
+    });
+    const d = await r.json();
+    const text = d?.choices?.[0]?.message?.content || d?.text || "";
+    if (text) {
+      descEl.value = text.trim();
+      hintEl.textContent='AIで説明生成しました';
+    } else {
+      hintEl.textContent='AI応答なし';
+    }
+  }catch(e){
+    hintEl.textContent='AI接続不可';
+  }
+}
+
+async function fetchCurrentClinic(){
+  const name = getClinicName();
+  if (!name) return null;
+  const r = await fetch(`${BASE}/api/listClinics`);
+  const d = await r.json();
+  const arr = (d.ok && d.clinics) ? d.clinics : [];
+  return arr.find(c => (c.name === name)) || null;
+}
+
+async function saveService(){
+  const clinicName = getClinicName();
+  if (!clinicName){ alert("施設が選択されていません"); return; }
+
+  const category = document.getElementById('svcCategory').value.trim();
+  const name = document.getElementById('svcName').value.trim();
+  const desc = document.getElementById('svcDesc').value.trim();
+  if (!category || !name){ alert("分類と診療名は必須です"); return; }
+
+  const cur = await fetchCurrentClinic();
+  const services = Array.isArray(cur?.services) ? [...cur.services] : [];
+  services.push({ category, name, desc });
+
+  const payload = {
+    name: clinicName,
+    ...(cur || { id: clinicName }),
+    services
+  };
+
+  const r = await fetch(`${BASE}/api/updateClinic`,{
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify(payload)
+  });
+  if (!r.ok) { alert("保存に失敗しました"); return; }
+
+  clearForm();
+  await loadMyServices();
+  alert("保存しました");
+}
+
+async function loadMyServices(){
+  const box = document.getElementById("myServices");
+  box.innerHTML = "";
+  const cur = await fetchCurrentClinic();
+  const services = Array.isArray(cur?.services) ? cur.services : [];
+  if (services.length === 0) {
+    box.innerHTML = `<div class="px-3 py-2 text-gray-500 text-sm">登録された診療はありません。</div>`;
+    return;
+  }
+  services.forEach((t,i)=>{
+    const row = document.createElement("div");
+    row.className = "px-3 py-2 flex items-start justify-between";
+    row.innerHTML = `
+      <div>
+        <div class="font-semibold">${t.category} / ${t.name}</div>
+        <div class="text-sm text-gray-600 whitespace-pre-wrap">${t.desc||""}</div>
+      </div>
+      <div class="text-sm text-gray-400">#${i+1}</div>
+    `;
+    box.appendChild(row);
+  });
+}
+
+function clearForm(){
+  document.getElementById('masterPickSvc').selectedIndex = 0;
+  document.getElementById('svcName').value = "";
+  document.getElementById('svcDesc').value = "";
+  document.getElementById('svcHint').textContent = "";
+}
+
+document.getElementById('btnGenSvcDesc').addEventListener('click', genDesc);
+document.getElementById('btnSaveSvc').addEventListener('click', saveService);
+document.getElementById('btnClearSvc').addEventListener('click', clearForm);
+document.getElementById('btnReloadMineSvc').addEventListener('click', loadMyServices);
+document.getElementById('svcCategory').addEventListener('change', loadApprovedMasterForCategory);
+document.getElementById('masterPickSvc').addEventListener('change', onPickMaster);
+
+(async function init(){
+  loadSelectedClinic();
+  await loadCategories();
+  await loadApprovedMasterForCategory();
+  await loadMyServices();
+})();
+</script>
+</body>
+</html>

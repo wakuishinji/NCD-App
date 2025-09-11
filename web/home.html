@@ -1,0 +1,34 @@
+﻿<div class="max-w-md mx-auto mt-8 bg-white p-6 rounded-lg shadow">
+  <h2 class="text-xl font-bold mb-4">新規診療所登録</h2>
+  <form id="clinic-form">
+    <label class="block mb-2 text-sm font-medium">診療所名称</label>
+    <input type="text" id="clinic-name" class="w-full p-2 border rounded" required>
+    <button type="submit" class="mt-4 px-4 py-2 bg-blue-600 text-white rounded">登録</button>
+  </form>
+  <p id="message" class="mt-4 text-red-600 hidden"></p>
+</div>
+
+<script>
+document.getElementById("clinic-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = document.getElementById("clinic-name").value.trim();
+
+  const res = await fetch("/api/registerClinic", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name })
+  });
+  const data = await res.json();
+
+  const msg = document.getElementById("message");
+  if (data.error) {
+    msg.textContent = data.error;
+    msg.classList.remove("hidden");
+  } else {
+    msg.textContent = "登録が完了しました！";
+    msg.classList.remove("hidden");
+    msg.classList.remove("text-red-600");
+    msg.classList.add("text-green-600");
+  }
+});
+</script>

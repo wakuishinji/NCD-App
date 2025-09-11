@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>中野区医師会 診療所データベース（段階的入力対応）</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css">
+    <style>
+        body { font-family: 'Hiragino Sans', 'Meiryo', sans-serif; }
+        .hidden { display: none !important; }
+        .clinic-card { transition: all 0.3s ease; }
+        .clinic-card:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.1); }
+        .input-section { background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); }
+         { body { font-size: 12px; } .no-print { display: none; } }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Header -->
+    <header class="bg-blue-600 text-white shadow-lg">
+        <div class="container mx-auto px-4 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <i class="fas fa-hospital text-2xl"></i>
+                    <h1 class="text-xl font-bold">中野区医師会 診療所データベース</h1>
+                </div>
+                <nav class="flex space-x-4">
+                    <button id="homeBtn" class="px-4 py-2 bg-blue-700 rounded hover:bg-blue-800 transition-colors">
+                        <i class="fas fa-home mr-2"></i>ホーム
+                    </button>
+                    <button id="adminBtn" class="px-4 py-2 bg-red-600 rounded hover:bg-red-700 transition-colors">
+                        <i class="fas fa-cog mr-2"></i>管理画面
+                    </button>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <div class="container mx-auto px-4 py-6">
+        <!-- Home Section -->
+        <section id="homeSection" class="space-y-6">
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4 text-center">
+                    <i class="fas fa-clipboard-list text-blue-600 mr-3"></i>診療所情報登録システム
+                </h2>
+                <p class="text-gray-600 text-center mb-8">段階的に情報を入力していただけます。途中で中断しても、後で続きから入力可能です。</p>
+                
+                <div class="grid md:grid-cols-2 gap-6">
+                    <div class="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-6 border border-green-200">
+                        <div class="text-center">
+                            <i class="fas fa-plus-circle text-4xl text-green-600 mb-4"></i>
+                            <h3 class="text-xl font-semibold text-green-800 mb-3">新規診療所登録</h3>
+                            <p class="text-green-700 mb-4">初回登録の方はこちらから診療所名を登録して開始してください</p>
+                            <button id="newClinicBtn" class="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors font-semibold">
+                                <i class="fas fa-hospital mr-2"></i>新規登録開始
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-6 border border-blue-200">
+                        <div class="text-center">
+                            <i class="fas fa-search text-4xl text-blue-600 mb-4"></i>
+                            <h3 class="text-xl font-semibold text-blue-800 mb-3">自施設を選択</h3>
+                            <p class="text-blue-700 mb-4">以前に登録済みの施設を選択して入力を続けてください</p>
+                            <button id="selectClinicBtn" class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold">
+                                <i class="fas fa-list mr-2"></i>施設選択
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Clinic Selection Section -->
+            <div id="clinicSelectionSection" class="bg-white rounded-lg shadow-md p-6 hidden">
+                <h3 class="text-xl font-bold text-gray-800 mb-4">
+                    <i class="fas fa-building text-blue-600 mr-2"></i>登録済み診療所一覧
+                </h3>
+                <div id="clinicList" class="grid gap-4"></div>
+                <button id="backToHomeBtn" class="mt-4 bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 transition-colors">
+                    <i class="fas fa-arrow-left mr-2"></i>戻る
+                </button>
+            </div>
+
+            <!-- Statistics Display -->
+            <div id="statsSection" class="bg-white rounded-lg shadow-md p-6">
+                <h3 class="text-xl font-bold text-gray-800 mb-4">
+                    <i class="fas fa-chart-bar text-green-600 mr-2"></i>登録状況
+                </h3>
+                <div class="grid md:grid-cols-3 gap-4">
+                    <div class="bg-blue-50 rounded-lg p-4 text-center">
+                        <i class="fas fa-hospital text-2xl text-blue-600 mb-2"></i>
+                        <div class="text-2xl font-bold text-blue-600" id="totalClinics">0</div>
+                        <div class="text-sm text-blue-800">登録診療所数</div>
+                    </div>
+                    <div class="bg-green-50 rounded-lg p-4 text-center">
+                        <i class="fas fa-flask text-2xl text-green-600 mb-2"></i>
+                        <div class="text-2xl font-bold text-green-600" id="totalTests">0</div>
+                        <div class="text-sm text-green-800">検査項目総数</div>
+                    </div>
+                    <div class="bg-purple-50 rounded-lg p-4 text-center">
+                        <i class="fas fa-stethoscope text-2xl text-purple-600 mb-2"></i>
+                        <div class="text-2xl font-bold text-purple-600" id="totalDepartments">0</div>
+                        <div class="text-sm text-purple-800">診療科目総数</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- New Clinic Registration Section -->
+        <section id="newClinicSection" class="hidden space-y-6">
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6">
+                    <i class="fas fa-plus-circle text-green-600 mr-3"></i>新規診療所登録
+                </h2>
+                
+                <form id="newClinicForm" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">診療所名 <span class="text-red-500">*</span></label>
+                        <input type="text" id="newClinicName" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                    </div>
+                    
+                    <div class="flex space-x-4">
+                        <button type="submit" class="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700 transition-colors">
+                            <i class="fas fa-save mr-2"></i>診療所を登録して入力開始
+                        </button>
+                        <button type="button" id="cancelNewClinicBtn" class="bg-gray-500 text-white px-6 py-2 rounded hover:bg-gray-600 transition-colors">
+                            <i class="fas fa-times mr-2"></i>キャンセル
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <!-- Clinic Input Section -->
+        <section id="clinicInputSection" class="hidden space-y-6">
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-2xl font-bold text-gray-800">
+                        <i class="fas fa-edit text-blue-600 mr-3"></i>診療所情報入力: <span id="currentClinicName" class="text-blue-600"></span>
+                    </h2>
+                    <button id="saveAndExitBtn" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 transition-colors">
+                        <i class="fas fa-save mr-2"></i>保存して終了
+                    </button>
+                </div>
+
+                <!-- Progress Indicator -->
+                <div class="mb-6">
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm font-medium text-blue-600">入力進捗</span>
+                        <span class="text-sm font-medium text-blue-600" id="progressText">0%</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2 mt-2">
+                        <div class="bg-blue-600 h-2 rounded-full transition-all duration-300" id="progressBar" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <!-- Tab Navigation -->
+                <div class="border-b border-gray-200 mb-6">
+                    <nav class="flex space-x-8">
+                        <button id="basicInfoTab" class="py-2 px-1 border-b-2 border-blue-500 font-medium text-sm text-blue-600">
+                            <i class="fas fa-info-circle mr-2"></i>基本情報
+                        </button>
+                        <button id="testsTab" class="py-2 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700">
+                            <i class="fas fa-flask mr-2"></i>検査項目
+                        </button>
+                        <button id="departmentsTab" class="py-2 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700">
+                            <i class="fas fa-stethoscope mr-2"></i>診療科目
+                        </button>
+                    </nav>
+                </div>
+
+                <!-- Basic Info Tab -->
+                <div id="basicInfoContent" class="space-y-4">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-4">基本情報</h3>
+                    <form id="basicInfoForm" class="grid md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">診療所名</label>
+                            <input type="text" id="clinicName" class="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100" readonly>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">院長名</label>
+                            <input type="text" id="directorName" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div class="md:col-span-2">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">住所</label>
+                            <input type="text" id="address" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">電話番号</label>
+                            <input type="tel" id="phone" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">FAX番号</label>
+                            <input type="tel" id="fax" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div class="md:col-span-2">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">メールアドレス</label>
+                            <input type="email" id="email" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">診療時間</label>
+                            <textarea id="businessHours" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="例：月〜金 9:00-17:00"></textarea>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">休診日</label>
+                            <textarea id="closedDays" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="例：土日祝日"></textarea>
+                        </div>
+                    </form>
+                    <button id="saveBasicInfoBtn" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition-colors">
+                        <i class="fas fa-save mr-2"></i>基本情報を保存
+                    </button>
+                </div>
+
+                <!-- Tests Tab -->
+                <div id="testsContent" class="hidden space-y-4">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-lg font-semibold text-gray-800">実施可能な検査項目</h3>
+                        <button id="addTestBtn" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition-colors">
+                            <i class="fas fa-plus mr-2"></i>検査項目追加
+                        </button>
+                    </div>
+                    
+                    <div id="testForm" class="hidden bg-gray-50 p-4 rounded-lg">
+                        <div class="grid md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">検査名</label>
+                                <input type="text" id="testName" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">検査分類</label>
+                                <select id="testCategory" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <option value="">選択してください</option>
+                                    <option value="血液検査">血液検査</option>
+                                    <option value="尿検査">尿検査</option>
+                                    <option value="画像診断">画像診断</option>
+                                    <option value="心電図">心電図</option>
+                                    <option value="その他">その他</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="mt-4 flex space-x-2">
+                            <button id="saveTestBtn" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition-colors">
+                                <i class="fas fa-save mr-2"></i>保存
+                            </button>
+                            <button id="cancelTestBtn" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 transition-colors">
+                                <i class="fas fa-times mr-2"></i>キャンセル
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div id="testsList" class="space-y-2"></div>
+                </div>
+
+                <!-- Departments Tab -->
+                <div id="departmentsContent" class="hidden space-y-4">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-lg font-semibold text-gray-800">対応可能な診療科目</h3>
+                        <button id="addDepartmentBtn" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition-colors">
+                            <i class="fas fa-plus mr-2"></i>診療科目追加
+                        </button>
+                    </div>
+                    
+                    <div id="departmentForm" class="hidden bg-gray-50 p-4 rounded-lg">
+                        <div class="grid md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">診療科名</label>
+                                <select id="departmentName" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <option value="">選択してください</option>
+                                    <option value="内科">内科</option>
+                                    <option value="外科">外科</option>
+                                    <option value="整形外科">整形外科</option>
+                                    <option value="皮膚科">皮膚科</option>
+                                    <option value="眼科">眼科</option>
+                                    <option value="耳鼻咽喉科">耳鼻咽喉科</option>
+                                    <option value="小児科">小児科</option>
+                                    <option value="産婦人科">産婦人科</option>
+                                    <option value="精神科">精神科</option>
+                                    <option value="循環器科">循環器科</option>
+                                    <option value="消化器科">消化器科</option>
+                                    <option value="呼吸器科">呼吸器科</option>
+                                    <option value="泌尿器科">泌尿器科</option>
+                                    <option value="神経内科">神経内科</option>
+                                    <option value="その他">その他</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">専門医資格</label>
+                                <input type="text" id="specialistInfo" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="例：循環器専門医">
+                            </div>
+                        </div>
+                        <div class="mt-4 flex space-x-2">
+                            <button id="saveDepartmentBtn" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition-colors">
+                                <i class="fas fa-save mr-2"></i>保存
+                            </button>
+                            <button id="cancelDepartmentBtn" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 transition-colors">
+                                <i class="fas fa-times mr-2"></i>キャンセル
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div id="departmentsList" class="space-y-2"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Admin Section -->
+        <section id="adminSection" class="hidden space-y-6">
+            <!-- Admin Login -->
+            <div id="adminLogin" class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">
+                    <i class="fas fa-lock text-red-600 mr-3"></i>管理画面ログイン
+                </h2>
+                <form id="adminLoginForm" class="max-w-md mx-auto">
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">管理者パスワード</label>
+                        <input type="password" id="adminPassword" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500" required>
+                    </div>
+                    <button type="submit" class="w-full bg-red-600 text-white py-2 rounded hover:bg-red-700 transition-colors">
+                        <i class="fas fa-sign-in-alt mr-2"></i>ログイン
+                    </button>
+                </form>
+            </div>
+
+            <!-- Admin Panel -->
+            <div id="adminPanel" class="hidden space-y-6">
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-2xl font-bold text-gray-800">
+                            <i class="fas fa-cogs text-red-600 mr-3"></i>管理画面
+                        </h2>
+                        <button id="adminLogoutBtn" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 transition-colors">
+                            <i class="fas fa-sign-out-alt mr-2"></i>ログアウト
+                        </button>
+                    </div>
+
+                    <!-- Admin Stats -->
+                    <div class="grid md:grid-cols-4 gap-4 mb-6">
+                        <div class="bg-blue-50 rounded-lg p-4 text-center">
+                            <i class="fas fa-hospital text-2xl text-blue-600 mb-2"></i>
+                            <div class="text-2xl font-bold text-blue-600" id="adminTotalClinics">0</div>
+                            <div class="text-sm text-blue-800">登録診療所</div>
+                        </div>
+                        <div class="bg-green-50 rounded-lg p-4 text-center">
+                            <i class="fas fa-flask text-2xl text-green-600 mb-2"></i>
+                            <div class="text-2xl font-bold text-green-600" id="adminTotalTests">0</div>
+                            <div class="text-sm text-green-800">検査項目</div>
+                        </div>
+                        <div class="bg-purple-50 rounded-lg p-4 text-center">
+                            <i class="fas fa-stethoscope text-2xl text-purple-600 mb-2"></i>
+                            <div class="text-2xl font-bold text-purple-600" id="adminTotalDepartments">0</div>
+                            <div class="text-sm text-purple-800">診療科目</div>
+                        </div>
+                        <div class="bg-yellow-50 rounded-lg p-4 text-center">
+                            <i class="fas fa-percentage text-2xl text-yellow-600 mb-2"></i>
+                            <div class="text-2xl font-bold text-yellow-600" id="completionRate">0%</div>
+                            <div class="text-sm text-yellow-800">完了率</div>
+                        </div>
+                    </div>
+
+                    <!-- Admin Actions -->
+                    <div class="grid md:grid-cols-2 gap-4 mb-6">
+                        <button id="csvExportBtn" class="bg-green-600 text-white p-4 rounded-lg hover:bg-green-700 transition-colors">
+                            <i class="fas fa-download text-2xl mb-2"></i>
+                            <div class="font-semibold">CSVエクスポート</div>
+                            <div class="text-sm opacity-90">全データをCSV形式で出力</div>
+                        </button>
+                        <button id="dataBackupBtn" class="bg-blue-600 text-white p-4 rounded-lg hover:bg-blue-700 transition-colors">
+                            <i class="fas fa-database text-2xl mb-2"></i>
+                            <div class="font-semibold">データバックアップ</div>
+                            <div class="text-sm opacity-90">JSON形式でバックアップ</div>
+                        </button>
+                    </div>
+
+                    <!-- Data Management -->
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <h3 class="text-lg font-semibold text-gray-800 mb-4">
+                            <i class="fas fa-list text-gray-600 mr-2"></i>登録データ一覧
+                        </h3>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm">
+                                <thead class="bg-gray-200">
+                                    <tr>
+                                        <th class="px-4 py-2 text-left">診療所名</th>
+                                        <th class="px-4 py-2 text-left">院長名</th>
+                                        <th class="px-4 py-2 text-left">電話番号</th>
+                                        <th class="px-4 py-2 text-left">検査項目数</th>
+                                        <th class="px-4 py-2 text-left">診療科目数</th>
+                                        <th class="px-4 py-2 text-left">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="adminDataTable" class="divide-y divide-gray-200">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Success/Error Messages -->
+    <div id="messageContainer" class="fixed top-4 right-4 z-50"></div>
+
+    <script>
+        // Data Storage Class
+        class DataStorage {
+            constructor() {
+                this.storageKey = 'nakano_medical_db';
+                this.currentClinicId = null;
+            }
+
+            getData() {
+                const data = localStorage.getItem(this.storageKey);
+                return data ? JSON.parse(data) : { clinics: {} };
+            }
+
+            saveData(data) {
+                localStorage.setItem(this.storageKey, JSON.stringify(data));
+            }
+
+            addClinic(name) {
+                const data = this.getData();
+                const id = Date.now().toString();
+                data.clinics[id] = {
+                    id: id,
+                    name: name,
+                    basicInfo: { name: name },
+                    tests: [],
+                    departments: [],
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString()
+                };
+                this.saveData(data);
+                return id;
+            }
+
+            updateClinic(clinicId, updates) {
+                const data = this.getData();
+                if (data.clinics[clinicId]) {
+                    data.clinics[clinicId] = { ...data.clinics[clinicId], ...updates };
+                    data.clinics[clinicId].updatedAt = new Date().toISOString();
+                    this.saveData(data);
+                }
+            }
+
+            getClinic(clinicId) {
+                const data = this.getData();
+                return data.clinics[clinicId] || null;
+            }
+
+            getAllClinics() {
+                const data = this.getData();
+                return Object.values(data.clinics);
+            }
+
+            deleteClinic(clinicId) {
+                const data = this.getData();
+                delete data.clinics[clinicId];
+                this.saveData(data);
+            }
+        }
+
+        // UI Manager Class
+        class UIManager {
+            constructor() {
+                this.storage = new DataStorage();
+                this.currentSection = 'home';
+                this.currentClinicId = null;
+                this.currentTab = 'basicInfo';
+                this.editingTestId = null;
+                this.editingDepartmentId = null;
+                this.isAdminLoggedIn = false;
+                this.initializeEventListeners();
+                this.showSection('home');
+                this.updateStats();
+            }
+
+            initializeEventListeners() {
+                // Navigation
+                document.getElementById('homeBtn').addEventListener('click', () => this.showSection('home'));
+                document.getElementById('adminBtn').addEventListener('click', () => this.showSection('admin'));
+
+                // Home section
+                document.getElementById('newClinicBtn').addEventListener('click', () => this.showSection('newClinic'));
+                document.getElementById('selectClinicBtn').addEventListener('click', () => this.showClinicSelection());
+
+                // New clinic
+                document.getElementById('newClinicForm').addEventListener('submit', (e) => this.handleNewClinicSubmit(e));
+                document.getElementById('cancelNewClinicBtn').addEventListener('click', () => this.showSection('home'));
+
+                // Clinic selection
+                document.getElementById('backToHomeBtn').addEventListener('click', () => this.showSection('home'));
+
+                // Clinic input
+                document.getElementById('saveAndExitBtn').addEventListener('click', () => this.saveAndExit());
+                document.getElementById('basicInfoTab').addEventListener('click', () => this.showTab('basicInfo'));
+                document.getElementById('testsTab').addEventListener('click', () => this.showTab('tests'));
+                document.getElementById('departmentsTab').addEventListener('click', () => this.showTab('departments'));
+
+                // Basic info
+                document.getElementById('saveBasicInfoBtn').addEventListener('click', () => this.saveBasicInfo());
+
+                // Tests
+                document.getElementById('addTestBtn').addEventListener('click', () => this.showTestForm());
+                document.getElementById('saveTestBtn').addEventListener('click', () => this.saveTest());
+                document.getElementById('cancelTestBtn').addEventListener('click', () => this.hideTestForm());
+
+                // Departments
+                document.getElementById('addDepartmentBtn').addEventListener('click', () => this.showDepartmentForm());
+                document.getElementById('saveDepartmentBtn').addEventListener('click', () => this.saveDepartment());
+                document.getElementById('cancelDepartmentBtn').addEventListener('click', () => this.hideDepartmentForm());
+
+                // Admin
+                document.getElementById('adminLoginForm').addEventListener('submit', (e) => this.handleAdminLogin(e));
+                document.getElementById('adminLogoutBtn').addEventListener('click', () => this.adminLogout());
+                document.getElementById('csvExportBtn').addEventListener('click', () => this.exportCSV());
+                document.getElementById('dataBackupBtn').addEventListener('click', () => this.exportJSON());
+            }
+
+            showSection(section) {
+                // Hide all sections
+                document.querySelectorAll('section').forEach(s => s.classList.add('hidden'));
+                
+                // Show selected section
+                document.getElementById(section + 'Section').classList.remove('hidden');
+                this.currentSection = section;
+
+                if (section === 'home') {
+                    this.updateStats();
+                } else if (section === 'admin') {
+                    this.showAdminSection();
+                }
+            }
+
+            showClinicSelection() {
+                const clinics = this.storage.getAllClinics();
+                const clinicList = document.getElementById('clinicList');
+                
+                if (clinics.length === 0) {
+                    clinicList.innerHTML = '<p class="text-gray-500 text-center py-8">登録済みの診療所がありません</p>';
+                } else {
+                    clinicList.innerHTML = clinics.map(clinic => `
+                        <div class="clinic-card bg-white border border-gray-200 rounded-lg p-4 cursor-pointer hover:shadow-md" onclick="uiManager.selectClinic('${clinic.id}')">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h4 class="font-semibold text-gray-800">${clinic.name}</h4>
+                                    <p class="text-sm text-gray-600">最終更新: ${new Date(clinic.updatedAt).toLocaleDateString('ja-JP')}</p>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-sm text-gray-500">進捗: ${this.calculateProgress(clinic)}%</div>
+                                    <i class="fas fa-arrow-right text-blue-600"></i>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+                
+                document.getElementById('clinicSelectionSection').classList.remove('hidden');
+            }
+
+            selectClinic(clinicId) {
+                this.currentClinicId = clinicId;
+                const clinic = this.storage.getClinic(clinicId);
+                document.getElementById('currentClinicName').textContent = clinic.name;
+                this.loadClinicData(clinic);
+                this.showSection('clinicInput');
+                this.showTab('basicInfo');
+            }
+
+            handleNewClinicSubmit(e) {
+                e.preventDefault();
+                const name = document.getElementById('newClinicName').value.trim();
+                if (name) {
+                    const clinicId = this.storage.addClinic(name);
+                    this.selectClinic(clinicId);
+                    this.showMessage('新しい診療所を登録しました', 'success');
+                }
+            }
+
+            loadClinicData(clinic) {
+                // Load basic info
+                Object.keys(clinic.basicInfo).forEach(key => {
+                    const element = document.getElementById(key);
+                    if (element) {
+                        element.value = clinic.basicInfo[key] || '';
+                    }
+                });
+
+                // Load tests and departments
+                this.renderTests(clinic.tests);
+                this.renderDepartments(clinic.departments);
+                this.updateProgress();
+            }
+
+            showTab(tab) {
+                // Update tab buttons
+                document.querySelectorAll('[id$="Tab"]').forEach(btn => {
+                    btn.classList.remove('border-blue-500', 'text-blue-600');
+                    btn.classList.add('border-transparent', 'text-gray-500');
+                });
+                document.getElementById(tab + 'Tab').classList.add('border-blue-500', 'text-blue-600');
+                document.getElementById(tab + 'Tab').classList.remove('border-transparent', 'text-gray-500');
+
+                // Show content
+                document.querySelectorAll('[id$="Content"]').forEach(content => content.classList.add('hidden'));
+                document.getElementById(tab + 'Content').classList.remove('hidden');
+                this.currentTab = tab;
+            }
+
+            saveBasicInfo() {
+                const formData = {};
+                const form = document.getElementById('basicInfoForm');
+                const inputs = form.querySelectorAll('input, textarea');
+                
+                inputs.forEach(input => {
+                    formData[input.id] = input.value;
+                });
+
+                this.storage.updateClinic(this.currentClinicId, { basicInfo: formData });
+                this.updateProgress();
+                this.showMessage('基本情報を保存しました', 'success');
+            }
+
+            showTestForm() {
+                document.getElementById('testForm').classList.remove('hidden');
+                document.getElementById('testName').value = '';
+                document.getElementById('testCategory').value = '';
+                this.editingTestId = null;
+            }
+
+            hideTestForm() {
+                document.getElementById('testForm').classList.add('hidden');
+                this.editingTestId = null;
+            }
+
+            saveTest() {
+                const name = document.getElementById('testName').value.trim();
+                const category = document.getElementById('testCategory').value;
+
+                if (!name || !category) {
+                    this.showMessage('検査名と分類を入力してください', 'error');
+                    return;
+                }
+
+                const clinic = this.storage.getClinic(this.currentClinicId);
+                const test = {
+                    id: this.editingTestId || Date.now().toString(),
+                    name: name,
+                    category: category
+                };
+
+                if (this.editingTestId) {
+                    const index = clinic.tests.findIndex(t => t.id === this.editingTestId);
+                    clinic.tests[index] = test;
+                } else {
+                    clinic.tests.push(test);
+                }
+
+                this.storage.updateClinic(this.currentClinicId, clinic);
+                this.renderTests(clinic.tests);
+                this.hideTestForm();
+                this.updateProgress();
+                this.showMessage('検査項目を保存しました', 'success');
+            }
+
+            renderTests(tests) {
+                const container = document.getElementById('testsList');
+                container.innerHTML = tests.map(test => `
+                    <div class="flex items-center justify-between bg-white border border-gray-200 rounded-lg p-3">
+                        <div>
+                            <span class="font-medium">${test.name}</span>
+                            <span class="text-sm text-gray-500 ml-2">(${test.category})</span>
+                        </div>
+                        <div class="flex space-x-2">
+                            <button onclick="uiManager.editTest('${test.id}')" class="text-blue-600 hover:text-blue-800">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button onclick="uiManager.deleteTest('${test.id}')" class="text-red-600 hover:text-red-800">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            editTest(testId) {
+                const clinic = this.storage.getClinic(this.currentClinicId);
+                const test = clinic.tests.find(t => t.id === testId);
+                if (test) {
+                    document.getElementById('testName').value = test.name;
+                    document.getElementById('testCategory').value = test.category;
+                    this.editingTestId = testId;
+                    this.showTestForm();
+                }
+            }
+
+            deleteTest(testId) {
+                if (confirm('この検査項目を削除しますか？')) {
+                    const clinic = this.storage.getClinic(this.currentClinicId);
+                    clinic.tests = clinic.tests.filter(t => t.id !== testId);
+                    this.storage.updateClinic(this.currentClinicId, clinic);
+                    this.renderTests(clinic.tests);
+                    this.updateProgress();
+                    this.showMessage('検査項目を削除しました', 'success');
+                }
+            }
+
+            showDepartmentForm() {
+                document.getElementById('departmentForm').classList.remove('hidden');
+                document.getElementById('departmentName').value = '';
+                document.getElementById('specialistInfo').value = '';
+                this.editingDepartmentId = null;
+            }
+
+            hideDepartmentForm() {
+                document.getElementById('departmentForm').classList.add('hidden');
+                this.editingDepartmentId = null;
+            }
+
+            saveDepartment() {
+                const name = document.getElementById('departmentName').value;
+                const specialistInfo = document.getElementById('specialistInfo').value.trim();
+
+                if (!name) {
+                    this.showMessage('診療科名を選択してください', 'error');
+                    return;
+                }
+
+                const clinic = this.storage.getClinic(this.currentClinicId);
+                const department = {
+                    id: this.editingDepartmentId || Date.now().toString(),
+                    name: name,
+                    specialistInfo: specialistInfo
+                };
+
+                if (this.editingDepartmentId) {
+                    const index = clinic.departments.findIndex(d => d.id === this.editingDepartmentId);
+                    clinic.departments[index] = department;
+                } else {
+                    clinic.departments.push(department);
+                }
+
+                this.storage.updateClinic(this.currentClinicId, clinic);
+                this.renderDepartments(clinic.departments);
+                this.hideDepartmentForm();
+                this.updateProgress();
+                this.showMessage('診療科目を保存しました', 'success');
+            }
+
+            renderDepartments(departments) {
+                const container = document.getElementById('departmentsList');
+                container.innerHTML = departments.map(dept => `
+                    <div class="flex items-center justify-between bg-white border border-gray-200 rounded-lg p-3">
+                        <div>
+                            <span class="font-medium">${dept.name}</span>
+                            ${dept.specialistInfo ? `<span class="text-sm text-gray-500 ml-2">(${dept.specialistInfo})</span>` : ''}
+                        </div>
+                        <div class="flex space-x-2">
+                            <button onclick="uiManager.editDepartment('${dept.id}')" class="text-blue-600 hover:text-blue-800">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button onclick="uiManager.deleteDepartment('${dept.id}')" class="text-red-600 hover:text-red-800">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            editDepartment(deptId) {
+                const clinic = this.storage.getClinic(this.currentClinicId);
+                const dept = clinic.departments.find(d => d.id === deptId);
+                if (dept) {
+                    document.getElementById('departmentName').value = dept.name;
+                    document.getElementById('specialistInfo').value = dept.specialistInfo || '';
+                    this.editingDepartmentId = deptId;
+                    this.showDepartmentForm();
+                }
+            }
+
+            deleteDepartment(deptId) {
+                if (confirm('この診療科目を削除しますか？')) {
+                    const clinic = this.storage.getClinic(this.currentClinicId);
+                    clinic.departments = clinic.departments.filter(d => d.id !== deptId);
+                    this.storage.updateClinic(this.currentClinicId, clinic);
+                    this.renderDepartments(clinic.departments);
+                    this.updateProgress();
+                    this.showMessage('診療科目を削除しました', 'success');
+                }
+            }
+
+            calculateProgress(clinic) {
+                let completed = 0;
+                const total = 8; // Total fields to check
+
+                // Check basic info completeness
+                const requiredFields = ['name', 'directorName', 'address', 'phone', 'email'];
+                requiredFields.forEach(field => {
+                    if (clinic.basicInfo[field]) completed++;
+                });
+
+                // Check if has tests and departments
+                if (clinic.tests && clinic.tests.length > 0) completed++;
+                if (clinic.departments && clinic.departments.length > 0) completed++;
+                if (clinic.basicInfo.businessHours) completed++;
+
+                return Math.round((completed / total) * 100);
+            }
+
+            updateProgress() {
+                if (this.currentClinicId) {
+                    const clinic = this.storage.getClinic(this.currentClinicId);
+                    const progress = this.calculateProgress(clinic);
+                    document.getElementById('progressBar').style.width = progress + '%';
+                    document.getElementById('progressText').textContent = progress + '%';
+                }
+            }
+
+            saveAndExit() {
+                this.showMessage('データを保存しました', 'success');
+                setTimeout(() => this.showSection('home'), 1000);
+            }
+
+            updateStats() {
+                const clinics = this.storage.getAllClinics();
+                const totalTests = clinics.reduce((sum, clinic) => sum + (clinic.tests ? clinic.tests.length : 0), 0);
+                const totalDepartments = clinics.reduce((sum, clinic) => sum + (clinic.departments ? clinic.departments.length : 0), 0);
+
+                document.getElementById('totalClinics').textContent = clinics.length;
+                document.getElementById('totalTests').textContent = totalTests;
+                document.getElementById('totalDepartments').textContent = totalDepartments;
+            }
+
+            // Admin functions
+            showAdminSection() {
+                if (this.isAdminLoggedIn) {
+                    document.getElementById('adminLogin').classList.add('hidden');
+                    document.getElementById('adminPanel').classList.remove('hidden');
+                    this.updateAdminStats();
+                    this.renderAdminDataTable();
+                } else {
+                    document.getElementById('adminLogin').classList.remove('hidden');
+                    document.getElementById('adminPanel').classList.add('hidden');
+                }
+            }
+
+            handleAdminLogin(e) {
+                e.preventDefault();
+                const password = document.getElementById('adminPassword').value;
+                if (password === 'nakano2025') {
+                    this.isAdminLoggedIn = true;
+                    this.showAdminSection();
+                    this.showMessage('管理画面にログインしました', 'success');
+                } else {
+                    this.showMessage('パスワードが正しくありません', 'error');
+                }
+            }
+
+            adminLogout() {
+                this.isAdminLoggedIn = false;
+                document.getElementById('adminPassword').value = '';
+                this.showAdminSection();
+                this.showMessage('ログアウトしました', 'success');
+            }
+
+            updateAdminStats() {
+                const clinics = this.storage.getAllClinics();
+                const totalTests = clinics.reduce((sum, clinic) => sum + (clinic.tests ? clinic.tests.length : 0), 0);
+                const totalDepartments = clinics.reduce((sum, clinic) => sum + (clinic.departments ? clinic.departments.length : 0), 0);
+                const avgCompletion = clinics.length > 0 ? clinics.reduce((sum, clinic) => sum + this.calculateProgress(clinic), 0) / clinics.length : 0;
+
+                document.getElementById('adminTotalClinics').textContent = clinics.length;
+                document.getElementById('adminTotalTests').textContent = totalTests;
+                document.getElementById('adminTotalDepartments').textContent = totalDepartments;
+                document.getElementById('completionRate').textContent = Math.round(avgCompletion) + '%';
+            }
+
+            renderAdminDataTable() {
+                const clinics = this.storage.getAllClinics();
+                const tbody = document.getElementById('adminDataTable');
+                
+                tbody.innerHTML = clinics.map(clinic => `
+                    <tr>
+                        <td class="px-4 py-2">${clinic.name}</td>
+                        <td class="px-4 py-2">${clinic.basicInfo.directorName || '-'}</td>
+                        <td class="px-4 py-2">${clinic.basicInfo.phone || '-'}</td>
+                        <td class="px-4 py-2">${clinic.tests ? clinic.tests.length : 0}</td>
+                        <td class="px-4 py-2">${clinic.departments ? clinic.departments.length : 0}</td>
+                        <td class="px-4 py-2">
+                            <button onclick="uiManager.deleteClinicAdmin('${clinic.id}')" class="text-red-600 hover:text-red-800">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `).join('');
+            }
+
+            deleteClinicAdmin(clinicId) {
+                if (confirm('この診療所のデータを完全に削除しますか？')) {
+                    this.storage.deleteClinic(clinicId);
+                    this.updateAdminStats();
+                    this.renderAdminDataTable();
+                    this.updateStats();
+                    this.showMessage('診療所データを削除しました', 'success');
+                }
+            }
+
+            exportCSV() {
+                const clinics = this.storage.getAllClinics();
+                let csv = '診療所名,院長名,住所,電話番号,FAX,メール,診療時間,休診日,対応診療科,実施可能検査,登録日\n';
+                
+                clinics.forEach(clinic => {
+                    const departments = clinic.departments ? clinic.departments.map(d => d.name).join('・') : '';
+                    const tests = clinic.tests ? clinic.tests.map(t => t.name).join('・') : '';
+                    const row = [
+                        clinic.basicInfo.name || '',
+                        clinic.basicInfo.directorName || '',
+                        clinic.basicInfo.address || '',
+                        clinic.basicInfo.phone || '',
+                        clinic.basicInfo.fax || '',
+                        clinic.basicInfo.email || '',
+                        clinic.basicInfo.businessHours || '',
+                        clinic.basicInfo.closedDays || '',
+                        departments,
+                        tests,
+                        new Date(clinic.createdAt).toLocaleDateString('ja-JP')
+                    ].map(field => `"${String(field).replace(/"/g, '""')}"`).join(',');
+                    csv += row + '\n';
+                });
+
+                this.downloadFile(csv, `診療所データ_${new Date().toISOString().split('T')[0]}.csv`, 'text/csv;charset=utf-8;');
+                this.showMessage('CSVファイルをダウンロードしました', 'success');
+            }
+
+            exportJSON() {
+                const data = this.storage.getData();
+                const json = JSON.stringify(data, null, 2);
+                this.downloadFile(json, `診療所データバックアップ_${new Date().toISOString().split('T')[0]}.json`, 'application/json;charset=utf-8;');
+                this.showMessage('バックアップファイルをダウンロードしました', 'success');
+            }
+
+            downloadFile(content, filename, contentType) {
+                const blob = new Blob([content], { type: contentType });
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = filename;
+                link.click();
+                window.URL.revokeObjectURL(url);
+            }
+
+            showMessage(message, type = 'success') {
+                const container = document.getElementById('messageContainer');
+                const messageEl = document.createElement('div');
+                messageEl.className = `px-4 py-2 rounded-lg text-white mb-2 ${type === 'success' ? 'bg-green-600' : 'bg-red-600'}`;
+                messageEl.textContent = message;
+                container.appendChild(messageEl);
+                
+                setTimeout(() => {
+                    container.removeChild(messageEl);
+                }, 3000);
+            }
+        }
+
+        // Initialize the application
+        const uiManager = new UIManager();
+    </script>
+</body>
+</html>
+    <script id="html_badge_script1">
+        window.__genspark_remove_badge_link = "https://www.genspark.ai/api/html_badge/" +
+            "remove_badge?token=To%2FBnjzloZ3UfQdcSaYfDtE1j%2FBHywe%2BcYu%2F7WskzMHzvSj4J8SluMicDCSUAoU7q9%2FbV9B1U5yw36GgbcBCrYFkpqbLDCVkH9JucA61ueLqmw6Jib7Ak78i2LddfVsFwQ4df%2FJFk9Oj6wDgDWkf7hWZzsPWgSXs7jladnpS2ggxreY4BUoV84OlSFrUTE7ZIr4KsmQ4YOhvA5DV2Gkp%2B9MhSN8He5BW%2BmmWpzp543Yy3u%2FggWR13wnCLRl7BU%2Bqvry8t8vHnUA0GQN8shH22MNFFRN9h9N9bJ%2BCbAyh%2B6D2LNkmEOZ6FwRpio%2Bfr6rAR31QsygfII%2FTnm4SVb1C0NZVcV9HCbGKylW%2FB4FEtjDlHlClSC37Pv%2FgvsBMDeOqecxCcUlH%2BBLZ1T%2Bh2qiGgdRiT%2BwL8a8oD4Kc%2BgmV4Pwv7%2BSu4TCiwpRu%2BwoQ4PihqgkN1cONEWcCQzBXsnCKHXkUbakQbH45tglH4kc1pRL26H6vbOfY91DNRkod4efskk%2BnxUKslrrNYWCqLMv1tIVmEkuvMUqUB%2Bi6HBAjhX8%3D";
+        window.__genspark_locale = "ja-JP";
+        window.__genspark_token = "To/BnjzloZ3UfQdcSaYfDtE1j/BHywe+cYu/7WskzMHzvSj4J8SluMicDCSUAoU7q9/bV9B1U5yw36GgbcBCrYFkpqbLDCVkH9JucA61ueLqmw6Jib7Ak78i2LddfVsFwQ4df/JFk9Oj6wDgDWkf7hWZzsPWgSXs7jladnpS2ggxreY4BUoV84OlSFrUTE7ZIr4KsmQ4YOhvA5DV2Gkp+9MhSN8He5BW+mmWpzp543Yy3u/ggWR13wnCLRl7BU+qvry8t8vHnUA0GQN8shH22MNFFRN9h9N9bJ+CbAyh+6D2LNkmEOZ6FwRpio+fr6rAR31QsygfII/Tnm4SVb1C0NZVcV9HCbGKylW/B4FEtjDlHlClSC37Pv/gvsBMDeOqecxCcUlH+BLZ1T+h2qiGgdRiT+wL8a8oD4Kc+gmV4Pwv7+Su4TCiwpRu+woQ4PihqgkN1cONEWcCQzBXsnCKHXkUbakQbH45tglH4kc1pRL26H6vbOfY91DNRkod4efskk+nxUKslrrNYWCqLMv1tIVmEkuvMUqUB+i6HBAjhX8=";
+    </script>
+    
+    <script id="html_notice_dialog_script" src="https://www.genspark.ai/notice_dialog.js"></script>
+    

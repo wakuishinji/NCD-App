@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>診療所登録フォーム</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 text-gray-800 flex flex-col items-center min-h-screen">
+     <!-- 左上固定ナビ -->
+  <div class="absolute top-4 left-4">
+    <a href="index.html"
+       class="bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700">
+      Top
+    </a>
+  </div>
+  <h1 class="text-2xl font-bold my-6">診療所 新規登録</h1>
+
+  <div class="bg-white shadow p-6 rounded w-full max-w-md">
+    <label class="block mb-2 font-medium text-gray-700">診療所名</label>
+    <input id="clinicName" type="text" placeholder="例: のがたクリニック"
+           class="border rounded w-full p-2 mb-4" />
+
+    <button onclick="registerClinic()"
+            class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+      登録して詳細入力へ
+    </button>
+
+    <p id="message" class="mt-4 text-sm text-gray-600">
+      ※重複チェックはサーバーで行われます。<br>
+      登録済みの診療所名は登録できません。
+    </p>
+  </div>
+
+  <script>
+    async function registerClinic() {
+      const name = document.getElementById("clinicName").value.trim();
+      const messageEl = document.getElementById("message");
+
+      if (!name) {
+        messageEl.textContent = "診療所名を入力してください。";
+        messageEl.className = "mt-4 text-sm text-red-600";
+        return;
+      }
+
+      try {
+        const res = await fetch("https://ncd-app.altry.workers.dev/api/registerClinic", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name })
+        });
+
+        const data = await res.json();
+
+        if (res.ok) {
+          // サーバーで新規登録成功
+          const newClinic = {
+            id: data.clinic.name,   // 現在は name をキーに保存している
+            name: data.clinic.name,
+            address: "",
+            doctors: { fulltime: 0, parttime: 0, qualifications: "" },
+            schedule: { patterns: {}, days: {} }
+          };
+
+          // 選択中クリニックとして保存
+          localStorage.setItem("selectedClinic", JSON.stringify(newClinic));
+
+          // 詳細入力へ遷移
+          window.location.href = "clinicDetail.html";
+        } else {
+          // 重複などのエラー
+          messageEl.textContent = "⚠️ " + (data.error || "登録に失敗しました");
+          messageEl.className = "mt-4 text-sm text-red-600";
+        }
+      } catch (err) {
+        messageEl.textContent = "エラー: " + err.message;
+        messageEl.className = "mt-4 text-sm text-red-600";
+      }
+    }
+  </script>
+</body>
+</html>

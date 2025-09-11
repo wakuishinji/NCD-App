@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>診療所詳細入力 - NCD</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* 右下固定アクション */
+    .fab {
+      position: fixed; right: 16px; bottom: 16px;
+      display: flex; gap: 8px; z-index: 50;
+    }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col">
+  <!-- ヘッダー -->
+  <header class="bg-blue-600 text-white shadow">
+    <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <a href="clinicHome.html" class="bg-white/20 hover:bg-white/30 px-3 py-1 rounded">Home</a>
+        <a href="clinicList.html" class="bg-white/20 hover:bg-white/30 px-3 py-1 rounded">施設選択</a>
+      </div>
+      <h1 class="text-xl font-bold">診療所詳細入力</h1>
+      <div class="w-[120px]"></div>
+    </div>
+  </header>
+
+  <!-- メイン -->
+  <main class="flex-1 max-w-6xl mx-auto p-4 md:p-6 space-y-6">
+    <!-- 基本情報 -->
+    <section class="bg-white rounded shadow p-6">
+      <h2 class="text-lg font-semibold text-blue-800 mb-4">基本情報</h2>
+      <div class="grid md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm text-gray-700 mb-1">ID</label>
+          <input id="clinicId" class="w-full border rounded px-3 py-2" />
+        </div>
+        <div>
+          <label class="block text-sm text-gray-700 mb-1">名称</label>
+          <input id="clinicName" class="w-full border rounded px-3 py-2" />
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-sm text-gray-700 mb-1">住所</label>
+          <input id="clinicAddress" class="w-full border rounded px-3 py-2" />
+        </div>
+        <div>
+          <label class="block text-sm text-gray-700 mb-1">常勤医師数</label>
+          <input id="numFulltime" type="number" class="w-full border rounded px-3 py-2" />
+        </div>
+        <div>
+          <label class="block text-sm text-gray-700 mb-1">非常勤医師数</label>
+          <input id="numParttime" type="number" class="w-full border rounded px-3 py-2" />
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-sm text-gray-700 mb-1">専門資格</label>
+          <input id="qualifications" class="w-full border rounded px-3 py-2" />
+        </div>
+      </div>
+    </section>
+
+    <!-- 診療時間設定 -->
+    <section class="bg-white rounded shadow p-6" id="clinic-schedule">
+      <h2 class="text-lg font-semibold text-blue-800 mb-4">診療時間設定</h2>
+
+      <!-- パターン登録 -->
+      <div class="border rounded p-4">
+        <h3 class="font-medium text-gray-800 mb-3">診療時間パターン登録</h3>
+        <div class="grid md:grid-cols-2 gap-3">
+          <div>
+            <div class="text-sm text-gray-600 mb-1">午前A</div>
+            <div class="flex items-center gap-2">
+              <input type="time" id="amA_start" class="border rounded px-2 py-1">～
+              <input type="time" id="amA_end" class="border rounded px-2 py-1">
+            </div>
+          </div>
+          <div>
+            <div class="text-sm text-gray-600 mb-1">午前B</div>
+            <div class="flex items-center gap-2">
+              <input type="time" id="amB_start" class="border rounded px-2 py-1">～
+              <input type="time" id="amB_end" class="border rounded px-2 py-1">
+            </div>
+          </div>
+          <div>
+            <div class="text-sm text-gray-600 mb-1">午後A</div>
+            <div class="flex items-center gap-2">
+              <input type="time" id="pmA_start" class="border rounded px-2 py-1">～
+              <input type="time" id="pmA_end" class="border rounded px-2 py-1">
+            </div>
+          </div>
+          <div>
+            <div class="text-sm text-gray-600 mb-1">午後B</div>
+            <div class="flex items-center gap-2">
+              <input type="time" id="pmB_start" class="border rounded px-2 py-1">～
+              <input type="time" id="pmB_end" class="border rounded px-2 py-1">
+            </div>
+          </div>
+        </div>
+        <button onclick="savePatterns()" class="mt-3 bg-gray-700 text-white px-4 py-2 rounded hover:bg-gray-800">パターン保存</button>
+      </div>
+
+      <!-- 曜日ごとの設定 -->
+      <div class="mt-6 border rounded p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="font-medium text-gray-800">曜日ごとの診療パターン設定</h3>
+          <div class="flex gap-2">
+            <button onclick="applyAll('am')" class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">午前すべて 午前A</button>
+            <button onclick="applyAll('pm')" class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">午後すべて 午後A</button>
+            <button onclick="saveSchedule()" class="bg-gray-700 text-white px-3 py-1 rounded hover:bg-gray-800">曜日設定を保存</button>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="min-w-full border text-sm">
+            <thead class="bg-gray-100">
+              <tr><th class="border px-2 py-1">曜日</th><th class="border px-2 py-1">午前</th><th class="border px-2 py-1">午後</th></tr>
+            </thead>
+            <tbody id="scheduleBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 表示用 -->
+      <div class="mt-6 border rounded p-4">
+        <h3 class="font-medium text-gray-800 mb-2">診療時間（確認用表示）</h3>
+        <div class="overflow-x-auto">
+          <table class="min-w-full border text-sm">
+            <thead class="bg-gray-100">
+              <tr><th class="border px-2 py-1">曜日</th><th class="border px-2 py-1">午前</th><th class="border px-2 py-1">午後</th></tr>
+            </thead>
+            <tbody id="displayBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 右下 固定アクション -->
+  <div class="fab">
+    <button onclick="saveClinic()" class="bg-blue-600 text-white px-4 py-3 rounded shadow hover:bg-blue-700">この診療所を保存</button>
+    <a href="clinicHome.html" class="bg-gray-600 text-white px-4 py-3 rounded shadow hover:bg-gray-700 flex items-center">Home</a>
+  </div>
+
+  <!-- フッター -->
+  <footer class="bg-blue-600 text-white text-center py-4">
+    <p class="text-sm">© 2025 中野区医師会 - Nakano Clinic Database</p>
+  </footer>
+
+<script>
+const BASE = "https://ncd-app.altry.workers.dev";
+const days = ["月曜","火曜","水曜","木曜","金曜","土曜","日曜","祝日"];
+
+function initScheduleTable(){
+  const tbody = document.getElementById("scheduleBody");
+  tbody.innerHTML = "";
+  days.forEach((d,i)=>{
+    tbody.innerHTML += `
+      <tr>
+        <td class="border px-2 py-1 text-center">${d}</td>
+        <td class="border px-2 py-1 text-center">
+          <select id="am_${i}" class="border rounded px-2 py-1">
+            <option>午前A</option><option>午前B</option><option>休診</option>
+          </select>
+        </td>
+        <td class="border px-2 py-1 text-center">
+          <select id="pm_${i}" class="border rounded px-2 py-1">
+            <option>午後A</option><option>午後B</option><option>休診</option>
+          </select>
+        </td>
+      </tr>`;
+  });
+}
+initScheduleTable();
+
+function savePatterns(){
+  const patterns = {
+    amA:[document.getElementById("amA_start").value, document.getElementById("amA_end").value],
+    amB:[document.getElementById("amB_start").value, document.getElementById("amB_end").value],
+    pmA:[document.getElementById("pmA_start").value, document.getElementById("pmA_end").value],
+    pmB:[document.getElementById("pmB_start").value, document.getElementById("pmB_end").value]
+  };
+  localStorage.setItem("patterns", JSON.stringify(patterns));
+  alert("診療時間パターンを保存しました");
+}
+
+function applyAll(type){
+  const target = type==="am" ? "午前A" : "午後A";
+  days.forEach((d,i)=>{
+    document.getElementById(type+"_"+i).value = target;
+  });
+}
+
+function saveSchedule(){
+  const schedule = {};
+  days.forEach((d,i)=>{
+    schedule[d] = {
+      am: document.getElementById("am_"+i).value,
+      pm: document.getElementById("pm_"+i).value
+    };
+  });
+  localStorage.setItem("schedule", JSON.stringify(schedule));
+  renderDisplay();
+}
+
+function renderDisplay(){
+  const display = document.getElementById("displayBody");
+  display.innerHTML = "";
+  const patterns = JSON.parse(localStorage.getItem("patterns")||"{}");
+  const schedule = JSON.parse(localStorage.getItem("schedule")||"{}");
+
+  days.forEach(d=>{
+    const am = schedule[d]?.am || "休診";
+    const pm = schedule[d]?.pm || "休診";
+    display.innerHTML += `
+      <tr>
+        <td class="border px-2 py-1 text-center">${d}</td>
+        <td class="border px-2 py-1 text-center">${getTimeText(am, patterns)}</td>
+        <td class="border px-2 py-1 text-center">${getTimeText(pm, patterns)}</td>
+      </tr>`;
+  });
+}
+
+function getTimeText(sel, patterns){
+  switch(sel){
+    case "午前A": return patterns.amA?.join("～") || "";
+    case "午前B": return patterns.amB?.join("～") || "";
+    case "午後A": return patterns.pmA?.join("～") || "";
+    case "午後B": return patterns.pmB?.join("～") || "";
+    case "休診": return "休診";
+    default: return "";
+  }
+}
+
+async function saveClinic() {
+  const clinicId   = document.getElementById("clinicId").value;
+  const name       = document.getElementById("clinicName").value;
+  const address    = document.getElementById("clinicAddress").value;
+  const fulltime   = document.getElementById("numFulltime").value;
+  const parttime   = document.getElementById("numParttime").value;
+  const qualifs    = document.getElementById("qualifications").value;
+
+  const patterns = JSON.parse(localStorage.getItem("patterns") || "{}");
+  const schedule = JSON.parse(localStorage.getItem("schedule") || "{}");
+
+  const clinicData = {
+    id: clinicId,
+    name,
+    address,
+    doctors: {
+      fulltime: Number(fulltime||0),
+      parttime: Number(parttime||0),
+      qualifications: qualifs || ""
+    },
+    schedule: { patterns, days: schedule }
+  };
+
+  try {
+    const res = await fetch(`${BASE}/api/updateClinic`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(clinicData)
+    });
+    if (!res.ok) throw new Error("API更新エラー");
+
+    const result = await res.json();
+    localStorage.setItem("selectedClinic", JSON.stringify(result.clinic));
+    alert("診療所データを更新しました");
+  } catch (err) {
+    alert("保存に失敗しました: " + err.message);
+    console.error(err);
+  }
+}
+
+// 選択済み施設から初期値ロード
+function loadClinicDetail() {
+  const stored = localStorage.getItem("selectedClinic");
+  if (!stored) { renderDisplay(); return; }
+
+  const clinic = JSON.parse(stored);
+  document.getElementById("clinicId").value        = clinic.id || "";
+  document.getElementById("clinicName").value      = clinic.name || "";
+  document.getElementById("clinicAddress").value   = clinic.address || "";
+  document.getElementById("numFulltime").value     = clinic.doctors?.fulltime || "";
+  document.getElementById("numParttime").value     = clinic.doctors?.parttime || "";
+  document.getElementById("qualifications").value  = clinic.doctors?.qualifications || "";
+
+  const patterns = clinic.schedule?.patterns || {};
+  if (patterns.amA) { amA_start.value = patterns.amA[0] || ""; amA_end.value = patterns.amA[1] || ""; }
+  if (patterns.amB) { amB_start.value = patterns.amB[0] || ""; amB_end.value = patterns.amB[1] || ""; }
+  if (patterns.pmA) { pmA_start.value = patterns.pmA[0] || ""; pmA_end.value = patterns.pmA[1] || ""; }
+  if (patterns.pmB) { pmB_start.value = patterns.pmB[0] || ""; pmB_end.value = patterns.pmB[1] || ""; }
+
+  const schedule = clinic.schedule?.days || {};
+  days.forEach((d,i)=>{
+    if (schedule[d]) {
+      document.getElementById("am_"+i).value = schedule[d].am || "休診";
+      document.getElementById("pm_"+i).value = schedule[d].pm || "休診";
+    }
+  });
+
+  renderDisplay();
+}
+
+window.addEventListener("DOMContentLoaded", loadClinicDetail);
+</script>
+</body>
+</html>

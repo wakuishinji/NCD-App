@@ -1,0 +1,7 @@
+name = "ncd-app-settings"
+main = "worker_settings.js"
+compatibility_date = "2025-09-04"
+
+[[kv_namespaces]]
+binding = "SETTINGS"
+id = "93471e6681f74377ab8c654c08c19eac" # ←既存のKV Namespace IDを利用

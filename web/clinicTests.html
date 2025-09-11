@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>検査入力 - NCD</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col">
+  <!-- Header -->
+  <header class="bg-blue-600 text-white shadow">
+    <div class="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <a href="index.html" class="bg-white/20 hover:bg-white/30 px-3 py-1 rounded">Top</a>
+        <a href="clinicHome.html" class="bg-white/20 hover:bg-white/30 px-3 py-1 rounded">Home</a>
+      </div>
+      <h1 class="text-lg font-bold">検査入力</h1>
+      <div class="text-sm opacity-90" id="clinicTitle"></div>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <main class="flex-1 max-w-4xl mx-auto p-4 md:p-6">
+    <div class="bg-white rounded shadow p-4 md:p-6 space-y-6">
+      <!-- 入力フォーム -->
+      <section class="space-y-3">
+        <h2 class="text-blue-800 font-semibold">検査の追加</h2>
+
+        <!-- 分類 -->
+        <div>
+          <label class="block text-sm text-gray-700 mb-1">分類</label>
+          <select id="testCategory" class="w-full border rounded px-3 py-2">
+            <!-- 管理画面の categories:test を読込 -->
+          </select>
+        </div>
+
+        <!-- 既存マスターから選択（承認済みのみ） -->
+        <div>
+          <label class="block text-sm text-gray-700 mb-1">既存マスターから選択（任意／承認済のみ）</label>
+          <select id="masterPick" class="w-full border rounded px-3 py-2">
+            <option value="">（選択しない）</option>
+          </select>
+          <p class="text-xs text-gray-500 mt-1">※分類を選ぶと、この分類の承認済み検査が表示されます。選ぶと下の名称・説明に反映されます。</p>
+        </div>
+
+        <!-- 名称 -->
+        <div>
+          <label class="block text-sm text-gray-700 mb-1">検査名</label>
+          <input id="testName" class="w-full border rounded px-3 py-2" placeholder="例: 心エコー検査"/>
+        </div>
+
+        <!-- 説明 -->
+        <div>
+          <label class="block text-sm text-gray-700 mb-1">説明</label>
+          <textarea id="testDesc" rows="4" class="w-full border rounded px-3 py-2" placeholder="例: 心臓の動きや弁の状態が分かる非侵襲検査 など"></textarea>
+          <div class="mt-2 flex items-center gap-2">
+            <button id="btnGenTestDesc" class="bg-indigo-600 text-white px-3 py-2 rounded hover:bg-indigo-700">
+              AIで説明生成
+            </button>
+            <span id="testHint" class="text-xs text-gray-500"></span>
+          </div>
+        </div>
+
+        <!-- 操作 -->
+        <div class="flex items-center gap-2">
+          <button id="btnSaveTest" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">保存</button>
+          <button id="btnClear" class="bg-gray-200 px-4 py-2 rounded hover:bg-gray-300">クリア</button>
+        </div>
+      </section>
+
+      <!-- クリニックに登録済みの検査（簡易一覧） -->
+      <section>
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-blue-800 font-semibold">この診療所の検査（登録済）</h2>
+          <button id="btnReloadMine" class="text-sm bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded">再読込</button>
+        </div>
+        <div id="myTests" class="divide-y bg-gray-50 border rounded"></div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="bg-blue-600 text-white text-center py-3">
+    <p class="text-xs">© 2025 中野区医師会 - Nakano Clinic Database</p>
+  </footer>
+
+<script>
+const BASE = "https://ncd-app.altry.workers.dev";
+
+let selectedClinic = null;
+function getClinicName(){ return selectedClinic?.name || ""; }
+
+// ---- 初期化：クリニック確認 ----
+function loadSelectedClinic(){
+  const s = localStorage.getItem("selectedClinic");
+  if (s) {
+    selectedClinic = JSON.parse(s);
+    document.getElementById("clinicTitle").textContent = selectedClinic.name || "";
+  } else {
+    document.getElementById("clinicTitle").textContent = "（未選択）";
+    alert("施設選択または新規登録後にお進みください。");
+  }
+}
+
+// ---- 分類の読込（categories:test） ----
+async function loadCategories(){
+  const r = await fetch(`${BASE}/api/listCategories?type=test`);
+  const d = await r.json();
+  const sel = document.getElementById("testCategory");
+  sel.innerHTML = "";
+  const cats = (d.ok ? d.categories : []) || [];
+  if (cats.length === 0) {
+    sel.innerHTML = `<option value="">（分類なし）</option>`;
+  } else {
+    sel.innerHTML = cats.map(c=>`<option>${c}</option>`).join("");
+  }
+}
+
+// ---- マスター（承認済）をカテゴリ別で読込してプルダウンへ ----
+async function loadApprovedMasterForCategory(){
+  const cat = document.getElementById("testCategory").value;
+  const box = document.getElementById("masterPick");
+  box.innerHTML = `<option value="">（選択しない）</option>`;
+
+  const url = new URL(`${BASE}/api/listMaster`);
+  url.searchParams.set("type","test");
+  url.searchParams.set("status","approved");
+  const r = await fetch(url.toString());
+  const d = await r.json();
+  const items = (d.ok ? d.items : []) || [];
+  const filtered = items.filter(it => it.category === cat);
+
+  filtered.forEach(it=>{
+    // 表示は「名称（説明 or canonical_name）」の形
+    const label = `${it.name}${it.desc ? `（${it.desc}）` : (it.canonical_name ? `（別名:${it.canonical_name}）` : "")}`;
+    const opt = document.createElement("option");
+    opt.value = JSON.stringify({ name: it.name, desc: it.desc || "" });
+    opt.textContent = label;
+    box.appendChild(opt);
+  });
+}
+
+// ---- マスター選択 → 名称/説明 に反映 ----
+function onPickMaster(){
+  const v = document.getElementById("masterPick").value;
+  if (!v) return;
+  try {
+    const obj = JSON.parse(v);
+    document.getElementById("testName").value = obj.name || "";
+    if (obj.desc) document.getElementById("testDesc").value = obj.desc;
+  } catch (_) {}
+}
+
+// ---- AIで説明生成 ----
+async function genDesc(){
+  const name = document.getElementById('testName').value.trim();
+  const category = document.getElementById('testCategory').value;
+  const descEl = document.getElementById('testDesc');
+  const hintEl = document.getElementById('testHint');
+  if(!name){ alert('検査名を入力してください'); return; }
+  hintEl.textContent='AI生成を試行中…';
+
+  // 管理画面のプロンプト設定をGET
+  let sys = "医療説明用のサンプルを作ってください";
+  try {
+    const rs = await fetch(`${BASE}/api/settings`);
+    const ds = await rs.json();
+    if (ds && ds.prompt_exam) sys = ds.prompt_exam;
+  } catch(_){}
+
+  // /api/generate で生成（system プロンプト + ユーザーメッセージ）
+  try{
+    const r = await fetch(`${BASE}/api/generate`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        messages: [
+          { role:"system", content: sys },
+          { role:"user", content: `次の検査について、患者さん向けにやさしく100～150字で要点説明を書いてください。専門用語は補足を入れ、リスクと準備があれば触れてください。\n分類: ${category}\n検査名: ${name}` }
+        ]
+      })
+    });
+    const d = await r.json();
+    // 返りの形は環境により異なるため保険をかける
+    const text = d?.choices?.[0]?.message?.content || d?.text || "";
+    if (text) {
+      descEl.value = text.trim();
+      hintEl.textContent='AIで説明生成しました';
+    } else {
+      hintEl.textContent='AI応答なし';
+    }
+  }catch(e){
+    hintEl.textContent='AI接続不可';
+  }
+}
+
+// ---- クリニック既存データ読込（listClinics→該当を抽出） ----
+async function fetchCurrentClinic(){
+  const name = getClinicName();
+  if (!name) return null;
+  const r = await fetch(`${BASE}/api/listClinics`);
+  const d = await r.json();
+  const arr = (d.ok && d.clinics) ? d.clinics : [];
+  return arr.find(c => (c.name === name)) || null;
+}
+
+// ---- 保存（tests配列へ追記 → updateClinic） ----
+async function saveTest(){
+  const clinicName = getClinicName();
+  if (!clinicName){ alert("施設が選択されていません"); return; }
+
+  const category = document.getElementById('testCategory').value.trim();
+  const name = document.getElementById('testName').value.trim();
+  const desc = document.getElementById('testDesc').value.trim();
+  if (!category || !name){ alert("分類と検査名は必須です"); return; }
+
+  // 既存クリニックを取得してマージ（上書き防止）
+  const cur = await fetchCurrentClinic();
+  const tests = Array.isArray(cur?.tests) ? [...cur.tests] : [];
+  tests.push({ category, name, desc });
+
+  const payload = {
+    name: clinicName,
+    // 既存項目を維持しつつ tests を更新
+    ...(cur || { id: clinicName }),
+    tests
+  };
+
+  const r = await fetch(`${BASE}/api/updateClinic`,{
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify(payload)
+  });
+  if (!r.ok) { alert("保存に失敗しました"); return; }
+
+  // 入力欄クリア
+  clearForm();
+  // 自分の検査一覧を更新
+  await loadMyTests();
+  alert("保存しました");
+}
+
+// ---- 自分の検査一覧の描画 ----
+async function loadMyTests(){
+  const box = document.getElementById("myTests");
+  box.innerHTML = "";
+  const cur = await fetchCurrentClinic();
+  const tests = Array.isArray(cur?.tests) ? cur.tests : [];
+  if (tests.length === 0) {
+    box.innerHTML = `<div class="px-3 py-2 text-gray-500 text-sm">登録された検査はありません。</div>`;
+    return;
+  }
+  tests.forEach((t,i)=>{
+    const row = document.createElement("div");
+    row.className = "px-3 py-2 flex items-start justify-between";
+    row.innerHTML = `
+      <div>
+        <div class="font-semibold">${t.category} / ${t.name}</div>
+        <div class="text-sm text-gray-600 whitespace-pre-wrap">${t.desc||""}</div>
+      </div>
+      <div class="text-sm text-gray-400">#${i+1}</div>
+    `;
+    box.appendChild(row);
+  });
+}
+
+// ---- クリア ----
+function clearForm(){
+  // プルダウンはカテゴリだけ残し、マスター選択は初期化
+  document.getElementById('masterPick').selectedIndex = 0;
+  document.getElementById('testName').value = "";
+  document.getElementById('testDesc').value = "";
+  document.getElementById('testHint').textContent = "";
+}
+
+// ---- イベント ----
+document.getElementById('btnGenTestDesc').addEventListener('click', genDesc);
+document.getElementById('btnSaveTest').addEventListener('click', saveTest);
+document.getElementById('btnClear').addEventListener('click', clearForm);
+document.getElementById('btnReloadMine').addEventListener('click', loadMyTests);
+document.getElementById('testCategory').addEventListener('change', loadApprovedMasterForCategory);
+document.getElementById('masterPick').addEventListener('change', onPickMaster);
+
+// ---- 起動 ----
+(async function init(){
+  loadSelectedClinic();
+  await loadCategories();
+  await loadApprovedMasterForCategory();
+  await loadMyTests();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,73 @@
+﻿<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>施設選択 - NCD</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen">
+
+  <!-- 左上固定 Topボタン（他ページと統一） -->
+  <div class="absolute top-4 left-4">
+    <a href="index.html"
+       class="bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700">
+      Top
+    </a>
+  </div>
+
+  <div class="max-w-3xl mx-auto pt-20 p-6">
+    <div class="bg-white rounded shadow p-6">
+      <h1 class="text-2xl font-bold text-blue-800 mb-2">施設を選択</h1>
+      <p class="text-gray-600 mb-6">登録済みの診療所を選んで、詳細入力に進んでください。</p>
+
+      <!-- 一覧をここに表示 -->
+      <div id="clinicList" class="space-y-3"></div>
+
+      <!-- 選択済み表示 -->
+      <div id="selectedClinic" class="mt-8 text-green-700 font-semibold"></div>
+    </div>
+  </div>
+
+  <script>
+    async function loadClinics() {
+      const box = document.getElementById("clinicList");
+      box.innerHTML = "<div class='text-gray-500'>読み込み中...</div>";
+      try {
+        const res = await fetch("https://ncd-app.altry.workers.dev/api/listClinics");
+        const data = await res.json();
+        box.innerHTML = "";
+
+        const clinics = (data && data.ok && Array.isArray(data.clinics)) ? data.clinics : [];
+        if (clinics.length === 0) {
+          box.innerHTML = "<p class='text-gray-500'>登録済みの施設はありません。</p>";
+          return;
+        }
+
+        // 名前で昇順にしておくと選びやすい
+        clinics.sort((a,b)=> (a.name||"").localeCompare(b.name||""));
+
+        clinics.forEach(c => {
+          const btn = document.createElement("button");
+          btn.className = "w-full text-left px-4 py-3 border rounded hover:bg-blue-50 transition";
+          btn.innerHTML = `
+            <div class="font-semibold text-blue-800">${c.name || "（名称未登録）"}</div>
+            <div class="text-sm text-gray-500">${c.address || ""}</div>
+          `;
+          btn.onclick = () => {
+            localStorage.setItem("selectedClinic", JSON.stringify(c));
+            document.getElementById("selectedClinic").textContent = `選択中: ${c.name || ""}`;
+            // 施設ホームへ遷移（ハブ画面）
+            window.location.href = "clinicHome.html";
+          };
+          box.appendChild(btn);
+        });
+      } catch (err) {
+        box.innerHTML = `<p class='text-red-600'>エラーが発生しました: ${err.message}</p>`;
+      }
+    }
+
+    loadClinics();
+  </script>
+</body>
+</html>
