@@ -1051,14 +1051,6 @@ if (url.pathname === "/api/_seedQualifications" && request.method === "POST") {
   }
 }
 
-    // JSONファイルの中身を items に貼り付けて実行
-    const items = /* ← qualifications_master_seed_v0_9.json の配列をペースト */;
-    fetch("https://ncd-app.altry.workers.dev/api/importQualifications", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ items })
-    }).then(r=>r.json()).then(console.log);
-
     // ============================================================
     // <<< START: NOT_FOUND >>>
     // ============================================================
