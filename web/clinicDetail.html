@@ -32,11 +32,7 @@
     <section class="bg-white rounded shadow p-6">
       <h2 class="text-lg font-semibold text-blue-800 mb-4">基本情報</h2>
       <div class="grid md:grid-cols-2 gap-4">
-        <div>
-          <label class="block text-sm text-gray-700 mb-1">ID</label>
-          <input id="clinicId" class="w-full border rounded px-3 py-2" />
-        </div>
-        <div>
+        <div class="md:col-span-2">
           <label class="block text-sm text-gray-700 mb-1">名称</label>
           <input id="clinicName" class="w-full border rounded px-3 py-2" />
         </div>
@@ -53,8 +49,32 @@
           <input id="numParttime" type="number" class="w-full border rounded px-3 py-2" />
         </div>
         <div class="md:col-span-2">
-          <label class="block text-sm text-gray-700 mb-1">専門資格</label>
-          <input id="qualifications" class="w-full border rounded px-3 py-2" />
+          <label class="block text-sm text-gray-700 mb-1">ホームページ</label>
+          <div class="flex items-center gap-4 text-sm text-gray-700">
+            <label class="flex items-center gap-1">
+              <input type="radio" name="homepageStatus" value="none" class="text-blue-600" checked />
+              なし
+            </label>
+            <label class="flex items-center gap-1">
+              <input type="radio" name="homepageStatus" value="available" class="text-blue-600" />
+              あり
+            </label>
+          </div>
+          <input id="homepageUrl" type="url" class="mt-2 w-full border rounded px-3 py-2 hidden" placeholder="https://example.clinic.jp" />
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-sm text-gray-700 mb-1">予約サイト</label>
+          <div class="flex items-center gap-4 text-sm text-gray-700">
+            <label class="flex items-center gap-1">
+              <input type="radio" name="reservationStatus" value="none" class="text-blue-600" checked />
+              なし
+            </label>
+            <label class="flex items-center gap-1">
+              <input type="radio" name="reservationStatus" value="available" class="text-blue-600" />
+              あり
+            </label>
+          </div>
+          <input id="reservationUrl" type="url" class="mt-2 w-full border rounded px-3 py-2 hidden" placeholder="https://example.clinic.jp/reserve" />
         </div>
       </div>
     </section>
@@ -149,6 +169,30 @@
 const BASE = "https://ncd-app.altry.workers.dev";
 const days = ["月曜","火曜","水曜","木曜","金曜","土曜","日曜","祝日"];
 
+let currentClinicId = "";
+let retainedQualifications = "";
+
+function updateHomepageField() {
+  const show = document.querySelector("input[name='homepageStatus']:checked")?.value === "available";
+  const field = document.getElementById("homepageUrl");
+  if (field) {
+    field.classList.toggle("hidden", !show);
+  }
+}
+
+function updateReservationField() {
+  const show = document.querySelector("input[name='reservationStatus']:checked")?.value === "available";
+  const field = document.getElementById("reservationUrl");
+  if (field) {
+    field.classList.toggle("hidden", !show);
+  }
+}
+
+document.querySelectorAll("input[name='homepageStatus']").forEach(r => r.addEventListener("change", updateHomepageField));
+document.querySelectorAll("input[name='reservationStatus']").forEach(r => r.addEventListener("change", updateReservationField));
+updateHomepageField();
+updateReservationField();
+
 function initScheduleTable(){
   const tbody = document.getElementById("scheduleBody");
   tbody.innerHTML = "";
@@ -231,26 +275,50 @@ function getTimeText(sel, patterns){
 }
 
 async function saveClinic() {
-  const clinicId   = document.getElementById("clinicId").value;
-  const name       = document.getElementById("clinicName").value;
-  const address    = document.getElementById("clinicAddress").value;
+  const name       = document.getElementById("clinicName").value.trim();
+  const address    = document.getElementById("clinicAddress").value.trim();
   const fulltime   = document.getElementById("numFulltime").value;
   const parttime   = document.getElementById("numParttime").value;
-  const qualifs    = document.getElementById("qualifications").value;
+
+  if (!name) {
+    alert("名称を入力してください。");
+    return;
+  }
+
+  const homepageStatus = document.querySelector("input[name='homepageStatus']:checked")?.value || "none";
+  const reservationStatus = document.querySelector("input[name='reservationStatus']:checked")?.value || "none";
+  const homepageUrlInput = document.getElementById("homepageUrl").value.trim();
+  const reservationUrlInput = document.getElementById("reservationUrl").value.trim();
+
+  const hasHomepage = homepageStatus === "available";
+  const homepageUrl = hasHomepage ? homepageUrlInput : "";
+  if (hasHomepage && !homepageUrl) {
+    alert("ホームページURLを入力してください。");
+    return;
+  }
+
+  const hasReservation = reservationStatus === "available";
+  const reservationUrl = hasReservation ? reservationUrlInput : "";
+  if (hasReservation && !reservationUrl) {
+    alert("予約サイトのURLを入力してください。");
+    return;
+  }
 
   const patterns = JSON.parse(localStorage.getItem("patterns") || "{}");
   const schedule = JSON.parse(localStorage.getItem("schedule") || "{}");
 
   const clinicData = {
-    id: clinicId,
+    id: currentClinicId,
     name,
     address,
     doctors: {
       fulltime: Number(fulltime||0),
       parttime: Number(parttime||0),
-      qualifications: qualifs || ""
+      qualifications: retainedQualifications || ""
     },
-    schedule: { patterns, days: schedule }
+    schedule: { patterns, days: schedule },
+    homepage: { available: hasHomepage, url: homepageUrl },
+    reservation: { available: hasReservation, url: reservationUrl }
   };
 
   try {
@@ -276,12 +344,27 @@ function loadClinicDetail() {
   if (!stored) { renderDisplay(); return; }
 
   const clinic = JSON.parse(stored);
-  document.getElementById("clinicId").value        = clinic.id || "";
+  currentClinicId = clinic.id || "";
+  retainedQualifications = clinic.doctors?.qualifications || "";
+
   document.getElementById("clinicName").value      = clinic.name || "";
   document.getElementById("clinicAddress").value   = clinic.address || "";
   document.getElementById("numFulltime").value     = clinic.doctors?.fulltime || "";
   document.getElementById("numParttime").value     = clinic.doctors?.parttime || "";
-  document.getElementById("qualifications").value  = clinic.doctors?.qualifications || "";
+
+  const homepageData = clinic.homepage || {};
+  const homepageAvailable = typeof homepageData.available === "boolean" ? homepageData.available : Boolean(homepageData.url);
+  const homepageTarget = document.querySelector(`input[name='homepageStatus'][value='${homepageAvailable ? "available" : "none"}']`);
+  if (homepageTarget) homepageTarget.checked = true;
+  document.getElementById("homepageUrl").value = homepageData.url || "";
+  updateHomepageField();
+
+  const reservationData = clinic.reservation || {};
+  const reservationAvailable = typeof reservationData.available === "boolean" ? reservationData.available : Boolean(reservationData.url);
+  const reservationTarget = document.querySelector(`input[name='reservationStatus'][value='${reservationAvailable ? "available" : "none"}']`);
+  if (reservationTarget) reservationTarget.checked = true;
+  document.getElementById("reservationUrl").value = reservationData.url || "";
+  updateReservationField();
 
   const patterns = clinic.schedule?.patterns || {};
   if (patterns.amA) { amA_start.value = patterns.amA[0] || ""; amA_end.value = patterns.amA[1] || ""; }
