@@ -18,11 +18,37 @@
     </a>
   </div>
 
-  <!-- ヘッダー -->
-  <header class="bg-blue-600 text-white p-6 text-center">
-    <h1 class="text-3xl font-bold">NCD 入力システム</h1>
-    <p class="mt-2">中野区診療所データベース</p>
-  </header>
+  <!-- ヒーロー（写真＋グラデ） -->
+  <section class="relative isolate overflow-hidden min-h-[60vh] md:min-h-[72vh] flex items-center">
+    <!-- 背景写真 -->
+    <img
+      src="https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=1920&q=60"
+      alt="医療のイメージ写真"
+      class="absolute inset-0 -z-10 h-full w-full object-cover"
+      referrerpolicy="no-referrer"
+    />
+    <!-- オーバーレイ（読みやすさ向上） -->
+    <div class="absolute inset-0 -z-10 bg-gradient-to-b from-black/60 via-black/40 to-black/70"></div>
+
+    <div class="relative mx-auto max-w-5xl px-6 py-20 md:py-28 w-full text-center text-white">
+      <p class="text-sm md:text-base tracking-wider uppercase text-white/80">Nakano Clinic Database</p>
+      <h1 class="mt-2 text-4xl md:text-6xl font-extrabold tracking-tight">
+        中野区診療所データベース
+      </h1>
+      <p class="mt-4 text-lg md:text-xl text-white/90">NCD 入力システム</p>
+
+      <div class="mt-8 flex items-center justify-center gap-3 md:gap-4">
+        <a href="register.html" class="inline-flex items-center gap-2 rounded-md bg-white/95 text-gray-900 px-5 py-3 font-semibold shadow hover:bg-white">
+          <i class="fas fa-plus-circle"></i>
+          新規登録
+        </a>
+        <a href="list.html" class="inline-flex items-center gap-2 rounded-md bg-blue-500/90 text-white px-5 py-3 font-semibold shadow hover:bg-blue-500">
+          <i class="fas fa-list"></i>
+          施設を選ぶ
+        </a>
+      </div>
+    </div>
+  </section>
 
   <!-- メイン -->
   <main class="flex-grow p-6 max-w-4xl mx-auto">
