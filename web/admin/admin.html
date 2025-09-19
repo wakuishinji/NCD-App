@@ -31,6 +31,7 @@
         <button class="tab px-4 py-3 text-sm font-semibold border-b-2 border-transparent hover:bg-gray-50" data-target="tab-master-test">検査マスター</button>
         <button class="tab px-4 py-3 text-sm font-semibold border-b-2 border-transparent hover:bg-gray-50" data-target="tab-master-service">診療マスター</button>
         <button class="tab px-4 py-3 text-sm font-semibold border-b-2 border-transparent hover:bg-gray-50" data-target="tab-ai">AI設定</button>
+        <button class="tab px-4 py-3 text-sm font-semibold border-b-2 border-transparent hover:bg-gray-50" data-target="tab-todo">開発ToDo</button>
       </div>
 
       <!-- パネル群 -->
@@ -196,6 +197,14 @@
               <textarea id="promptDiagnosis" rows="5" class="w-full border rounded px-3 py-2"></textarea>
               <button id="aiSubSave" class="mt-3 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">保存</button>
             </div>
+          </div>
+        </section>
+
+        <!-- 開発ToDo -->
+        <section id="tab-todo" class="tab-panel hidden">
+          <h2 class="text-lg font-semibold text-blue-800 mb-3">開発ToDo管理</h2>
+          <div class="border rounded overflow-hidden">
+            <iframe src="todo.html" title="開発ToDo管理" class="w-full h-[70vh]"></iframe>
           </div>
         </section>
 
