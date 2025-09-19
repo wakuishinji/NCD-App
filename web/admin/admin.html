@@ -381,6 +381,7 @@ async function loadMaster(type, listElId, statusSelId, qId){
   const url = new URL(`${BASE}/api/listMaster`);
   url.searchParams.set("type", type);
   if (status) url.searchParams.set("status", status);
+  url.searchParams.set("includeSimilar", "true");
   const r = await fetch(url.toString());
   const d = await r.json();
   const items = (d.ok ? d.items : []) || [];
@@ -416,6 +417,19 @@ async function loadMaster(type, listElId, statusSelId, qId){
       <div class="mt-2">
         <button class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 hidden" data-action="update" disabled>更新</button>
       </div>
+      ${Array.isArray(it.similarMatches) && it.similarMatches.length ? `
+        <div class="mt-2 bg-yellow-50 border border-yellow-200 rounded p-2 text-xs text-yellow-900">
+          <div class="font-semibold mb-1">重複候補 (score ≥ 0.92)</div>
+          <ul class="space-y-1">
+            ${it.similarMatches.map(m=>`
+              <li class="flex items-center justify-between gap-2">
+                <span>${m.name}${m.canonical_name && m.canonical_name!==m.name ? ` / ${m.canonical_name}` : ''} <span class="text-[11px] text-yellow-700">(status: ${m.status || '-'}, sim: ${m.similarity})</span></span>
+                <button type="button" class="text-blue-700 underline" data-action="use-similar" data-value="${(m.canonical_name || m.name).replace(/"/g,'&quot;')}">統合名に採用</button>
+              </li>
+            `).join('')}
+          </ul>
+        </div>
+      ` : ''}
       <div class="mt-2 text-xs text-gray-500">sources: ${(it.sources||[]).join(", ")}</div>
     `;
 
@@ -443,6 +457,13 @@ async function loadMaster(type, listElId, statusSelId, qId){
     });
     refreshButtonState();
 
+    div.querySelectorAll('button[data-action="use-similar"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        cnInput.value = btn.dataset.value || '';
+        cnInput.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    });
+
     box.appendChild(div);
   });
 }
@@ -461,6 +482,29 @@ async function updateMaster(type, category, name, btn){
 function exportMaster(type, format){
   const url = `${BASE}/api/exportMaster?type=${type}&format=${format}`;
   window.open(url, "_blank");
+}
+
+function applyStatusAppearance(selectEl){
+  if (!selectEl) return;
+  const accentClasses = [
+    'bg-green-50','text-green-700','border-green-300',
+    'bg-red-50','text-red-700','border-red-300',
+    'bg-gray-100','text-gray-600','border-gray-300'
+  ];
+  selectEl.classList.remove(...accentClasses);
+  switch (selectEl.value) {
+    case 'approved':
+      selectEl.classList.add('bg-green-50','text-green-700','border-green-300');
+      break;
+    case 'candidate':
+      selectEl.classList.add('bg-red-50','text-red-700','border-red-300');
+      break;
+    case 'archived':
+      selectEl.classList.add('bg-gray-100','text-gray-600','border-gray-300');
+      break;
+    default:
+      break;
+  }
 }
 
 function applyStatusAppearance(selectEl){

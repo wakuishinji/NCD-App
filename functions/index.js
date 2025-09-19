@@ -29,6 +29,56 @@ export default {
       return `master:${type}:${clean(category)}|${clean(name)}`;
     }
 
+    function normalizeForSimilarity(s) {
+      return (s || "")
+        .normalize("NFKC")
+        .toLowerCase()
+        .replace(/[\s\u3000・･\-ー（）()]/g, "");
+    }
+
+    function jaroWinkler(a, b) {
+      if (!a || !b) return 0;
+      if (a === b) return 1;
+      const matchDistance = Math.floor(Math.max(a.length, b.length) / 2) - 1;
+      const aMatches = new Array(a.length).fill(false);
+      const bMatches = new Array(b.length).fill(false);
+      let matches = 0;
+      let transpositions = 0;
+
+      for (let i = 0; i < a.length; i++) {
+        const start = Math.max(0, i - matchDistance);
+        const end = Math.min(i + matchDistance + 1, b.length);
+        for (let j = start; j < end; j++) {
+          if (bMatches[j]) continue;
+          if (a[i] !== b[j]) continue;
+          aMatches[i] = true;
+          bMatches[j] = true;
+          matches++;
+          break;
+        }
+      }
+
+      if (matches === 0) return 0;
+
+      let k = 0;
+      for (let i = 0; i < a.length; i++) {
+        if (!aMatches[i]) continue;
+        while (!bMatches[k]) k++;
+        if (a[i] !== b[k]) transpositions++;
+        k++;
+      }
+
+      const m = matches;
+      const jaro = (m / a.length + m / b.length + (m - transpositions / 2) / m) / 3;
+
+      let prefix = 0;
+      for (let i = 0; i < Math.min(4, a.length, b.length); i++) {
+        if (a[i] === b[i]) prefix++;
+        else break;
+      }
+      return jaro + prefix * 0.1 * (1 - jaro);
+    }
+
     // KV JSONユーティリティ
     async function kvGetJSON(env, key) {
       const raw = await env.SETTINGS.get(key);
@@ -432,12 +482,40 @@ if (routeMatch(url, "GET", "listClinics")) {
       const prefix = type ? `master:${type}:` : "master:";
       const keys = await env.SETTINGS.list({ prefix });
       const items = [];
+      const includeSimilar = url.searchParams.get("includeSimilar") === "true";
+      const collected = [];
       for (const k of keys.keys) {
         const val = await env.SETTINGS.get(k.name);
         if (!val) continue;
         const obj = JSON.parse(val);
         if (status && obj.status !== status) continue;
+        obj._key = k.name;
         items.push(obj);
+        collected.push({ obj, norm: normalizeForSimilarity(obj.canonical_name || obj.name) });
+      }
+      if (includeSimilar && items.length > 1) {
+        for (const entry of collected) {
+          if (!entry.norm) continue;
+          const matches = [];
+          for (const other of collected) {
+            if (entry === other) continue;
+            if (!other.norm) continue;
+            const score = jaroWinkler(entry.norm, other.norm);
+            if (score >= 0.92) {
+              matches.push({
+                name: other.obj.name,
+                canonical_name: other.obj.canonical_name || null,
+                status: other.obj.status || null,
+                similarity: Number(score.toFixed(3))
+              });
+            }
+          }
+          if (matches.length) {
+            entry.obj.similarMatches = matches;
+          } else {
+            delete entry.obj.similarMatches;
+          }
+        }
       }
       items.sort((a,b)=> (b.count||0)-(a.count||0));
       return new Response(JSON.stringify({ ok: true, items }), {
