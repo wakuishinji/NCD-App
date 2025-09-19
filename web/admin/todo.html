@@ -32,9 +32,16 @@
 
 <script>
 let todos = [
-  {category: "フロントエンド", title: "フォームバリデーション実装", status: "open", priority: "P1"},
-  {category: "サーバー", title: "Let’s Encrypt 自動更新", status: "done", priority: "P2"}
+  {category: "フロントエンド", title: "フォームバリデーション実装", status: "open", priority: "P1", createdAt: "2025-01-01T09:00:00+09:00"},
+  {category: "サーバー", title: "Let’s Encrypt 自動更新", status: "done", priority: "P2", createdAt: "2025-01-05T09:00:00+09:00"}
 ];
+
+function formatDate(isoString) {
+  if (!isoString) return "-";
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) return isoString;
+  return date.toLocaleString("ja-JP", { hour12: false });
+}
 
 function renderTodos() {
   const container = document.getElementById("todoContainer");
@@ -45,22 +52,28 @@ function renderTodos() {
     const section = document.createElement("div");
     section.innerHTML = `<h2 class="text-xl font-semibold mb-2">${cat}</h2>`;
 
-    todos.filter(t => t.category === cat).forEach((t, idx) => {
+    todos
+      .map((t, idx) => ({ todo: t, idx }))
+      .filter(({ todo }) => todo.category === cat)
+      .forEach(({ todo, idx }) => {
       const item = document.createElement("div");
-      item.className = "flex items-center gap-2 mb-2";
+      item.className = "flex flex-col gap-1 mb-3 sm:flex-row sm:items-center sm:gap-2";
       item.innerHTML = `
-        <input type="checkbox" ${t.status === "done" ? "checked" : ""} 
+        <div class="flex items-center gap-2">
+          <input type="checkbox" ${todo.status === "done" ? "checked" : ""} 
           onchange="toggleStatus(${idx})" class="w-4 h-4">
-        <input type="text" value="${t.title}" onchange="editTitle(${idx}, this.value)" 
+          <input type="text" value="${todo.title}" onchange="editTitle(${idx}, this.value)" 
           class="border rounded p-1 flex-1">
-        <select onchange="editPriority(${idx}, this.value)" class="border rounded p-1">
-          <option ${t.priority==="P1"?"selected":""}>P1</option>
-          <option ${t.priority==="P2"?"selected":""}>P2</option>
-          <option ${t.priority==="P3"?"selected":""}>P3</option>
-        </select>
-        <button onclick="deleteTask(${idx})" class="text-red-600">
-          <i class="fas fa-trash"></i>
-        </button>
+          <select onchange="editPriority(${idx}, this.value)" class="border rounded p-1">
+            <option ${todo.priority==="P1"?"selected":""}>P1</option>
+            <option ${todo.priority==="P2"?"selected":""}>P2</option>
+            <option ${todo.priority==="P3"?"selected":""}>P3</option>
+          </select>
+          <button onclick="deleteTask(${idx})" class="text-red-600">
+            <i class="fas fa-trash"></i>
+          </button>
+        </div>
+        <div class="text-xs text-gray-500 pl-6 sm:pl-10">作成: ${formatDate(todo.createdAt)}</div>
       `;
       section.appendChild(item);
     });
@@ -81,7 +94,13 @@ function renderTodos() {
 function addCategory() {
   const name = document.getElementById("newCategory").value.trim();
   if (!name) return;
-  todos.push({category: name, title: "新しいタスク", status: "open", priority: "P3"});
+  todos.push({
+    category: name,
+    title: "新しいタスク",
+    status: "open",
+    priority: "P3",
+    createdAt: new Date().toISOString()
+  });
   document.getElementById("newCategory").value = "";
   renderTodos();
 }
@@ -90,7 +109,13 @@ function addTask(cat) {
   const input = document.getElementById(`newTask-${cat}`);
   const title = input.value.trim();
   if (!title) return;
-  todos.push({category: cat, title, status: "open", priority: "P3"});
+  todos.push({
+    category: cat,
+    title,
+    status: "open",
+    priority: "P3",
+    createdAt: new Date().toISOString()
+  });
   input.value = "";
   renderTodos();
 }
