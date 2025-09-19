@@ -382,8 +382,8 @@ if (routeMatch(url, "GET", "listClinics")) {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        if (!["test", "service"].includes(type)) {
-          return new Response(JSON.stringify({ error: "type は test または service" }), {
+        if (!["test", "service", "qual", "department"].includes(type)) {
+          return new Response(JSON.stringify({ error: "type は test / service / qual / department" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }

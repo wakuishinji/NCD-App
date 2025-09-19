@@ -30,6 +30,7 @@
         <button class="tab px-4 py-3 text-sm font-semibold border-b-2 border-transparent hover:bg-gray-50" data-target="tab-cat-service">診療分類</button>
         <button class="tab px-4 py-3 text-sm font-semibold border-b-2 border-transparent hover:bg-gray-50" data-target="tab-master-test">検査マスター</button>
         <button class="tab px-4 py-3 text-sm font-semibold border-b-2 border-transparent hover:bg-gray-50" data-target="tab-master-service">診療マスター</button>
+        <button class="tab px-4 py-3 text-sm font-semibold border-b-2 border-transparent hover:bg-gray-50" data-target="tab-master-dept">標榜診療科マスター</button>
         <button class="tab px-4 py-3 text-sm font-semibold border-b-2 border-transparent hover:bg-gray-50" data-target="tab-ai">AI設定</button>
         <button class="tab px-4 py-3 text-sm font-semibold border-b-2 border-transparent hover:bg-gray-50" data-target="tab-todo">開発ToDo</button>
       </div>
@@ -175,6 +176,28 @@
             <button id="mstSvcReload" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">再読込</button>
           </div>
           <div id="mstSvcList" class="space-y-3"></div>
+        </section>
+
+        <!-- 標榜診療科マスター -->
+        <section id="tab-master-dept" class="tab-panel hidden">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-lg font-semibold text-blue-800">標榜診療科マスターの管理</h2>
+            <div class="flex gap-2">
+              <button class="bg-gray-700 text-white px-3 py-2 rounded hover:bg-gray-800" onclick="exportMaster('department','json')">JSON出力</button>
+              <button class="bg-gray-700 text-white px-3 py-2 rounded hover:bg-gray-800" onclick="exportMaster('department','csv')">CSV出力</button>
+            </div>
+          </div>
+          <div class="flex gap-2 mb-3">
+            <select id="mstDeptStatus" class="border rounded px-3 py-2">
+              <option value="">全て</option>
+              <option value="candidate">候補</option>
+              <option value="approved">承認</option>
+              <option value="archived">廃止</option>
+            </select>
+            <input id="mstDeptQ" class="border rounded px-3 py-2 flex-1" placeholder="検索（名称・統合名）">
+            <button id="mstDeptReload" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">再読込</button>
+          </div>
+          <div id="mstDeptList" class="space-y-3"></div>
         </section>
 
         <!-- AI設定 -->
@@ -411,6 +434,9 @@ document.getElementById('mstTestStatus').addEventListener('change', ()=>loadMast
 document.getElementById('mstSvcStatus').addEventListener('change', ()=>loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ'));
 document.getElementById('mstTestQ').addEventListener('input', ()=>loadMaster('test','mstTestList','mstTestStatus','mstTestQ'));
 document.getElementById('mstSvcQ').addEventListener('input',  ()=>loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ'));
+document.getElementById('mstDeptReload').addEventListener('click', ()=>loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ'));
+document.getElementById('mstDeptStatus').addEventListener('change', ()=>loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ'));
+document.getElementById('mstDeptQ').addEventListener('input',  ()=>loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ'));
 // 資格分類
 document.getElementById('catQualAdd').addEventListener('click', ()=>addCategory('qual','catQualNew'));
 
@@ -463,6 +489,7 @@ document.getElementById('aiSubSave').addEventListener('click', saveAISubSettings
   await loadMaster('test','mstTestList','mstTestStatus','mstTestQ');
   await loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ');
   await loadMaster('qual','mstQualList','mstQualStatus','mstQualQ');
+  await loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ');
 
   // AI設定
   await loadAISettings();

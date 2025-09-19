@@ -79,6 +79,18 @@
       </div>
     </section>
 
+    <!-- 標榜診療科 -->
+    <section class="bg-white rounded shadow p-6">
+      <h2 class="text-lg font-semibold text-blue-800 mb-4">標榜診療科</h2>
+      <p class="text-sm text-gray-600 mb-4">マスターで承認済みの診療科を複数選択できます。該当がない場合は「その他診療科」に入力してください（1行につき1診療科）。</p>
+      <div id="departmentOptions" class="grid md:grid-cols-2 gap-2 mb-4"></div>
+      <div>
+        <label for="departmentOthers" class="block text-sm text-gray-700 mb-1">その他診療科</label>
+        <textarea id="departmentOthers" rows="3" class="w-full border rounded px-3 py-2" placeholder="例: 睡眠医療センター\n例: 緩和ケア内科"></textarea>
+        <p class="text-xs text-gray-500 mt-1">入力された診療科は候補としてマスターに登録され、管理画面で承認できます。</p>
+      </div>
+    </section>
+
     <!-- 診療時間設定 -->
     <section class="bg-white rounded shadow p-6" id="clinic-schedule">
       <h2 class="text-lg font-semibold text-blue-800 mb-4">診療時間設定</h2>
@@ -168,9 +180,96 @@
 <script>
 const BASE = "https://ncd-app.altry.workers.dev";
 const days = ["月曜","火曜","水曜","木曜","金曜","土曜","日曜","祝日"];
+const DEPARTMENT_CATEGORY = "標榜診療科";
 
 let currentClinicId = "";
 let retainedQualifications = "";
+let departmentMaster = [];
+
+function normalizeText(v) {
+  return (v || "").trim();
+}
+
+function equalsIgnoreCase(a, b) {
+  return normalizeText(a).toLowerCase() === normalizeText(b).toLowerCase();
+}
+
+function renderDepartmentChecklist(selectedNames = []) {
+  const container = document.getElementById("departmentOptions");
+  if (!container) return;
+  container.innerHTML = "";
+
+  if (!departmentMaster.length) {
+    container.innerHTML = '<p class="text-sm text-gray-500">承認済みの標榜診療科がまだ登録されていません。</p>';
+    return;
+  }
+
+  const selectedSet = new Set((selectedNames || []).map(s => normalizeText(s)));
+  departmentMaster.forEach(item => {
+    const value = item.name || "";
+    const display = item.canonical_name || item.name || "";
+    const isChecked = selectedSet.has(normalizeText(item.name)) || selectedSet.has(normalizeText(item.canonical_name));
+    const wrapper = document.createElement('label');
+    wrapper.className = "flex items-center gap-2 bg-gray-50 border rounded px-3 py-2 hover:bg-gray-100";
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.name = 'deptMaster';
+    checkbox.value = value;
+    checkbox.className = 'h-4 w-4';
+    checkbox.checked = isChecked;
+
+    const text = document.createElement('span');
+    text.className = 'text-sm text-gray-700';
+    text.textContent = display;
+
+    wrapper.appendChild(checkbox);
+    wrapper.appendChild(text);
+    container.appendChild(wrapper);
+  });
+}
+
+async function loadDepartmentMaster() {
+  try {
+    const url = new URL(`${BASE}/api/listMaster`);
+    url.searchParams.set('type', 'department');
+    url.searchParams.set('status', 'approved');
+    const res = await fetch(url.toString());
+    const data = await res.json();
+    departmentMaster = (data.ok ? data.items : [])
+      .sort((a, b) => (a.canonical_name || a.name || "").localeCompare(b.canonical_name || b.name || "", 'ja'));
+  } catch (err) {
+    console.warn('failed to load department master', err);
+    departmentMaster = [];
+  }
+  renderDepartmentChecklist();
+}
+
+function parseDepartments(raw) {
+  if (!raw) return { master: [], others: [] };
+  if (Array.isArray(raw)) return { master: raw, others: [] };
+  if (typeof raw === 'object') {
+    const master = Array.isArray(raw.master) ? raw.master : Array.isArray(raw.standard) ? raw.standard : [];
+    const others = Array.isArray(raw.others) ? raw.others : [];
+    return { master, others };
+  }
+  return { master: [], others: [] };
+}
+
+async function registerDepartmentCandidates(names) {
+  if (!names?.length) return;
+  const unique = Array.from(new Set(names.map(normalizeText))).filter(Boolean);
+  const existing = departmentMaster.map(it => normalizeText(it.name)).concat(departmentMaster.map(it => normalizeText(it.canonical_name))); 
+  const targets = unique.filter(name => !existing.includes(name));
+  if (!targets.length) return;
+  await Promise.allSettled(targets.map(name =>
+    fetch(`${BASE}/api/addMasterItem`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "department", category: DEPARTMENT_CATEGORY, name, source: "clinicDetail" })
+    })
+  ));
+}
 
 function updateHomepageField() {
   const show = document.querySelector("input[name='homepageStatus']:checked")?.value === "available";
@@ -285,6 +384,16 @@ async function saveClinic() {
     return;
   }
 
+  const selectedDeptMaster = Array.from(document.querySelectorAll("input[name='deptMaster']:checked"))
+    .map(el => el.value)
+    .filter(Boolean);
+  const selectedDeptSet = new Set(selectedDeptMaster.map(normalizeText));
+  const otherDeptInput = document.getElementById("departmentOthers").value.split(/\n+/)
+    .map(normalizeText)
+    .filter(Boolean);
+  const uniqueOtherDept = Array.from(new Set(otherDeptInput))
+    .filter(name => !selectedDeptSet.has(normalizeText(name)));
+
   const homepageStatus = document.querySelector("input[name='homepageStatus']:checked")?.value || "none";
   const reservationStatus = document.querySelector("input[name='reservationStatus']:checked")?.value || "none";
   const homepageUrlInput = document.getElementById("homepageUrl").value.trim();
@@ -318,7 +427,11 @@ async function saveClinic() {
     },
     schedule: { patterns, days: schedule },
     homepage: { available: hasHomepage, url: homepageUrl },
-    reservation: { available: hasReservation, url: reservationUrl }
+    reservation: { available: hasReservation, url: reservationUrl },
+    departments: {
+      master: selectedDeptMaster,
+      others: uniqueOtherDept
+    }
   };
 
   try {
@@ -332,6 +445,7 @@ async function saveClinic() {
     const result = await res.json();
     localStorage.setItem("selectedClinic", JSON.stringify(result.clinic));
     alert("診療所データを更新しました");
+    await registerDepartmentCandidates(uniqueOtherDept);
   } catch (err) {
     alert("保存に失敗しました: " + err.message);
     console.error(err);
@@ -366,6 +480,10 @@ function loadClinicDetail() {
   document.getElementById("reservationUrl").value = reservationData.url || "";
   updateReservationField();
 
+  const deptState = parseDepartments(clinic.departments);
+  renderDepartmentChecklist(deptState.master);
+  document.getElementById("departmentOthers").value = deptState.others.join("\n");
+
   const patterns = clinic.schedule?.patterns || {};
   if (patterns.amA) { amA_start.value = patterns.amA[0] || ""; amA_end.value = patterns.amA[1] || ""; }
   if (patterns.amB) { amB_start.value = patterns.amB[0] || ""; amB_end.value = patterns.amB[1] || ""; }
@@ -383,7 +501,10 @@ function loadClinicDetail() {
   renderDisplay();
 }
 
-window.addEventListener("DOMContentLoaded", loadClinicDetail);
+window.addEventListener("DOMContentLoaded", async () => {
+  await loadDepartmentMaster();
+  loadClinicDetail();
+});
 </script>
 </body>
 </html>
