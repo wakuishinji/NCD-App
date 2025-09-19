@@ -205,22 +205,31 @@ function renderDepartmentChecklist(selectedNames = []) {
   }
 
   const selectedSet = new Set((selectedNames || []).map(s => normalizeText(s)));
-  let currentGroup = Symbol('init');
-  departmentMaster.forEach(item => {
+  const INITIAL_GROUP = Symbol('initial');
+  let currentGroup = INITIAL_GROUP;
+  departmentMaster.forEach((item, idx) => {
     const value = item.name || "";
     const display = item.canonical_name || item.name || "";
     const group = item.sortGroup || 'その他';
     if (group !== currentGroup) {
+      if (currentGroup !== INITIAL_GROUP) {
+        const divider = document.createElement('hr');
+        divider.className = 'mt-3 border-gray-200';
+        container.appendChild(divider);
+      }
       currentGroup = group;
+      const headingWrap = document.createElement('div');
+      headingWrap.className = 'mt-4 flex items-center gap-2 first:mt-0';
       const heading = document.createElement('div');
-      heading.className = 'mt-4 text-sm font-semibold text-gray-600 first:mt-0';
+      heading.className = 'text-sm font-semibold text-gray-600';
       heading.textContent = group;
-      container.appendChild(heading);
+      headingWrap.appendChild(heading);
+      container.appendChild(headingWrap);
     }
 
     const isChecked = selectedSet.has(normalizeText(item.name)) || selectedSet.has(normalizeText(item.canonical_name));
     const wrapper = document.createElement('label');
-    wrapper.className = "mt-1 flex items-center gap-2 bg-gray-50 border rounded px-3 py-2 hover:bg-gray-100";
+    wrapper.className = 'mt-1 flex items-center gap-2 bg-gray-50 border rounded px-3 py-2 hover:bg-gray-100';
 
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';

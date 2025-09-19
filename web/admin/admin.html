@@ -394,15 +394,24 @@ async function loadMaster(type, listElId, statusSelId, qId){
     return s.includes(q);
   });
 
-  let currentGroup = Symbol('init');
+  const INITIAL_GROUP = Symbol('initial');
+  let currentGroup = INITIAL_GROUP;
   filtered.forEach(it=>{
     const group = it.sortGroup || 'その他';
     if (group !== currentGroup) {
+      if (currentGroup !== INITIAL_GROUP) {
+        const divider = document.createElement('hr');
+        divider.className = 'mt-3 border-gray-200';
+        box.appendChild(divider);
+      }
       currentGroup = group;
+      const headingWrap = document.createElement('div');
+      headingWrap.className = 'mt-4 flex items-center gap-2 first:mt-0';
       const heading = document.createElement('div');
-      heading.className = "mt-4 text-sm font-semibold text-gray-600 first:mt-0";
+      heading.className = "text-sm font-semibold text-gray-600";
       heading.textContent = group;
-      box.appendChild(heading);
+      headingWrap.appendChild(heading);
+      box.appendChild(headingWrap);
     }
 
     const div = document.createElement('div');
