@@ -20,15 +20,25 @@
 
   <!-- ヒーロー（写真＋グラデ） -->
   <section class="relative isolate overflow-hidden min-h-[60vh] md:min-h-[72vh] flex items-center">
-    <!-- 背景写真 -->
-    <img
-      src="https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=1920&q=60"
-      alt="医療のイメージ写真"
-      class="absolute inset-0 -z-10 h-full w-full object-cover"
-      referrerpolicy="no-referrer"
-    />
-    <!-- オーバーレイ（読みやすさ向上） -->
-    <div class="absolute inset-0 -z-10 bg-gradient-to-b from-black/60 via-black/40 to-black/70"></div>
+    <!-- 抽象背景（外部画像なし） -->
+    <div class="absolute inset-0 -z-10 bg-gradient-to-b from-blue-950 via-slate-900 to-slate-950"></div>
+    <!-- サブtleパターン（SVGグリッド） -->
+    <svg class="absolute inset-0 -z-10 opacity-15" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <defs>
+        <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+          <path d="M48 0H0V48" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+        </pattern>
+        <radialGradient id="glow" cx="50%" cy="40%" r="60%">
+          <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.30"/>
+          <stop offset="60%" stop-color="#3b82f6" stop-opacity="0.18"/>
+          <stop offset="100%" stop-color="#6366f1" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#grid)"/>
+      <rect width="160%" height="160%" x="-30%" y="-30%" fill="url(#glow)"/>
+    </svg>
+    <!-- ぼかしグロー（ブルー系） -->
+    <div class="absolute -z-10 top-[-20%] left-1/2 -translate-x-1/2 w-[48rem] h-[48rem] bg-gradient-to-tr from-sky-400/35 via-blue-500/25 to-indigo-500/25 blur-3xl rounded-full"></div>
 
     <div class="relative mx-auto max-w-5xl px-6 py-20 md:py-28 w-full text-center text-white">
       <p class="text-sm md:text-base tracking-wider uppercase text-white/80">Nakano Clinic Database</p>
