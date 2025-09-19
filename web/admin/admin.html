@@ -187,6 +187,14 @@
               <button class="bg-gray-700 text-white px-3 py-2 rounded hover:bg-gray-800" onclick="exportMaster('department','csv')">CSV出力</button>
             </div>
           </div>
+          <div class="bg-white border rounded p-4 mb-4">
+            <h3 class="font-semibold text-gray-800 mb-2">診療科の手動追加</h3>
+            <div class="flex flex-col gap-2 md:flex-row">
+              <input id="mstDeptNew" class="border rounded px-3 py-2 flex-1" placeholder="診療科名（例: 内科）">
+              <button id="mstDeptAdd" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">候補として追加</button>
+            </div>
+            <p class="text-xs text-gray-500 mt-2">追加された診療科は候補ステータスで登録されます。承認すると施設詳細画面で選択できるようになります。</p>
+          </div>
           <div class="flex gap-2 mb-3">
             <select id="mstDeptStatus" class="border rounded px-3 py-2">
               <option value="">全て</option>
@@ -242,6 +250,7 @@
 
 <script>
 const BASE = "https://ncd-app.altry.workers.dev";
+const DEPARTMENT_CATEGORY = "標榜診療科";
 
 // -------------------- タブ --------------------
 const tabs = document.querySelectorAll(".tab");
@@ -427,6 +436,30 @@ function exportMaster(type, format){
   window.open(url, "_blank");
 }
 
+async function addDepartmentMaster(){
+  const input = document.getElementById('mstDeptNew');
+  if (!input) return;
+  const name = (input.value || '').trim();
+  if (!name) {
+    alert('診療科名を入力してください');
+    input.focus();
+    return;
+  }
+  try {
+    const res = await fetch(`${BASE}/api/addMasterItem`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: 'department', category: DEPARTMENT_CATEGORY, name, source: 'admin-manual' })
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    input.value = '';
+    await loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ');
+    alert('候補として追加しました。ステータスを承認に変更すると施設詳細で選択できます。');
+  } catch (err) {
+    alert('診療科の追加に失敗しました: ' + err.message);
+  }
+}
+
 // イベント
 document.getElementById('mstTestReload').addEventListener('click', ()=>loadMaster('test','mstTestList','mstTestStatus','mstTestQ'));
 document.getElementById('mstSvcReload').addEventListener('click',  ()=>loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ'));
@@ -434,6 +467,7 @@ document.getElementById('mstTestStatus').addEventListener('change', ()=>loadMast
 document.getElementById('mstSvcStatus').addEventListener('change', ()=>loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ'));
 document.getElementById('mstTestQ').addEventListener('input', ()=>loadMaster('test','mstTestList','mstTestStatus','mstTestQ'));
 document.getElementById('mstSvcQ').addEventListener('input',  ()=>loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ'));
+document.getElementById('mstDeptAdd').addEventListener('click', addDepartmentMaster);
 document.getElementById('mstDeptReload').addEventListener('click', ()=>loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ'));
 document.getElementById('mstDeptStatus').addEventListener('change', ()=>loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ'));
 document.getElementById('mstDeptQ').addEventListener('input',  ()=>loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ'));
