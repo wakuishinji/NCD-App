@@ -395,7 +395,7 @@ async function loadMaster(type, listElId, statusSelId, qId){
 
   filtered.forEach(it=>{
     const div = document.createElement('div');
-    div.className = "border rounded p-3 bg-white";
+    div.className = "border rounded p-3 bg-white space-y-2";
     div.innerHTML = `
       <div class="flex items-center justify-between">
         <div class="font-semibold text-blue-800">${it.category} / ${it.name}</div>
@@ -414,15 +414,36 @@ async function loadMaster(type, listElId, statusSelId, qId){
         </div>
       </div>
       <div class="mt-2">
-        <button class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700" onclick='updateMaster("${type}","${it.category.replace(/"/g,'&quot;')}","${it.name.replace(/"/g,'&quot;')}", this)'>更新</button>
+        <button class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 hidden" data-action="update" disabled>更新</button>
       </div>
       <div class="mt-2 text-xs text-gray-500">sources: ${(it.sources||[]).join(", ")}</div>
     `;
+
+    const updateBtn = div.querySelector('button[data-action="update"]');
+    updateBtn.addEventListener('click', () => {
+      updateMaster(type, it.category, it.name, updateBtn);
+    });
+
+    const cnInput = div.querySelector('input[data-k="cn"]');
+    const stSelect = div.querySelector('select[data-k="st"]');
+    const initialCn = cnInput.value;
+    const initialSt = stSelect.value;
+
+    function refreshButtonState(){
+      const changed = cnInput.value !== initialCn || stSelect.value !== initialSt;
+      updateBtn.disabled = !changed;
+      updateBtn.classList.toggle('hidden', !changed);
+    }
+
+    cnInput.addEventListener('input', refreshButtonState);
+    stSelect.addEventListener('change', refreshButtonState);
+    refreshButtonState();
+
     box.appendChild(div);
   });
 }
 async function updateMaster(type, category, name, btn){
-  const root = btn.closest('div').parentElement;
+  const root = btn.closest('.border');
   const cn = root.querySelector('input[data-k="cn"]').value;
   const st = root.querySelector('select[data-k="st"]').value;
   await fetch(`${BASE}/api/updateMasterItem`,{
@@ -430,6 +451,8 @@ async function updateMaster(type, category, name, btn){
     body: JSON.stringify({ type, category, name, canonical_name: cn, status: st })
   });
   alert("更新しました");
+  btn.disabled = true;
+  btn.classList.add('hidden');
 }
 function exportMaster(type, format){
   const url = `${BASE}/api/exportMaster?type=${type}&format=${format}`;
