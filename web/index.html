@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NCD - 中野区診療所データベース</title>
+  <title>NCD 入力システム</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- FontAwesome -->
   <script src="https://kit.fontawesome.com/a2d9d6b3e2.js" crossorigin="anonymous"></script>
@@ -20,32 +20,35 @@
 
   <!-- ヘッダー -->
   <header class="bg-blue-600 text-white p-6 text-center">
-    <h1 class="text-3xl font-bold">中野区診療所データベース</h1>
-    <p class="mt-2">病院・診療所・患者のための検索と情報共有</p>
+    <h1 class="text-3xl font-bold">NCD 入力システム</h1>
+    <p class="mt-2">中野区診療所データベース</p>
   </header>
 
   <!-- メイン -->
   <main class="flex-grow p-6 max-w-4xl mx-auto">
-    <h2 class="text-2xl font-semibold mb-4">ようこそ</h2>
+    <h2 class="text-2xl font-semibold mb-4">中野区診療所の先生方へ</h2>
     <p class="mb-6">
-      このサイトは、中野区の診療所情報を集約し、病院から診療所、診療所同士、そして患者さん自身が利用できるように構築されたデータベースです。
+      このサイトは、中野区医師会の先生方にご自身の診療所情報をご入力いただき、  
+      「中野区診療所データベース（NCD）」を構築するためのものです。  
+      登録内容は地域医療連携や紹介先検索に活用されます。 
     </p>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <a href="search.html" class="block bg-white shadow rounded p-6 hover:bg-gray-50">
-        <h3 class="text-xl font-bold mb-2"><i class="fas fa-search"></i> 診療所を探す</h3>
-        <p>条件を指定して診療所を検索できます。</p>
-      </a>
-      <a href="entry.html" class="block bg-white shadow rounded p-6 hover:bg-gray-50">
-        <h3 class="text-xl font-bold mb-2"><i class="fas fa-edit"></i> 情報を入力する</h3>
-        <p>ご自身の診療所情報を入力・更新してください。</p>
-      </a>
-    </div>
+    <h3 class="text-xl font-bold mb-2">新規登録</h3>
+    <p class="mb-4">はじめて入力する先生はこちら</p>
+    <a href="register.html" class="block bg-white shadow rounded p-6 hover:bg-gray-50 mb-6">
+      <i class="fas fa-plus-circle"></i> 新規診療所を登録
+    </a>
+
+    <h3 class="text-xl font-bold mb-2">施設選択</h3>
+    <p class="mb-4">既に登録済みの診療所を選び、入力を続けられます</p>
+    <a href="list.html" class="block bg-white shadow rounded p-6 hover:bg-gray-50">
+      <i class="fas fa-list"></i> 施設を選択
+    </a>
   </main>
 
   <!-- フッター -->
   <footer class="bg-gray-200 text-center py-4">
-    <p>&copy; 2025 中野区医師会 / ALTRY</p>
+    <p>&copy; 2025 中野区医師会 - Nakano Clinic Database</p>
   </footer>
 </body>
 </html>
