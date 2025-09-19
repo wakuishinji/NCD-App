@@ -426,6 +426,7 @@ async function loadMaster(type, listElId, statusSelId, qId){
 
     const cnInput = div.querySelector('input[data-k="cn"]');
     const stSelect = div.querySelector('select[data-k="st"]');
+    applyStatusAppearance(stSelect);
     const initialCn = cnInput.value;
     const initialSt = stSelect.value;
 
@@ -436,7 +437,10 @@ async function loadMaster(type, listElId, statusSelId, qId){
     }
 
     cnInput.addEventListener('input', refreshButtonState);
-    stSelect.addEventListener('change', refreshButtonState);
+    stSelect.addEventListener('change', () => {
+      refreshButtonState();
+      applyStatusAppearance(stSelect);
+    });
     refreshButtonState();
 
     box.appendChild(div);
@@ -457,6 +461,37 @@ async function updateMaster(type, category, name, btn){
 function exportMaster(type, format){
   const url = `${BASE}/api/exportMaster?type=${type}&format=${format}`;
   window.open(url, "_blank");
+}
+
+function applyStatusAppearance(selectEl){
+  if (!selectEl) return;
+  const accentClasses = [
+    'bg-green-50','text-green-700','border-green-300',
+    'bg-red-50','text-red-700','border-red-300',
+    'bg-gray-100','text-gray-600','border-gray-300'
+  ];
+  selectEl.classList.remove(...accentClasses);
+  switch (selectEl.value) {
+    case 'approved':
+      selectEl.classList.add('bg-green-50','text-green-700','border-green-300');
+      break;
+    case 'candidate':
+      selectEl.classList.add('bg-red-50','text-red-700','border-red-300');
+      break;
+    case 'archived':
+      selectEl.classList.add('bg-gray-100','text-gray-600','border-gray-300');
+      break;
+    default:
+      break;
+  }
+}
+
+function bindStatusFilterAppearance(id){
+  const el = document.getElementById(id);
+  if (!el) return;
+  const handler = () => applyStatusAppearance(el);
+  el.addEventListener('change', handler);
+  handler();
 }
 
 async function addDepartmentMaster(){
@@ -494,6 +529,10 @@ document.getElementById('mstDeptAdd').addEventListener('click', addDepartmentMas
 document.getElementById('mstDeptReload').addEventListener('click', ()=>loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ'));
 document.getElementById('mstDeptStatus').addEventListener('change', ()=>loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ'));
 document.getElementById('mstDeptQ').addEventListener('input',  ()=>loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ'));
+bindStatusFilterAppearance('mstTestStatus');
+bindStatusFilterAppearance('mstSvcStatus');
+bindStatusFilterAppearance('mstDeptStatus');
+bindStatusFilterAppearance('mstQualStatus');
 // 資格分類
 document.getElementById('catQualAdd').addEventListener('click', ()=>addCategory('qual','catQualNew'));
 
