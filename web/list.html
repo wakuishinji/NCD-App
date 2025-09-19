@@ -23,6 +23,7 @@
         <tr class="bg-gray-200 text-left">
           <th class="p-2 border">#</th>
           <th class="p-2 border">診療所名</th>
+          <th class="p-2 border w-32">操作</th>
         </tr>
       </thead>
       <tbody id="clinicTable"></tbody>
@@ -38,14 +39,24 @@
       const res = await fetch("https://ncd-app.altry.workers.dev/api/listClinics");
       const data = await res.json();
 
-      if (res.ok && data.ok && data.clinics.length > 0) {
+      if (res.ok && data.ok && Array.isArray(data.clinics) && data.clinics.length > 0) {
         tbody.innerHTML = data.clinics
-          .map((c, i) => `
-            <tr>
-              <td class="p-2 border">${i + 1}</td>
-              <td class="p-2 border">${c.name}</td>
-            </tr>
-          `)
+          .map((c, i) => {
+            const payload = encodeURIComponent(JSON.stringify(c));
+            return `
+              <tr class="hover:bg-blue-50">
+                <td class="p-2 border align-top">${i + 1}</td>
+                <td class="p-2 border">
+                  <div class="font-semibold text-blue-800">${c.name || "(名称未設定)"}</div>
+                  <div class="text-sm text-gray-500">${c.address || ""}</div>
+                </td>
+                <td class="p-2 border align-top">
+                  <button class="bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700"
+                          data-clinic="${payload}"
+                          onclick="selectClinic(this)">選択</button>
+                </td>
+              </tr>`;
+          })
           .join("");
       } else {
         tbody.innerHTML = "<tr><td colspan='2' class='p-2'>登録済みの診療所はありません。</td></tr>";
@@ -56,6 +67,17 @@
   }
 
   loadClinics();
+
+  function selectClinic(btn) {
+    try {
+      const raw = btn.getAttribute('data-clinic');
+      const clinic = JSON.parse(decodeURIComponent(raw));
+      localStorage.setItem('selectedClinic', JSON.stringify(clinic));
+      window.location.href = 'clinicHome.html';
+    } catch (e) {
+      alert('選択に失敗しました: ' + e.message);
+    }
+  }
 </script>
 </body>
 </html>
