@@ -525,6 +525,14 @@ if (routeMatch(url, "GET", "listClinics")) {
       "小児科","耳鼻咽喉科","眼科","泌尿器科","精神科・心療内科",
       "在宅医療・訪問診療","リハビリテーション","健診・予防接種","禁煙外来","睡眠医療"
     ];
+    const DEFAULT_CATEGORIES_QUAL = [
+      "内科基盤","総合診療領域","循環器領域","呼吸器領域","消化器領域","内分泌・代謝領域",
+      "腎臓領域","血液領域","神経領域","感染症領域","アレルギー・膠原病領域",
+      "小児科領域","産婦人科領域","皮膚科領域","眼科領域","耳鼻咽喉科領域","精神科領域",
+      "外科領域","心臓血管外科領域","整形外科領域","脳神経外科領域","泌尿器領域",
+      "放射線科領域","麻酔科領域","病理領域","臨床検査領域","リハビリテーション領域"
+    ];
+    const DEFAULT_CATEGORIES_DEPARTMENT = ["標榜診療科"];
 
     async function getCategories(env, type) {
       const key = `categories:${type}`;
@@ -537,32 +545,22 @@ if (routeMatch(url, "GET", "listClinics")) {
       await env.SETTINGS.put(key, JSON.stringify(arr));
     }
     function defaultsFor(type){
-      return type === "test" ? [...DEFAULT_CATEGORIES_TEST] : [...DEFAULT_CATEGORIES_SERVICE];
+      switch(type){
+        case "test": return [...DEFAULT_CATEGORIES_TEST];
+        case "service": return [...DEFAULT_CATEGORIES_SERVICE];
+        case "qual": return [...DEFAULT_CATEGORIES_QUAL];
+        case "department": return [...DEFAULT_CATEGORIES_DEPARTMENT];
+        default: return [];
+      }
     }
 
     // <<< START: CATEGORIES_LIST >>>
       if (routeMatch(url, "GET", "listCategories")) {
     const type = url.searchParams.get("type");
-    // ★ ここを test, service, qual に
-    if (!type || !["test","service","qual"].includes(type)) {
-      return new Response(JSON.stringify({ error: "type は test / service / qual" }), {
+    if (!type || !["test","service","qual","department"].includes(type)) {
+      return new Response(JSON.stringify({ error: "type は test / service / qual / department" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
-    }
-
-    // （任意）qual 用のデフォルト。seed 済みなら使われません。
-    const DEFAULT_CATEGORIES_QUAL = [
-      "内科基盤","総合診療領域","循環器領域","呼吸器領域","消化器領域","内分泌・代謝領域",
-      "腎臓領域","血液領域","神経領域","感染症領域","アレルギー・膠原病領域",
-      "小児科領域","産婦人科領域","皮膚科領域","眼科領域","耳鼻咽喉科領域","精神科領域",
-      "外科領域","心臓血管外科領域","整形外科領域","脳神経外科領域","泌尿器領域",
-      "放射線科領域","麻酔科領域","病理領域","臨床検査領域","リハビリテーション領域"
-    ];
-
-    function defaultsFor(t){
-      return t === "test"    ? [...DEFAULT_CATEGORIES_TEST]
-          : t === "service" ? [...DEFAULT_CATEGORIES_SERVICE]
-          : /* qual */        [...DEFAULT_CATEGORIES_QUAL];
     }
 
     let cats = await getCategories(env, type);
@@ -579,8 +577,8 @@ if (routeMatch(url, "GET", "listClinics")) {
       const body = await request.json();
       const type = body?.type;
       const name = (body?.name || "").trim();
-      if (!type || !["test","service","qual"].includes(type) || !name) {
-        return new Response(JSON.stringify({ error: "type/name 不正（type は test / service / qual）" }), {
+      if (!type || !["test","service","qual","department"].includes(type) || !name) {
+        return new Response(JSON.stringify({ error: "type/name 不正（type は test / service / qual / department）" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       }
@@ -599,8 +597,8 @@ if (routeMatch(url, "GET", "listClinics")) {
       const type = body?.type;
       const oldName = (body?.oldName || "").trim();
       const newName = (body?.newName || "").trim();
-      if (!type || !["test","service","qual"].includes(type) || !oldName || !newName) {
-        return new Response(JSON.stringify({ error: "パラメータ不正（type は test / service / qual）" }), {
+      if (!type || !["test","service","qual","department"].includes(type) || !oldName || !newName) {
+        return new Response(JSON.stringify({ error: "パラメータ不正（type は test / service / qual / department）" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       }
@@ -618,8 +616,8 @@ if (routeMatch(url, "GET", "listClinics")) {
       const body = await request.json();
       const type = body?.type;
       const name = (body?.name || "").trim();
-      if (!type || !["test","service","qual"].includes(type) || !name) {
-        return new Response(JSON.stringify({ error: "パラメータ不正（type は test / service / qual）" }), {
+      if (!type || !["test","service","qual","department"].includes(type) || !name) {
+        return new Response(JSON.stringify({ error: "パラメータ不正（type は test / service / qual / department）" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       }
