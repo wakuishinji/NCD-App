@@ -394,15 +394,25 @@ async function loadMaster(type, listElId, statusSelId, qId){
     return s.includes(q);
   });
 
+  let currentGroup = Symbol('init');
   filtered.forEach(it=>{
+    const group = it.sortGroup || 'その他';
+    if (group !== currentGroup) {
+      currentGroup = group;
+      const heading = document.createElement('div');
+      heading.className = "mt-4 text-sm font-semibold text-gray-600 first:mt-0";
+      heading.textContent = group;
+      box.appendChild(heading);
+    }
+
     const div = document.createElement('div');
-    div.className = "border rounded p-3 bg-white space-y-2";
+    div.className = "mt-1 border rounded p-3 bg-white space-y-2";
     div.innerHTML = `
       <div class="flex items-center justify-between">
         <div class="font-semibold text-blue-800">${it.category} / ${it.name}</div>
         <div class="text-xs text-gray-500">count: ${it.count||0} / status: ${it.status||'-'}</div>
       </div>
-      <div class="mt-2 grid md:grid-cols-2 gap-3">
+      <div class="grid md:grid-cols-2 gap-3">
         <div>
           <label class="block text-xs text-gray-600">canonical_name（統合名）</label>
           <input class="w-full border rounded px-2 py-1" value="${(it.canonical_name||'').replace(/"/g,'&quot;')}" data-k="cn">
@@ -413,12 +423,20 @@ async function loadMaster(type, listElId, statusSelId, qId){
             ${["candidate","approved","archived"].map(s=>`<option ${s===(it.status||'')?'selected':''}>${s}</option>`).join("")}
           </select>
         </div>
+        <div>
+          <label class="block text-xs text-gray-600">sortGroup</label>
+          <input class="w-full border rounded px-2 py-1" value="${(it.sortGroup||'').replace(/"/g,'&quot;')}" data-k="group" placeholder="例: 内科系">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-600">sortOrder</label>
+          <input class="w-full border rounded px-2 py-1" type="number" value="${typeof it.sortOrder === 'number' ? it.sortOrder : ''}" data-k="order" placeholder="例: 100">
+        </div>
       </div>
-      <div class="mt-2">
+      <div class="">
         <button class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 hidden" data-action="update" disabled>更新</button>
       </div>
       ${Array.isArray(it.similarMatches) && it.similarMatches.length ? `
-        <div class="mt-2 bg-yellow-50 border border-yellow-200 rounded p-2 text-xs text-yellow-900">
+        <div class="bg-yellow-50 border border-yellow-200 rounded p-2 text-xs text-yellow-900">
           <div class="font-semibold mb-1">重複候補 (score ≥ 0.92)</div>
           <ul class="space-y-1">
             ${it.similarMatches.map(m=>`
@@ -430,7 +448,7 @@ async function loadMaster(type, listElId, statusSelId, qId){
           </ul>
         </div>
       ` : ''}
-      <div class="mt-2 text-xs text-gray-500">sources: ${(it.sources||[]).join(", ")}</div>
+      <div class="text-xs text-gray-500">sources: ${(it.sources||[]).join(", ")}</div>
     `;
 
     const updateBtn = div.querySelector('button[data-action="update"]');
@@ -440,17 +458,26 @@ async function loadMaster(type, listElId, statusSelId, qId){
 
     const cnInput = div.querySelector('input[data-k="cn"]');
     const stSelect = div.querySelector('select[data-k="st"]');
+    const groupInput = div.querySelector('input[data-k="group"]');
+    const orderInput = div.querySelector('input[data-k="order"]');
     applyStatusAppearance(stSelect);
     const initialCn = cnInput.value;
     const initialSt = stSelect.value;
+    const initialGroup = groupInput.value;
+    const initialOrder = orderInput.value;
 
     function refreshButtonState(){
-      const changed = cnInput.value !== initialCn || stSelect.value !== initialSt;
+      const changed = cnInput.value !== initialCn ||
+                      stSelect.value !== initialSt ||
+                      groupInput.value !== initialGroup ||
+                      orderInput.value !== initialOrder;
       updateBtn.disabled = !changed;
       updateBtn.classList.toggle('hidden', !changed);
     }
 
     cnInput.addEventListener('input', refreshButtonState);
+    groupInput.addEventListener('input', refreshButtonState);
+    orderInput.addEventListener('input', refreshButtonState);
     stSelect.addEventListener('change', () => {
       refreshButtonState();
       applyStatusAppearance(stSelect);
@@ -471,9 +498,18 @@ async function updateMaster(type, category, name, btn){
   const root = btn.closest('.border');
   const cn = root.querySelector('input[data-k="cn"]').value;
   const st = root.querySelector('select[data-k="st"]').value;
+  const group = root.querySelector('input[data-k="group"]').value.trim();
+  const orderRaw = root.querySelector('input[data-k="order"]').value.trim();
+  const sortOrder = orderRaw === '' ? null : Number(orderRaw);
   await fetch(`${BASE}/api/updateMasterItem`,{
     method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({ type, category, name, canonical_name: cn, status: st })
+    body: JSON.stringify({
+      type, category, name,
+      canonical_name: cn,
+      status: st,
+      sortGroup: group || null,
+      sortOrder: Number.isFinite(sortOrder) ? sortOrder : null
+    })
   });
   alert("更新しました");
   btn.disabled = true;

@@ -493,6 +493,17 @@ if (routeMatch(url, "GET", "listClinics")) {
         items.push(obj);
         collected.push({ obj, norm: normalizeForSimilarity(obj.canonical_name || obj.name) });
       }
+      const collator = new Intl.Collator('ja');
+      items.sort((a, b) => {
+        const ao = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER;
+        const bo = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER;
+        if (ao !== bo) return ao - bo;
+        const ag = a.sortGroup || '';
+        const bg = b.sortGroup || '';
+        const gcmp = collator.compare(ag, bg);
+        if (gcmp !== 0) return gcmp;
+        return collator.compare(a.name || '', b.name || '');
+      });
       if (includeSimilar && items.length > 1) {
         for (const entry of collected) {
           if (!entry.norm) continue;
@@ -528,7 +539,7 @@ if (routeMatch(url, "GET", "listClinics")) {
     if (routeMatch(url, "POST", "updateMasterItem")) {
       try {
         const body = await request.json();
-        const { type, category, name, status, canonical_name } = body || {};
+        const { type, category, name, status, canonical_name, sortGroup, sortOrder } = body || {};
         if (!type || !category || !name) {
           return new Response(JSON.stringify({ error: "type, category, name は必須です" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -545,6 +556,14 @@ if (routeMatch(url, "GET", "listClinics")) {
         if (status) obj.status = status;
         if (typeof canonical_name === "string") {
           obj.canonical_name = canonical_name || null;
+        }
+        if (typeof sortGroup === "string") {
+          const trimmed = sortGroup.trim();
+          obj.sortGroup = trimmed || null;
+        }
+        if (Object.prototype.hasOwnProperty.call(body, "sortOrder")) {
+          const num = Number(sortOrder);
+          obj.sortOrder = Number.isFinite(num) ? num : null;
         }
         obj.updated_at = Math.floor(Date.now() / 1000);
 

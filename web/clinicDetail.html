@@ -205,12 +205,22 @@ function renderDepartmentChecklist(selectedNames = []) {
   }
 
   const selectedSet = new Set((selectedNames || []).map(s => normalizeText(s)));
+  let currentGroup = Symbol('init');
   departmentMaster.forEach(item => {
     const value = item.name || "";
     const display = item.canonical_name || item.name || "";
+    const group = item.sortGroup || 'その他';
+    if (group !== currentGroup) {
+      currentGroup = group;
+      const heading = document.createElement('div');
+      heading.className = 'mt-4 text-sm font-semibold text-gray-600 first:mt-0';
+      heading.textContent = group;
+      container.appendChild(heading);
+    }
+
     const isChecked = selectedSet.has(normalizeText(item.name)) || selectedSet.has(normalizeText(item.canonical_name));
     const wrapper = document.createElement('label');
-    wrapper.className = "flex items-center gap-2 bg-gray-50 border rounded px-3 py-2 hover:bg-gray-100";
+    wrapper.className = "mt-1 flex items-center gap-2 bg-gray-50 border rounded px-3 py-2 hover:bg-gray-100";
 
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
@@ -236,8 +246,18 @@ async function loadDepartmentMaster() {
     url.searchParams.set('status', 'approved');
     const res = await fetch(url.toString());
     const data = await res.json();
+    const collator = new Intl.Collator('ja');
     departmentMaster = (data.ok ? data.items : [])
-      .sort((a, b) => (a.canonical_name || a.name || "").localeCompare(b.canonical_name || b.name || "", 'ja'));
+      .sort((a, b) => {
+        const ao = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER;
+        const bo = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER;
+        if (ao !== bo) return ao - bo;
+        const ag = a.sortGroup || '';
+        const bg = b.sortGroup || '';
+        const gcmp = collator.compare(ag, bg);
+        if (gcmp !== 0) return gcmp;
+        return collator.compare(a.name || '', b.name || '');
+      });
   } catch (err) {
     console.warn('failed to load department master', err);
     departmentMaster = [];
