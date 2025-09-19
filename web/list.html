@@ -6,34 +6,46 @@
   <title>診療所一覧</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-gray-50 text-gray-800 flex flex-col items-center min-h-screen">
+<body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col">
   <!-- 共通ヘッダー -->
-  <header class="w-full bg-gradient-to-r from-blue-950 via-slate-900 to-blue-950 text-white shadow">
+  <header class="bg-gradient-to-r from-blue-950 via-slate-900 to-blue-950 text-white shadow">
     <div class="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
-      <a href="/index.html" class="inline-flex items-center rounded bg-white/20 px-3 py-1 text-sm font-semibold text-white transition hover:bg-white/30">Top</a>
+      <div class="flex items-center gap-2">
+        <a href="/index.html" class="inline-flex items-center rounded bg-white/20 px-3 py-1 text-sm font-semibold text-white transition hover:bg-white/30">Top</a>
+        <a id="toClinicHome" href="clinicHome.html" class="inline-flex items-center rounded bg-white/20 px-3 py-1 text-sm font-semibold text-white transition hover:bg-white/30">施設ホームへ</a>
+      </div>
       <h1 class="text-lg md:text-xl font-bold">登録済み 診療所一覧</h1>
-      <div class="w-[100px]"></div>
+      <a href="register.html" class="inline-flex items-center rounded bg-white/20 px-3 py-1 text-sm font-semibold text-white transition hover:bg-white/30">新規登録へ</a>
     </div>
   </header>
-  <div class="h-2"></div>
 
-  <div class="bg-white shadow p-6 rounded w-full max-w-2xl">
-    <table class="w-full border border-gray-300">
-      <thead>
-        <tr class="bg-gray-200 text-left">
-          <th class="p-2 border">#</th>
-          <th class="p-2 border">診療所名</th>
-          <th class="p-2 border w-32">操作</th>
-        </tr>
-      </thead>
-      <tbody id="clinicTable"></tbody>
-    </table>
-  </div>
+  <main class="flex-1 w-full">
+    <section class="max-w-5xl mx-auto px-4 py-6 space-y-4">
+      <div class="bg-white shadow rounded p-6">
+        <h2 class="text-blue-800 text-lg font-semibold mb-4">診療所一覧</h2>
+        <p class="text-sm text-gray-600 mb-4">選択するとローカルに保存され、施設ホーム画面へ移動します。</p>
+        <table class="w-full border border-gray-200 text-sm">
+          <thead>
+            <tr class="bg-gray-100 text-left text-xs uppercase tracking-wide text-gray-500">
+              <th class="p-2 border">#</th>
+              <th class="p-2 border">診療所名</th>
+              <th class="p-2 border w-32 text-center">操作</th>
+            </tr>
+          </thead>
+          <tbody id="clinicTable"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer class="bg-gray-200 text-gray-700 text-center py-4">
+    <p class="text-sm">© 2025 中野区医師会 - Nakano Clinic Database</p>
+  </footer>
 
   <script>
   async function loadClinics() {
     const tbody = document.getElementById("clinicTable");
-    tbody.innerHTML = "<tr><td colspan='2' class='p-2'>読み込み中...</td></tr>";
+    tbody.innerHTML = "<tr><td colspan='3' class='p-3 text-center text-gray-500'>読み込み中...</td></tr>";
 
     try {
       const res = await fetch("https://ncd-app.altry.workers.dev/api/listClinics");
@@ -48,9 +60,9 @@
                 <td class="p-2 border align-top">${i + 1}</td>
                 <td class="p-2 border">
                   <div class="font-semibold text-blue-800">${c.name || "(名称未設定)"}</div>
-                  <div class="text-sm text-gray-500">${c.address || ""}</div>
+                  <div class="text-xs text-gray-500 mt-1">${c.address || "住所未登録"}</div>
                 </td>
-                <td class="p-2 border align-top">
+                <td class="p-2 border align-top text-center">
                   <button class="bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700"
                           data-clinic="${payload}"
                           onclick="selectClinic(this)">選択</button>
@@ -59,10 +71,10 @@
           })
           .join("");
       } else {
-        tbody.innerHTML = "<tr><td colspan='2' class='p-2'>登録済みの診療所はありません。</td></tr>";
+        tbody.innerHTML = "<tr><td colspan='3' class='p-3 text-center text-gray-500'>登録済みの診療所はありません。</td></tr>";
       }
     } catch (err) {
-      tbody.innerHTML = `<tr><td colspan='2' class='p-2 text-red-600'>エラー: ${err.message}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan='3' class='p-3 text-center text-red-600'>エラー: ${err.message}</td></tr>`;
     }
   }
 
@@ -78,6 +90,13 @@
       alert('選択に失敗しました: ' + e.message);
     }
   }
+
+  (function toggleHomeLink(){
+    const link = document.getElementById('toClinicHome');
+    if (!link) return;
+    const stored = localStorage.getItem('selectedClinic');
+    link.style.display = stored ? 'inline-flex' : 'none';
+  })();
 </script>
 </body>
 </html>
