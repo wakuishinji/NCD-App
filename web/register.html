@@ -7,14 +7,15 @@
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-50 text-gray-800 flex flex-col items-center min-h-screen">
-     <!-- 左上固定ナビ -->
-  <div class="absolute top-4 left-4">
-    <a href="index.html"
-       class="bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700">
-      Top
-    </a>
-  </div>
-  <h1 class="text-2xl font-bold my-6">診療所 新規登録</h1>
+  <!-- 共通ヘッダー -->
+  <header class="w-full bg-gradient-to-r from-blue-950 via-slate-900 to-blue-950 text-white shadow">
+    <div class="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
+      <a href="/index.html" class="text-white/90 hover:text-white font-semibold">Top</a>
+      <h1 class="text-lg md:text-xl font-bold">診療所 新規登録</h1>
+      <div class="w-[100px]"></div>
+    </div>
+  </header>
+  <div class="h-2"></div>
 
   <div class="bg-white shadow p-6 rounded w-full max-w-md">
     <label class="block mb-2 font-medium text-gray-700">診療所名</label>
