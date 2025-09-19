@@ -36,6 +36,27 @@ let todos = [
   {category: "サーバー", title: "Let’s Encrypt 自動更新", status: "done", priority: "P2", createdAt: "2025-01-05T09:00:00+09:00"}
 ];
 
+async function loadTodos() {
+  try {
+    const res = await fetch("/api/todo/list");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (Array.isArray(data?.todos)) {
+      todos = data.todos.map((t) => ({
+        category: t.category ?? "",
+        title: t.title ?? "",
+        status: t.status === "done" ? "done" : "open",
+        priority: ["P1", "P2", "P3"].includes(t.priority) ? t.priority : "P3",
+        createdAt: t.createdAt ?? new Date().toISOString(),
+      }));
+    }
+  } catch (err) {
+    console.warn("todo load failed", err);
+  } finally {
+    renderTodos();
+  }
+}
+
 function formatDate(isoString) {
   if (!isoString) return "-";
   const date = new Date(isoString);
@@ -125,18 +146,27 @@ function editTitle(idx, val) { todos[idx].title = val; }
 function editPriority(idx, val) { todos[idx].priority = val; }
 function deleteTask(idx) { todos.splice(idx, 1); renderTodos(); }
 
-function saveTodos() {
-  fetch("/api/todo/save", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify(todos)
-  }).then(r => r.json()).then(d => {
+async function saveTodos() {
+  try {
+    const res = await fetch("/api/todo/save", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ todos })
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (Array.isArray(data?.todos)) {
+      todos = data.todos;
+      renderTodos();
+    }
     alert("保存しました！");
-    console.log(d);
-  }).catch(e => alert("保存に失敗しました"));
+  } catch (err) {
+    console.error("todo save failed", err);
+    alert("保存に失敗しました");
+  }
 }
 
-renderTodos();
+loadTodos();
 </script>
 </body>
 </html>

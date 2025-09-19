@@ -77,6 +77,24 @@ export default {
     }
     // <<< END: UTILS >>>
 
+    const TODO_KEY = "todo:list";
+    const DEFAULT_TODOS = [
+      {
+        category: "フロントエンド",
+        title: "フォームバリデーション実装",
+        status: "open",
+        priority: "P1",
+        createdAt: "2025-01-01T09:00:00+09:00",
+      },
+      {
+        category: "サーバー",
+        title: "Let’s Encrypt 自動更新",
+        status: "done",
+        priority: "P2",
+        createdAt: "2025-01-05T09:00:00+09:00",
+      },
+    ];
+
     // ============================================================
     // <<< START: ROUTE_MATCH >>>
     // ============================================================
@@ -89,6 +107,19 @@ export default {
       );
     }
     // <<< END: ROUTE_MATCH >>>
+
+    function normalizeTodoEntry(raw) {
+      if (!raw || typeof raw !== "object") return null;
+      const category = nk(raw.category);
+      const title = nk(raw.title);
+      if (!category || !title) return null;
+      const status = raw.status === "done" ? "done" : "open";
+      const priority = ["P1", "P2", "P3"].includes(raw.priority) ? raw.priority : "P3";
+      const createdAt = typeof raw.createdAt === "string" && raw.createdAt
+        ? raw.createdAt
+        : new Date().toISOString();
+      return { category, title, status, priority, createdAt };
+    }
 
     // ============================================================
     // <<< START: AI_GENERATE >>>
@@ -796,6 +827,64 @@ function buildGroupsByEmbedding(items, threshold) {
   });
   return groups;
 }
+
+    // ============================================================
+    // <<< START: TODO_MANAGEMENT >>>
+    // ============================================================
+    if (routeMatch(url, "GET", "todo/list")) {
+      const raw = await kvGetJSON(env, TODO_KEY);
+      let updatedAt = null;
+      let items = [];
+      if (Array.isArray(raw)) {
+        items = raw.map(normalizeTodoEntry).filter(Boolean);
+      } else if (raw && typeof raw === "object") {
+        if (Array.isArray(raw.todos)) {
+          items = raw.todos.map(normalizeTodoEntry).filter(Boolean);
+        }
+        if (raw.updatedAt) {
+          updatedAt = raw.updatedAt;
+        }
+      }
+      if (!items.length) {
+        items = DEFAULT_TODOS.map(normalizeTodoEntry).filter(Boolean);
+      }
+      return new Response(JSON.stringify({ ok: true, todos: items, updatedAt }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (routeMatch(url, "POST", "todo/save")) {
+      let payload;
+      try {
+        payload = await request.json();
+      } catch (err) {
+        return new Response(JSON.stringify({ error: "Invalid JSON" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const source = Array.isArray(payload)
+        ? payload
+        : (Array.isArray(payload?.todos) ? payload.todos : null);
+
+      if (!source) {
+        return new Response(JSON.stringify({ error: "todos array is required" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const todos = source.map(normalizeTodoEntry).filter(Boolean);
+      const updatedAt = new Date().toISOString();
+      await kvPutJSON(env, TODO_KEY, { updatedAt, todos });
+
+      return new Response(JSON.stringify({ ok: true, todos, updatedAt }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    // ============================================================
+    // <<< END: TODO_MANAGEMENT >>>
 
 // ------------------------------------------------------------
 // API: AI埋め込みの再計算（バックフィル）
