@@ -205,31 +205,43 @@ function renderDepartmentChecklist(selectedNames = []) {
   }
 
   const selectedSet = new Set((selectedNames || []).map(s => normalizeText(s)));
-  const INITIAL_GROUP = Symbol('initial');
-  let currentGroup = INITIAL_GROUP;
-  departmentMaster.forEach((item, idx) => {
+  let currentGroup = null;
+  let groupBlock = null;
+  let listWrap = null;
+
+  departmentMaster.forEach(item => {
     const value = item.name || "";
     const display = item.canonical_name || item.name || "";
     const group = item.sortGroup || 'その他';
+    const isChecked = selectedSet.has(normalizeText(item.name)) || selectedSet.has(normalizeText(item.canonical_name));
+
     if (group !== currentGroup) {
-      if (currentGroup !== INITIAL_GROUP) {
+      currentGroup = group;
+
+      // グループの前に区切り線を挿入（先頭グループは除く）
+      if (container.lastElementChild) {
         const divider = document.createElement('hr');
-        divider.className = 'mt-3 border-gray-200';
+        divider.className = 'mt-4 border-gray-200';
         container.appendChild(divider);
       }
-      currentGroup = group;
-      const headingWrap = document.createElement('div');
-      headingWrap.className = 'mt-4 flex items-center gap-2 first:mt-0';
+
+      groupBlock = document.createElement('div');
+      groupBlock.className = 'pt-4 first:pt-0';
+
       const heading = document.createElement('div');
-      heading.className = 'text-sm font-semibold text-gray-600';
-      heading.textContent = group;
-      headingWrap.appendChild(heading);
-      container.appendChild(headingWrap);
+      heading.className = 'text-sm font-semibold text-gray-700 mb-2';
+      heading.textContent = currentGroup;
+      groupBlock.appendChild(heading);
+
+      listWrap = document.createElement('div');
+      listWrap.className = 'grid gap-2 grid-cols-1 sm:grid-cols-2';
+      groupBlock.appendChild(listWrap);
+
+      container.appendChild(groupBlock);
     }
 
-    const isChecked = selectedSet.has(normalizeText(item.name)) || selectedSet.has(normalizeText(item.canonical_name));
     const wrapper = document.createElement('label');
-    wrapper.className = 'mt-1 flex items-center gap-2 bg-gray-50 border rounded px-3 py-2 hover:bg-gray-100';
+    wrapper.className = 'flex items-center gap-2 rounded border px-3 py-2 text-sm text-gray-700 bg-gray-50 hover:bg-gray-100';
 
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
@@ -239,13 +251,18 @@ function renderDepartmentChecklist(selectedNames = []) {
     checkbox.checked = isChecked;
 
     const text = document.createElement('span');
-    text.className = 'text-sm text-gray-700';
     text.textContent = display;
 
     wrapper.appendChild(checkbox);
     wrapper.appendChild(text);
-    container.appendChild(wrapper);
+    listWrap.appendChild(wrapper);
   });
+
+  if (container.childElementCount) {
+    const finalDivider = document.createElement('hr');
+    finalDivider.className = 'mt-4 border-gray-200';
+    container.appendChild(finalDivider);
+  }
 }
 
 async function loadDepartmentMaster() {
