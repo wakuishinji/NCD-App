@@ -536,9 +536,20 @@ function loadClinicDetail() {
   renderDisplay();
 }
 
-window.addEventListener("DOMContentLoaded", async () => {
-  await loadDepartmentMaster();
+window.addEventListener("DOMContentLoaded", () => {
+  // 先に選択済み施設の情報を即時反映（体感高速化）
   loadClinicDetail();
+  // 部門マスターは非同期で取得し、取得後にチェックリストを再描画
+  loadDepartmentMaster().then(() => {
+    try {
+      const stored = localStorage.getItem("selectedClinic");
+      const clinic = stored ? JSON.parse(stored) : null;
+      const deptState = clinic ? parseDepartments(clinic.departments) : { master: [] };
+      renderDepartmentChecklist(deptState.master);
+    } catch (_) {
+      renderDepartmentChecklist();
+    }
+  });
 });
 </script>
 </body>
