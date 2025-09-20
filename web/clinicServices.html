@@ -293,6 +293,17 @@ async function genDesc(){
       })
     });
     const d = await r.json();
+    if (!r.ok) {
+      hintLabel.textContent = `AIエラー (${r.status})`;
+      console.error('AI生成エラー', d);
+      return;
+    }
+    if (d?.error?.message) {
+      hintLabel.textContent = `AIエラー: ${d.error.message}`;
+      console.error('AI生成エラー', d.error);
+      return;
+    }
+
     const text = d?.choices?.[0]?.message?.content || d?.text || "";
     if (text) {
       descInput.value = text.trim();
@@ -302,6 +313,7 @@ async function genDesc(){
     }
   }catch(e){
     hintLabel.textContent='AI接続不可';
+    console.error('AI接続エラー', e);
   }
 }
 
