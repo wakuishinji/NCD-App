@@ -116,14 +116,11 @@ export default {
     }
     async function listClinicsKV(env, {limit=2000, offset=0} = {}) {
       const keys = await env.SETTINGS.list({ prefix: "clinic:id:" });
-      const ids = keys.keys.map(k => k.name.replace("clinic:id:",""));
-      const page = ids.slice(offset, offset+limit);
-      const out = [];
-      for (const id of page) {
-        const c = await getClinicById(env, id);
-        if (c) out.push(c);
-      }
-      return { items: out, total: ids.length };
+      const ids = (keys.keys || []).map(k => k.name.replace("clinic:id:",""));
+      const page = ids.slice(offset, offset + limit);
+      // Parallelize KV gets for speed
+      const items = (await Promise.all(page.map(id => getClinicById(env, id)))).filter(Boolean);
+      return { items, total: ids.length };
     }
     // <<< END: UTILS >>>
 
@@ -157,6 +154,23 @@ export default {
       );
     }
     // <<< END: ROUTE_MATCH >>>
+
+    // Simple edge cache helper for GET list endpoints
+    async function cacheGet(key, gen, ttlSec = 120) {
+      const cache = caches.default;
+      const cached = await cache.match(key);
+      if (cached) return cached;
+      const res = await gen();
+      if (res && res.ok) {
+        const withCache = new Response(await res.clone().text(), {
+          status: res.status,
+          headers: { ...Object.fromEntries(res.headers), "Cache-Control": `public, max-age=${ttlSec}` },
+        });
+        await cache.put(key, withCache.clone());
+        return withCache;
+      }
+      return res;
+    }
 
     function normalizeTodoEntry(raw) {
       if (!raw || typeof raw !== "object") return null;
