@@ -14,6 +14,13 @@
   </style>
 </head>
 <body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col">
+  <!-- ローディングオーバーレイ -->
+  <div id="loadingOverlay" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/30 backdrop-blur-sm">
+    <div class="bg-white/95 text-gray-800 rounded shadow px-5 py-4 flex items-center gap-3">
+      <div class="h-5 w-5 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin"></div>
+      <div class="text-sm font-medium">情報を取得しています…</div>
+    </div>
+  </div>
   <!-- ヘッダー -->
   <header class="bg-gradient-to-r from-blue-950 via-slate-900 to-blue-950 text-white shadow">
     <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
@@ -536,20 +543,32 @@ function loadClinicDetail() {
   renderDisplay();
 }
 
+function setLoading(on){
+  const el = document.getElementById('loadingOverlay');
+  if (!el) return;
+  if (on) { el.classList.remove('hidden'); el.classList.add('flex'); }
+  else { el.classList.add('hidden'); el.classList.remove('flex'); }
+}
+
 window.addEventListener("DOMContentLoaded", () => {
+  setLoading(true);
   // 先に選択済み施設の情報を即時反映（体感高速化）
   loadClinicDetail();
   // 部門マスターは非同期で取得し、取得後にチェックリストを再描画
-  loadDepartmentMaster().then(() => {
-    try {
-      const stored = localStorage.getItem("selectedClinic");
-      const clinic = stored ? JSON.parse(stored) : null;
-      const deptState = clinic ? parseDepartments(clinic.departments) : { master: [] };
-      renderDepartmentChecklist(deptState.master);
-    } catch (_) {
-      renderDepartmentChecklist();
-    }
-  });
+  loadDepartmentMaster()
+    .then(() => {
+      try {
+        const stored = localStorage.getItem("selectedClinic");
+        const clinic = stored ? JSON.parse(stored) : null;
+        const deptState = clinic ? parseDepartments(clinic.departments) : { master: [] };
+        renderDepartmentChecklist(deptState.master);
+      } catch (_) {
+        renderDepartmentChecklist();
+      }
+    })
+    .finally(() => setLoading(false));
+  // 念のためのフェイルセーフ（10秒で自動解除）
+  setTimeout(()=>setLoading(false), 10000);
 });
 </script>
 </body>
