@@ -50,25 +50,20 @@
             <input id="qualIssuer" class="w-full border rounded px-3 py-2" placeholder="例: 日本内科学会" />
           </div>
 
-          <div class="mt-2">
+          <div class="flex flex-wrap items-center justify-end gap-2">
             <button id="btnAddSel" class="bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700">入力内容を追加</button>
-          </div>
-
-          <div class="flex items-center gap-2">
             <button id="btnSave" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">保存</button>
             <button id="btnClear" class="bg-gray-200 px-4 py-2 rounded hover:bg-gray-300">クリア</button>
           </div>
         </div>
 
-        <div>
-          <h2 class="text-blue-800 font-semibold mb-2">選択済み資格</h2>
-          <div id="chosen" class="flex flex-wrap gap-2 p-2 bg-gray-50 border rounded min-h-[56px]">
-            <!-- タグが入る -->
-          </div>
+        <div class="space-y-6">
+          <div id="chosen" class="space-y-2"></div>
 
-          <h3 class="text-blue-800 font-semibold mt-6 mb-2">この診療所に登録済み</h3>
-          <div id="current" class="divide-y bg-gray-50 border rounded"></div>
-          <button id="btnReload" class="mt-2 text-sm bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded">再読込</button>
+          <div class="space-y-2">
+            <div id="current" class="divide-y bg-gray-50 border rounded" aria-label="この診療所に登録済みの資格"></div>
+            <button id="btnReload" class="text-sm bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded">再読込</button>
+          </div>
         </div>
       </section>
     </div>
@@ -143,13 +138,41 @@ function loadApprovedMasterForCategory(){
 function renderChosen(){
   const box = document.getElementById("chosen");
   box.innerHTML = "";
+  if (!chosen.length) {
+    box.innerHTML = `<div class="text-sm text-gray-500">まだ追加された資格はありません。</div>`;
+    return;
+  }
   chosen.forEach((q,idx)=>{
-    const tag = document.createElement("span");
-    tag.className = "inline-flex items-center gap-1 bg-blue-50 text-blue-800 border border-blue-200 rounded-full px-2 py-1";
-    tag.innerHTML = `<span>${q.category} / ${q.name}${q.issuer?`（${q.issuer}）`:""}</span>
-      <button class="text-blue-700 hover:text-blue-900" aria-label="remove">&times;</button>`;
-    tag.querySelector("button").addEventListener("click", ()=>{ chosen.splice(idx,1); renderChosen(); });
-    box.appendChild(tag);
+    const row = document.createElement("div");
+    row.className = "flex items-center justify-between gap-3 border rounded px-3 py-2 bg-blue-50";
+
+    const info = document.createElement('div');
+    info.className = 'text-sm text-blue-900';
+    const catEl = document.createElement('div');
+    catEl.textContent = q.category;
+    const nameEl = document.createElement('div');
+    nameEl.className = 'font-semibold';
+    nameEl.textContent = q.name;
+    info.appendChild(catEl);
+    info.appendChild(nameEl);
+    if (q.issuer) {
+      const issuerEl = document.createElement('div');
+      issuerEl.className = 'text-xs text-blue-700';
+      issuerEl.textContent = q.issuer;
+      info.appendChild(issuerEl);
+    }
+
+    const btn = document.createElement('button');
+    btn.className = 'text-sm text-red-600 hover:text-red-800';
+    btn.textContent = '削除';
+    btn.addEventListener('click', ()=>{
+      chosen.splice(idx,1);
+      renderChosen();
+    });
+
+    row.appendChild(info);
+    row.appendChild(btn);
+    box.appendChild(row);
   });
 }
 
