@@ -29,18 +29,34 @@
       <a href="clinicDetail.html" class="bg-white rounded shadow p-6 hover:shadow-lg transition">
         <div class="text-lg font-semibold text-blue-800 mb-2">基本情報入力</div>
         <div class="text-sm text-gray-600">名称・住所・医師数・診療時間パターン/曜日設定など。</div>
+        <div class="mt-4 border-t border-dashed border-gray-200 pt-3 space-y-2">
+          <div id="detailSummary" class="text-sm font-medium text-slate-700">入力状況: 読み込み中…</div>
+          <div id="detailBadges" class="flex flex-wrap gap-2 text-xs text-slate-600"></div>
+        </div>
       </a>
       <a href="clinicQualifications.html" class="bg-white rounded shadow p-6 hover:shadow-lg transition">
         <div class="text-lg font-semibold text-blue-800 mb-2">保有資格入力</div>
         <div class="text-sm text-gray-600">在籍医師の専門医資格・認定等を登録し、施設の強みとして整理します。</div>
+        <div class="mt-4 border-t border-dashed border-gray-200 pt-3 space-y-2">
+          <div id="qualSummary" class="text-sm font-medium text-slate-700">入力状況: 読み込み中…</div>
+          <div id="qualBadges" class="flex flex-wrap gap-2 text-xs text-slate-600"></div>
+        </div>
       </a>
       <a href="clinicTests.html" class="bg-white rounded shadow p-6 hover:shadow-lg transition">
         <div class="text-lg font-semibold text-blue-800 mb-2">可能な検査入力</div>
         <div class="text-sm text-gray-600">分類（〜検査）を選んで名称・説明を登録。マスターに自動集計。</div>
+        <div class="mt-4 border-t border-dashed border-gray-200 pt-3 space-y-2">
+          <div id="testSummary" class="text-sm font-medium text-slate-700">入力状況: 読み込み中…</div>
+          <div id="testBadges" class="flex flex-wrap gap-2 text-xs text-slate-600"></div>
+        </div>
       </a>
       <a href="clinicServices.html" class="bg-white rounded shadow p-6 hover:shadow-lg transition">
         <div class="text-lg font-semibold text-blue-800 mb-2">可能な診療入力</div>
         <div class="text-sm text-gray-600">診療科系分類を選んで名称・説明を登録。マスターに自動集計。</div>
+        <div class="mt-4 border-t border-dashed border-gray-200 pt-3 space-y-2">
+          <div id="serviceSummary" class="text-sm font-medium text-slate-700">入力状況: 読み込み中…</div>
+          <div id="serviceBadges" class="flex flex-wrap gap-2 text-xs text-slate-600"></div>
+        </div>
       </a>
     </div>
   </main>
@@ -51,15 +67,180 @@
   </footer>
 
   <script>
-    function loadSelected() {
-      const s = localStorage.getItem('selectedClinic');
-      if (!s) return;
-      const c = JSON.parse(s);
-      document.getElementById('clinicName').textContent = c.name || '(名称未設定)';
-      document.getElementById('clinicId').textContent = "ID: " + (c.id || '-');
-      document.getElementById('clinicAddr').textContent = "住所: " + (c.address || '-');
+    const BASE = "https://ncd-app.altry.workers.dev";
+
+    function setText(id, text) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = text;
     }
-    loadSelected();
+
+    function renderBadges(id, items) {
+      const box = document.getElementById(id);
+      if (!box) return;
+      box.innerHTML = "";
+      items.forEach(({ label, done = false }) => {
+        const span = document.createElement('span');
+        span.textContent = label;
+        span.className = `inline-flex items-center px-2 py-1 rounded-full font-medium ${done ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'}`;
+        box.appendChild(span);
+      });
+    }
+
+    function toNumber(value) {
+      const n = typeof value === 'number' ? value : Number(value);
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function applyClinicBasics(clinic) {
+      setText('clinicName', clinic?.name || '(名称未設定)');
+      setText('clinicId', "ID: " + (clinic?.id || '-'));
+      setText('clinicAddr', "住所: " + (clinic?.address || '-'));
+    }
+
+    function summarizeCollection(items, summaryId, badgesId, label) {
+      const list = Array.isArray(items) ? items : [];
+      const count = list.length;
+      const categories = new Set(list.map(it => it?.category).filter(Boolean));
+      const status = count > 0 ? `登録済み ${count}件` : '未登録';
+      setText(summaryId, `入力状況: ${status}`);
+
+      if (!badgesId) return;
+      if (count === 0) {
+        renderBadges(badgesId, [{ label: `${label}未登録`, done: false }]);
+        return;
+      }
+
+      const badges = [
+        { label: `${count}件`, done: true }
+      ];
+      if (categories.size > 0) {
+        badges.push({ label: `${categories.size}分類`, done: true });
+      }
+      renderBadges(badgesId, badges);
+    }
+
+    function updateDetailProgress(clinic) {
+      if (!clinic) {
+        setText('detailSummary', '入力状況: 施設未選択');
+        renderBadges('detailBadges', []);
+        return;
+      }
+
+      const addressDone = Boolean(clinic.address);
+
+      const full = toNumber(clinic?.doctors?.fulltime);
+      const part = toNumber(clinic?.doctors?.parttime);
+      const doctorDone = (full + part) > 0;
+      const doctorLabel = doctorDone ? `医師数 常勤${full} / 非常勤${part}` : '医師数 未入力';
+
+      const departments = clinic?.departments || {};
+      const deptMaster = Array.isArray(departments.master) ? departments.master.length : 0;
+      const deptOthers = Array.isArray(departments.others) ? departments.others.length : 0;
+      const deptCount = deptMaster + deptOthers;
+      const deptDone = deptCount > 0;
+
+      const schedule = clinic?.schedule || {};
+      const patterns = schedule?.patterns || {};
+      const patternCount = Object.values(patterns).filter(val => {
+        if (Array.isArray(val)) {
+          return val.filter(Boolean).length >= 2;
+        }
+        return Boolean(val);
+      }).length;
+      const days = schedule?.days || {};
+      const dayEntries = Object.values(days).filter(Boolean);
+      const dayConfiguredCount = dayEntries.filter(entry => {
+        if (typeof entry !== 'object') return false;
+        const amSet = Object.prototype.hasOwnProperty.call(entry, 'am');
+        const pmSet = Object.prototype.hasOwnProperty.call(entry, 'pm');
+        return amSet || pmSet;
+      }).length;
+      const patternDone = patternCount > 0;
+      const dayDone = dayConfiguredCount > 0;
+
+      const homepageUrl = clinic?.homepage?.url || '';
+      const reservationUrl = clinic?.reservation?.url || '';
+      const homepageDone = Boolean(homepageUrl);
+      const reservationDone = Boolean(reservationUrl);
+
+      const badges = [
+        { label: addressDone ? '住所入力済' : '住所未入力', done: addressDone, core: true },
+        { label: doctorLabel, done: doctorDone, core: true },
+        { label: deptDone ? `診療科 ${deptCount}件` : '診療科 未選択', done: deptDone, core: true },
+        { label: patternDone ? `時間パターン ${patternCount}件` : '時間パターン未設定', done: patternDone, core: true },
+        { label: dayDone ? `曜日設定 ${dayConfiguredCount}日` : '曜日設定未設定', done: dayDone, core: true },
+        { label: homepageDone ? 'HPあり' : 'HP未設定', done: homepageDone },
+        { label: reservationDone ? '予約サイトあり' : '予約サイト未設定', done: reservationDone }
+      ];
+
+      const coreBadges = badges.filter(b => b.core);
+      const coreDoneCount = coreBadges.filter(b => b.done).length;
+      const summaryText = coreDoneCount === coreBadges.length
+        ? `入力状況: ${coreDoneCount}/${coreBadges.length}項目 完了`
+        : `入力状況: ${coreDoneCount}/${coreBadges.length}項目`;
+      setText('detailSummary', summaryText);
+
+      renderBadges('detailBadges', badges.map(({ core, ...rest }) => rest));
+    }
+
+    function updateProgress(clinic) {
+      if (!clinic) {
+        updateDetailProgress(null);
+        ['qual', 'test', 'service'].forEach(prefix => {
+          setText(`${prefix}Summary`, '入力状況: 施設未選択');
+          renderBadges(`${prefix}Badges`, []);
+        });
+        return;
+      }
+
+      updateDetailProgress(clinic);
+      summarizeCollection(clinic.qualifications, 'qualSummary', 'qualBadges', '資格');
+      summarizeCollection(clinic.tests, 'testSummary', 'testBadges', '検査');
+      summarizeCollection(clinic.services, 'serviceSummary', 'serviceBadges', '診療');
+    }
+
+    async function fetchLatestClinic(clinic) {
+      if (!clinic) return;
+      try {
+        const res = await fetch(`${BASE}/api/listClinics`);
+        const data = await res.json();
+        if (!data?.ok || !Array.isArray(data.clinics)) return;
+        let latest = null;
+        if (clinic.id) {
+          latest = data.clinics.find(c => c.id === clinic.id);
+        }
+        if (!latest && clinic.name) {
+          latest = data.clinics.find(c => c.name === clinic.name);
+        }
+        if (latest) {
+          localStorage.setItem('selectedClinic', JSON.stringify(latest));
+          applyClinicBasics(latest);
+          updateProgress(latest);
+        }
+      } catch (err) {
+        console.warn('施設情報の最新化に失敗しました', err);
+      }
+    }
+
+    function initClinicHome() {
+      const stored = localStorage.getItem('selectedClinic');
+      if (!stored) {
+        applyClinicBasics(null);
+        updateProgress(null);
+        return;
+      }
+      let clinic = null;
+      try {
+        clinic = JSON.parse(stored);
+      } catch (_) {
+        clinic = null;
+      }
+      applyClinicBasics(clinic);
+      updateProgress(clinic);
+      fetchLatestClinic(clinic);
+    }
+
+    initClinicHome();
   </script>
 </body>
 </html>
