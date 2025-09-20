@@ -7,6 +7,13 @@
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col">
+  <!-- ローディングオーバーレイ -->
+  <div id="loadingOverlay" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/30 backdrop-blur-sm">
+    <div class="bg-white/95 text-gray-800 rounded shadow px-5 py-4 flex items-center gap-3">
+      <div class="h-5 w-5 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin"></div>
+      <div class="text-sm font-medium">情報を取得しています…</div>
+    </div>
+  </div>
   <!-- Header -->
   <header class="bg-gradient-to-r from-blue-950 via-slate-900 to-blue-950 text-white shadow">
     <div class="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
@@ -288,6 +295,25 @@ document.getElementById('masterPick').addEventListener('change', onPickMaster);
   await loadApprovedMasterForCategory();
   await loadMyTests();
 })();
+// 追加ヘルパー: ローディング制御と初期ラップ
+</script>
+<script>
+  function setLoading(on){
+    const el = document.getElementById('loadingOverlay');
+    if (!el) return;
+    if (on) { el.classList.remove('hidden'); el.classList.add('flex'); }
+    else { el.classList.add('hidden'); el.classList.remove('flex'); }
+  }
+  // 初回は表示→一覧ロード完了で自動非表示
+  setLoading(true);
+  (function wrapLoaders(){
+    if (typeof window.loadMyTests === 'function'){
+      const __orig = window.loadMyTests;
+      window.loadMyTests = async function(){ setLoading(true); try { return await __orig.apply(this, arguments); } finally { setLoading(false);} };
+    }
+  })();
+  // 念のためのフェイルセーフ（10秒で自動解除）
+  setTimeout(()=>setLoading(false), 10000);
 </script>
 </body>
 </html>
