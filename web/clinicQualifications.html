@@ -22,6 +22,7 @@
   <!-- Main -->
   <main class="flex-1 max-w-4xl mx-auto p-4 md:p-6">
     <div class="bg-white rounded shadow p-4 md:p-6 space-y-6">
+      <div class="text-sm text-gray-600">対象施設: <span id="clinicTitle" class="font-semibold text-gray-800">（未選択）</span></div>
       <section class="grid md:grid-cols-2 gap-6">
         <div class="space-y-3">
           <h2 class="text-blue-800 font-semibold">資格の追加</h2>
@@ -77,11 +78,12 @@ let chosen = []; // {category, name, issuer?}
 
 function loadSelectedClinic(){
   const s = localStorage.getItem("selectedClinic");
+  const titleEl = document.getElementById("clinicTitle");
   if (s) {
     selectedClinic = JSON.parse(s);
-    document.getElementById("clinicTitle").textContent = selectedClinic.name || "";
+    if (titleEl) titleEl.textContent = selectedClinic.name || "";
   } else {
-    document.getElementById("clinicTitle").textContent = "（未選択）";
+    if (titleEl) titleEl.textContent = "（未選択）";
     alert("施設選択または新規登録後にお進みください。");
   }
 }
