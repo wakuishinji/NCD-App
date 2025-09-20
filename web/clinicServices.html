@@ -104,6 +104,14 @@ const hintLabel = document.getElementById("svcHint");
 const registerButton = document.getElementById("btnRegister");
 const clearButton = document.getElementById("btnClear");
 
+function formatAiError(message, fallback = 'AIエラーが発生しました') {
+  const base = (typeof message === 'string' && message.trim()) ? message.trim() : fallback;
+  if (/incorrect api key/i.test(base) || /invalid_api_key/i.test(base)) {
+    return 'AIエラー: APIキーが無効です。管理画面の設定で有効なキーを再設定してください。';
+  }
+  return base.replace(/sk-[a-z0-9]{8,}/gi, 'sk-********');
+}
+
 function setLoading(on) {
   const el = document.getElementById('loadingOverlay');
   if (!el) return;
@@ -294,12 +302,12 @@ async function genDesc(){
     });
     const d = await r.json();
     if (!r.ok) {
-      hintLabel.textContent = `AIエラー (${r.status})`;
+      hintLabel.textContent = formatAiError(d?.error?.message, `AIエラー (${r.status})`);
       console.error('AI生成エラー', d);
       return;
     }
     if (d?.error?.message) {
-      hintLabel.textContent = `AIエラー: ${d.error.message}`;
+      hintLabel.textContent = formatAiError(d.error.message);
       console.error('AI生成エラー', d.error);
       return;
     }
