@@ -33,18 +33,25 @@
           </div>
 
           <div>
-            <label class="block text-sm text-gray-700 mb-1">承認済みマスターから選択（同分類）</label>
+            <label class="block text-sm text-gray-700 mb-1">承認済みマスター（任意）</label>
             <select id="qualMaster" class="w-full border rounded px-3 py-2">
               <option value="">（選択しない）</option>
             </select>
-            <p class="text-xs text-gray-500 mt-1">選択で右の「選択済み」に追加できます。</p>
-            <div class="mt-2">
-              <button id="btnAddSel" class="bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700">この資格を追加</button>
-            </div>
+            <p class="text-xs text-gray-500 mt-1">マスターを選ぶと下の入力欄に反映されます。該当がなければ手入力してください。</p>
           </div>
 
-          <div class="text-xs text-gray-500">
-            ※ マスターにない資格は管理画面から追加可能です（資格マスター／分類マスター）。
+          <div>
+            <label class="block text-sm text-gray-700 mb-1">専門資格名</label>
+            <input id="qualName" class="w-full border rounded px-3 py-2" placeholder="例: 総合内科専門医" />
+          </div>
+
+          <div>
+            <label class="block text-sm text-gray-700 mb-1">認定団体（任意）</label>
+            <input id="qualIssuer" class="w-full border rounded px-3 py-2" placeholder="例: 日本内科学会" />
+          </div>
+
+          <div class="mt-2">
+            <button id="btnAddSel" class="bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700">入力内容を追加</button>
           </div>
 
           <div class="flex items-center gap-2">
@@ -75,6 +82,7 @@
 const BASE = "https://ncd-app.altry.workers.dev";
 let selectedClinic = null;
 let chosen = []; // {category, name, issuer?}
+let qualificationMaster = [];
 
 function loadSelectedClinic(){
   const s = localStorage.getItem("selectedClinic");
@@ -93,29 +101,43 @@ async function loadCategories(){
   const d = await r.json();
   const sel = document.getElementById("qualCategory");
   const cats = (d.ok ? d.categories : []) || [];
-  sel.innerHTML = cats.length ? cats.map(c=>`<option>${c}</option>`).join("") : `<option value="">（分類なし）</option>`;
+  if (!cats.length) {
+    sel.innerHTML = `<option value="">（分類なし）</option>`;
+  } else {
+    sel.innerHTML = cats.map(c=>`<option>${c}</option>`).join("");
+  }
 }
 
-async function loadApprovedMasterForCategory(){
+async function loadQualificationMaster(){
+  try {
+    const url = new URL(`${BASE}/api/listMaster`);
+    url.searchParams.set("type","qual");
+    url.searchParams.set("status","approved");
+    const r = await fetch(url.toString());
+    const d = await r.json();
+    qualificationMaster = (d.ok ? d.items : []) || [];
+  } catch (err) {
+    console.warn('failed to load qualification master', err);
+    qualificationMaster = [];
+  }
+}
+
+function loadApprovedMasterForCategory(){
   const cat = document.getElementById("qualCategory").value;
   const box = document.getElementById("qualMaster");
   box.innerHTML = `<option value="">（選択しない）</option>`;
-
-  const url = new URL(`${BASE}/api/listMaster`);
-  url.searchParams.set("type","qual");
-  url.searchParams.set("status","approved");
-  const r = await fetch(url.toString());
-  const d = await r.json();
-  const items = (d.ok ? d.items : []) || [];
-  const filtered = items.filter(it => it.category === cat);
-
-  filtered.forEach(it=>{
-    const label = `${it.name}${it.issuer?`（${it.issuer}）`:""}`;
-    const opt = document.createElement("option");
-    opt.value = JSON.stringify({ category: it.category, name: it.name, issuer: it.issuer || "" });
-    opt.textContent = label;
-    box.appendChild(opt);
-  });
+  qualificationMaster
+    .filter(it => it.category === cat)
+    .forEach(it => {
+      const label = `${it.name}${it.issuer?`（${it.issuer}）`:""}`;
+      const opt = document.createElement("option");
+      opt.value = JSON.stringify({ category: it.category, name: it.name, issuer: it.issuer || "" });
+      opt.textContent = label;
+      box.appendChild(opt);
+    });
+  box.selectedIndex = 0;
+  document.getElementById("qualName").value = "";
+  document.getElementById("qualIssuer").value = "";
 }
 
 function renderChosen(){
@@ -131,16 +153,42 @@ function renderChosen(){
   });
 }
 
-function addSelected(){
+function onPickMaster(){
   const v = document.getElementById("qualMaster").value;
   if (!v) return;
   try {
     const obj = JSON.parse(v);
-    if (!chosen.find(x=>x.category===obj.category && x.name===obj.name)) {
-      chosen.push(obj);
-      renderChosen();
-    }
-  }catch(_){}
+    document.getElementById("qualName").value = obj.name || "";
+    document.getElementById("qualIssuer").value = obj.issuer || "";
+  } catch (_) {
+    // ignore parse error
+  }
+}
+
+function normalizeKey(q){
+  return `${(q.category||"").trim().toLowerCase()}|${(q.name||"").trim().toLowerCase()}`;
+}
+
+function isMasterEntry(q){
+  const key = normalizeKey(q);
+  return qualificationMaster.some(it => normalizeKey(it) === key);
+}
+
+function addSelected(){
+  const category = document.getElementById("qualCategory").value.trim();
+  const name = document.getElementById("qualName").value.trim();
+  const issuer = document.getElementById("qualIssuer").value.trim();
+  if (!category) { alert("分類を選択してください"); return; }
+  if (!name) { alert("専門資格名を入力してください"); return; }
+
+  const entry = { category, name, issuer };
+  if (!chosen.find(x => normalizeKey(x) === normalizeKey(entry))) {
+    chosen.push(entry);
+    renderChosen();
+  }
+  document.getElementById("qualMaster").selectedIndex = 0;
+  document.getElementById("qualName").value = "";
+  document.getElementById("qualIssuer").value = "";
 }
 
 async function fetchCurrentClinic(){
@@ -173,6 +221,28 @@ function clearForm(){
   chosen = [];
   renderChosen();
   document.getElementById("qualMaster").selectedIndex = 0;
+  document.getElementById("qualName").value = "";
+  document.getElementById("qualIssuer").value = "";
+}
+
+async function registerQualificationCandidates(entries){
+  if (!entries?.length) return;
+  const unique = Array.from(new Map(entries.map(e => [normalizeKey(e), e])).values());
+  const targets = unique.filter(e => !isMasterEntry(e));
+  if (!targets.length) return;
+  await Promise.allSettled(targets.map(e =>
+    fetch(`${BASE}/api/addMasterItem`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "qual",
+        category: e.category,
+        name: e.name,
+        issuer: e.issuer || "",
+        source: "clinicQualifications"
+      })
+    })
+  ));
 }
 
 async function saveAll(){
@@ -201,6 +271,7 @@ async function saveAll(){
   });
   if (!r.ok) { alert("保存に失敗しました"); return; }
 
+  await registerQualificationCandidates(chosen);
   clearForm();
   await renderCurrent();
   alert("保存しました");
@@ -211,11 +282,13 @@ document.getElementById("btnSave").addEventListener("click", saveAll);
 document.getElementById("btnClear").addEventListener("click", clearForm);
 document.getElementById("btnReload").addEventListener("click", renderCurrent);
 document.getElementById("qualCategory").addEventListener("change", loadApprovedMasterForCategory);
+document.getElementById("qualMaster").addEventListener("change", onPickMaster);
 
 (async function init(){
   loadSelectedClinic();
   await loadCategories();
-  await loadApprovedMasterForCategory();
+  await loadQualificationMaster();
+  loadApprovedMasterForCategory();
   renderChosen();
   await renderCurrent();
 })();
