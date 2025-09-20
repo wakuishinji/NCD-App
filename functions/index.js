@@ -194,7 +194,8 @@ export default {
     if (routeMatch(url, "POST", "generate")) {
       try {
         const body = await request.json();
-        const model = (await env.SETTINGS.get("model")) || "gpt-4o-mini";
+        const reqModel = (typeof body?.model === 'string' && body.model.trim()) ? body.model.trim() : null;
+        const model = reqModel || (await env.SETTINGS.get("model")) || "gpt-4o-mini";
         const prompt =
           (await env.SETTINGS.get("prompt")) ||
           "医療説明用のサンプルを作ってください";
