@@ -23,7 +23,7 @@
   <main class="flex-1 max-w-4xl mx-auto p-4 md:p-6">
     <div class="bg-white rounded shadow p-4 md:p-6 space-y-6">
       <div class="text-sm text-gray-600">対象施設: <span id="clinicTitle" class="font-semibold text-gray-800">（未選択）</span></div>
-      <section class="space-y-6">
+      <section class="space-y-6 md:grid md:grid-cols-2 md:gap-6">
         <div class="space-y-3" id="formSection">
           <h2 class="text-blue-800 font-semibold">専門資格の登録</h2>
 
@@ -59,10 +59,6 @@
         <div class="space-y-3">
           <h2 class="text-blue-800 font-semibold">登録済み専門資格</h2>
           <div id="qualificationList" class="space-y-2"></div>
-          <div class="flex justify-end gap-2">
-            <button id="btnReload" class="text-sm bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded">再読込</button>
-            <button id="btnSave" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">保存</button>
-          </div>
         </div>
       </section>
     </div>
@@ -86,6 +82,7 @@ const manualFields = document.getElementById("manualFields");
 const nameInput = document.getElementById("qualName");
 const issuerInput = document.getElementById("qualIssuer");
 const registerButton = document.getElementById("btnAddSel");
+const clearButton = document.getElementById("btnClear");
 
 function loadSelectedClinic(){
   const stored = localStorage.getItem("selectedClinic");
@@ -299,21 +296,7 @@ function editEntry(index){
   updateRegisterButtonLabel();
 }
 
-function deleteEntry(index){
-  if (!confirm('この資格を削除しますか？')) return;
-  workingList.splice(index, 1);
-  if (editIndex !== null) {
-    if (editIndex === index) {
-      resetForm();
-    } else if (editIndex > index) {
-      editIndex -= 1;
-      updateRegisterButtonLabel();
-    }
-  }
-  renderQualificationList();
-}
-
-function registerEntry(){
+async function registerEntry(){
   const entry = getEntryFromForm();
   if (!entry) return;
 
@@ -323,10 +306,7 @@ function registerEntry(){
     workingList.push(entry);
   }
   renderQualificationList();
-  resetForm();
-}
-
-function clearFormFields(){
+  await persistWorkingList(entry);
   resetForm();
 }
 
@@ -366,7 +346,7 @@ async function reloadWorkingList(){
   resetForm();
 }
 
-async function saveAll(){
+async function persistWorkingList(latestEntry){
   if (!selectedClinic?.name) { alert("施設が選択されていません"); return; }
   const clinic = await fetchCurrentClinic();
   const payload = {
@@ -380,16 +360,36 @@ async function saveAll(){
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
-  if (!res.ok) { alert("保存に失敗しました"); return; }
+  if (!res.ok) {
+    alert("保存に失敗しました");
+    await reloadWorkingList();
+    return;
+  }
 
-  await registerQualificationCandidates(workingList);
-  alert("保存しました");
+  if (latestEntry) {
+    await registerQualificationCandidates([latestEntry]);
+    alert(editIndex === null ? "登録しました" : "更新しました");
+  }
+}
+
+async function deleteEntry(index){
+  if (!confirm('この資格を削除しますか？')) return;
+  const removed = workingList.splice(index, 1);
+  if (editIndex !== null) {
+    if (editIndex === index) {
+      resetForm();
+    } else if (editIndex > index) {
+      editIndex -= 1;
+      updateRegisterButtonLabel();
+    }
+  }
+  renderQualificationList();
+  await persistWorkingList();
+  alert("削除しました");
 }
 
 registerButton.addEventListener("click", registerEntry);
-document.getElementById("btnSave").addEventListener("click", saveAll);
-document.getElementById("btnReload").addEventListener("click", reloadWorkingList);
-document.getElementById("btnClear").addEventListener("click", clearFormFields);
+clearButton.addEventListener("click", resetForm);
 categorySelect.addEventListener("change", onCategoryChange);
 masterSelect.addEventListener("change", onMasterChange);
 
