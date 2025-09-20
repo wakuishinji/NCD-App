@@ -304,6 +304,11 @@ if (routeMatch(url, "POST", "registerClinic")) {
 
     // <<< START: CLINIC_LIST >>>
 if (routeMatch(url, "GET", "listClinics")) {
+  // Edge cache (short TTL)
+  const cache = caches.default;
+  const cacheKey = new Request(url.toString(), { method: 'GET' });
+  const cached = await cache.match(cacheKey);
+  if (cached) return cached;
   // まず新形式の件数を確認
   const idKeys = await env.SETTINGS.list({ prefix: "clinic:id:" });
   // 新形式がゼロなら、旧形式をスキャンして自動移行
@@ -336,9 +341,11 @@ if (routeMatch(url, "GET", "listClinics")) {
 
   // 最終的に新形式から一覧を取得
   const { items } = await listClinicsKV(env, { limit: 2000, offset: 0 });
-  return new Response(JSON.stringify({ ok: true, clinics: items }), {
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  const resp = new Response(JSON.stringify({ ok: true, clinics: items }), {
+    headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "public, max-age=120" },
   });
+  await cache.put(cacheKey, resp.clone());
+  return resp;
 }
 // <<< END: CLINIC_LIST >>>
 
@@ -491,6 +498,11 @@ if (routeMatch(url, "GET", "listClinics")) {
 
     // <<< START: MASTER_LIST >>>
     if (routeMatch(url, "GET", "listMaster")) {
+      // Edge cache per query
+      const cache = caches.default;
+      const cacheKey = new Request(url.toString(), { method: 'GET' });
+      const cached = await cache.match(cacheKey);
+      if (cached) return cached;
       const type = url.searchParams.get("type"); // 任意: "test" | "service"
       const status = url.searchParams.get("status"); // 任意
       const prefix = type ? `master:${type}:` : "master:";
@@ -543,9 +555,11 @@ if (routeMatch(url, "GET", "listClinics")) {
         }
       }
       items.sort((a,b)=> (b.count||0)-(a.count||0));
-      return new Response(JSON.stringify({ ok: true, items }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      const resp = new Response(JSON.stringify({ ok: true, items }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "public, max-age=120" },
       });
+      await cache.put(cacheKey, resp.clone());
+      return resp;
     }
     // <<< END: MASTER_LIST >>>
 
@@ -667,6 +681,11 @@ if (routeMatch(url, "GET", "listClinics")) {
 
     // <<< START: CATEGORIES_LIST >>>
       if (routeMatch(url, "GET", "listCategories")) {
+    // Edge cache per type
+    const cache = caches.default;
+    const cacheKey = new Request(url.toString(), { method: 'GET' });
+    const cached = await cache.match(cacheKey);
+    if (cached) return cached;
     const type = url.searchParams.get("type");
     if (!type || !["test","service","qual","department"].includes(type)) {
       return new Response(JSON.stringify({ error: "type は test / service / qual / department" }), {
@@ -677,9 +696,11 @@ if (routeMatch(url, "GET", "listClinics")) {
     let cats = await getCategories(env, type);
     if (!cats) { cats = defaultsFor(type); await putCategories(env, type, cats); }
 
-    return new Response(JSON.stringify({ ok: true, categories: cats }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    const resp = new Response(JSON.stringify({ ok: true, categories: cats }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "public, max-age=180" },
     });
+    await cache.put(cacheKey, resp.clone());
+    return resp;
   }
     // <<< END: CATEGORIES_LIST >>>
 
