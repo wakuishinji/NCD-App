@@ -28,6 +28,9 @@ export default {
         zenkakuToHankaku((s || "").trim().toLowerCase().replace(/\s+/g, ""));
       return `master:${type}:${clean(category)}|${clean(name)}`;
     }
+    function normalizeCategoryFragment(cat) {
+      return (cat || "").normalize("NFKC").trim().toLowerCase().replace(/\s+/g, "");
+    }
 
     function normalizeForSimilarity(s) {
       return (s || "")
@@ -562,6 +565,33 @@ if (routeMatch(url, "GET", "listClinics")) {
       return resp;
     }
     // <<< END: MASTER_LIST >>>
+
+    // Optimized: list masters by category with prefix narrowing
+    if (routeMatch(url, "GET", "listMasterByCategory")) {
+      const type = url.searchParams.get("type");
+      const category = url.searchParams.get("category");
+      const status = url.searchParams.get("status"); // optional
+      if (!type || !category) {
+        return new Response(JSON.stringify({ error: "type and category are required" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const prefix = `master:${type}:${normalizeCategoryFragment(category)}|`;
+      const keys = await env.SETTINGS.list({ prefix });
+      const vals = await Promise.all((keys.keys || []).map(k => env.SETTINGS.get(k.name)));
+      const items = [];
+      for (let i = 0; i < vals.length; i++) {
+        const v = vals[i];
+        if (!v) continue;
+        const obj = JSON.parse(v);
+        if (status && obj.status !== status) continue;
+        items.push(obj);
+      }
+      return new Response(JSON.stringify({ ok: true, items }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "public, max-age=300" },
+      });
+    }
 
     // <<< START: MASTER_UPDATE >>>
     if (routeMatch(url, "POST", "updateMasterItem")) {

@@ -136,9 +136,10 @@ async function loadCategories(){
 
 async function loadSvcMaster(){
   try {
-    const url = new URL(`${BASE}/api/listMaster`);
-    url.searchParams.set("type","service");
-    url.searchParams.set("status","approved");
+  const url = new URL(`${BASE}/api/listMasterByCategory`);
+  url.searchParams.set("type","service");
+  url.searchParams.set("status","approved");
+  url.searchParams.set("category", category);
     const res = await fetch(url.toString());
     const data = await res.json();
     svcMaster = (data.ok ? data.items : []) || [];
