@@ -1,11 +1,12 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
   <title>NCD 管理ダッシュボード</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="js/loading.js"></script>
+  <!-- ローディング機能 -->
+  <script src="../js/loading.js"></script>
 </head>
 <body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col">
   <!-- ヘッダー -->
@@ -203,7 +204,7 @@
               <option value="approved">承認</option>
               <option value="archived">廃止</option>
             </select>
-            <input id="mstDeptQ" class="border rounded px-3 py-2 flex-1" placeholder="検索（分類・名称）">
+            <input id="mstDeptQ" class="border rounded px-3 py-2 flex-1" placeholder="検索（名称・統合名）">
             <button id="mstDeptReload" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">再読込</button>
           </div>
           <div id="mstDeptList" class="space-y-3"></div>
@@ -211,30 +212,33 @@
 
         <!-- AI設定 -->
         <section id="tab-ai" class="tab-panel hidden">
-          <div class="flex items-center justify-between mb-3">
-            <h2 class="text-lg font-semibold text-blue-800">AI設定</h2>
-          </div>
-          <div class="grid gap-4 md:grid-cols-2">
-            <div class="space-y-3">
-              <label class="block text-sm text-gray-700">共通モデル名</label>
-              <input id="aiModel" class="w-full border rounded px-3 py-2" placeholder="例: gpt-4.1">
-              <label class="block text-sm text-gray-700">共通プロンプト</label>
-              <textarea id="aiPrompt" rows="6" class="w-full border rounded px-3 py-2"></textarea>
-              <button id="aiSave" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">保存</button>
+          <h2 class="text-lg font-semibold text-blue-800 mb-3">AIモデル／プロンプト設定</h2>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="bg-gray-50 border rounded p-4">
+              <h3 class="font-semibold mb-2">共通（/api/generate 用）</h3>
+              <label class="block text-sm text-gray-700 mb-1">モデル（例: gpt-4o-mini）</label>
+              <input id="aiModel" class="w-full border rounded px-3 py-2" placeholder="gpt-4o-mini">
+              <label class="block text-sm text-gray-700 mt-3 mb-1">プロンプト（system）</label>
+              <textarea id="aiPrompt" rows="5" class="w-full border rounded px-3 py-2" placeholder="医療説明用のサンプルを作ってください"></textarea>
+              <button id="aiSave" class="mt-3 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">保存</button>
             </div>
-            <div class="space-y-3">
-              <label class="block text-sm text-gray-700">検査用プロンプト</label>
-              <textarea id="promptExam" rows="4" class="w-full border rounded px-3 py-2"></textarea>
-              <label class="block text-sm text-gray-700">診療用プロンプト</label>
-              <textarea id="promptDiagnosis" rows="4" class="w-full border rounded px-3 py-2"></textarea>
-              <button id="aiSubSave" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">保存</button>
+            <div class="bg-gray-50 border rounded p-4">
+              <h3 class="font-semibold mb-2">検査／診療 用（任意）</h3>
+              <label class="block text-sm text-gray-700 mb-1">検査プロンプト</label>
+              <textarea id="promptExam" rows="5" class="w-full border rounded px-3 py-2"></textarea>
+              <label class="block text-sm text-gray-700 mt-3 mb-1">診療プロンプト</label>
+              <textarea id="promptDiagnosis" rows="5" class="w-full border rounded px-3 py-2"></textarea>
+              <button id="aiSubSave" class="mt-3 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">保存</button>
             </div>
           </div>
         </section>
 
         <!-- 開発ToDo -->
         <section id="tab-todo" class="tab-panel hidden">
-          <iframe src="todo.html" title="開発ToDo管理" class="w-full h-[70vh]"></iframe>
+          <h2 class="text-lg font-semibold text-blue-800 mb-3">開発ToDo管理</h2>
+          <div class="border rounded overflow-hidden">
+            <iframe src="todo.html" title="開発ToDo管理" class="w-full h-[70vh]"></iframe>
+          </div>
         </section>
 
       </div>
@@ -253,17 +257,45 @@ const DEPARTMENT_CATEGORY = "標榜診療科";
 // -------------------- タブ --------------------
 const tabs = document.querySelectorAll(".tab");
 const panels = document.querySelectorAll(".tab-panel");
+
+// タブ別データ読み込み状態管理
+const tabDataLoaded = {
+  'tab-clinics': false,
+  'tab-cat-qual': false,
+  'tab-master-qual': false,
+  'tab-cat-test': false,
+  'tab-cat-service': false,
+  'tab-master-test': false,
+  'tab-master-service': false,
+  'tab-master-dept': false,
+  'tab-ai': false,
+  'tab-todo': false
+};
+
 async function showTab(id){
   panels.forEach(p=>p.classList.add("hidden"));
   const targetPanel = document.getElementById(id);
-  targetPanel?.classList.remove("hidden");
+  if (targetPanel) {
+    targetPanel.classList.remove("hidden");
+  }
   tabs.forEach(t=>t.classList.toggle("border-blue-600", t.dataset.target===id));
+  
+  // タブのデータが未読み込みの場合は遅延読み込み
+  if (!tabDataLoaded[id]) {
+    await loadTabData(id);
+    tabDataLoaded[id] = true;
+  }
+}
+
+async function loadTabData(tabId) {
+  const targetPanel = document.getElementById(tabId);
+  if (!targetPanel) return;
 
   try {
-    switch(id) {
+    switch (tabId) {
       case 'tab-clinics':
         if (typeof wrapWithLoading === 'function') {
-          await wrapWithLoading(loadClinics, '診療所リストを読み込み中...', targetPanel);
+          await wrapWithLoading(() => loadClinics(), '診療所リストを読み込み中...', targetPanel);
         } else {
           await loadClinics();
         }
@@ -325,22 +357,18 @@ async function showTab(id){
         }
         break;
       case 'tab-todo':
-        // iframe 内のため特別な処理は不要
+        // TODOはiframe内なので特別な処理は不要
         break;
     }
   } catch (error) {
-    console.error(`タブデータの読み込みに失敗: ${id}`, error);
-    alert(`データの読み込みに失敗しました: ${id}`);
+    console.error(`タブデータの読み込みに失敗: ${tabId}`, error);
+    alert(`データの読み込みに失敗しました: ${tabId}`);
   }
 }
 
 tabs.forEach(t=>t.addEventListener("click", ()=>showTab(t.dataset.target)));
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => showTab('tab-clinics'));
-} else {
-  showTab('tab-clinics');
-}
+// 初期表示（最初のタブのみ読み込み）
+showTab("tab-clinics");
 
 // -------------------- 診療所リスト --------------------
 let clinicsRaw = [];
@@ -352,8 +380,7 @@ async function loadClinics(){
     renderClinics();
   } catch (error) {
     console.error('診療所リストの読み込みに失敗:', error);
-    clinicsRaw = [];
-    renderClinics();
+    alert('診療所リストの読み込みに失敗しました');
   }
 }
 function renderClinics(){
@@ -387,6 +414,7 @@ function renderClinics(){
     tb.appendChild(tr);
   });
 
+  // エクスポートリンク
   document.getElementById('exportClinicsJson').href = `${BASE}/api/exportClinics?format=json`;
   document.getElementById('exportClinicsCsv').href  = `${BASE}/api/exportClinics?format=csv`;
 }
@@ -397,21 +425,30 @@ function selectClinic(c){
 async function deleteClinic(id, name){
   if (!id && !name) { alert("削除対象のID/名称が不明です"); return; }
   if (!confirm(`削除してよろしいですか？\n${name || id}`)) return;
-
+  
   try {
-    const executor = async () => {
+    if (typeof wrapWithLoading === 'function') {
+      await wrapWithLoading(async () => {
+        const r = await fetch(`${BASE}/api/deleteClinic`, {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({ id, name })
+        });
+        if (!r.ok) { 
+          throw new Error('削除に失敗しました'); 
+        }
+        await loadClinics();
+      }, '診療所を削除中...');
+    } else {
       const r = await fetch(`${BASE}/api/deleteClinic`, {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({ id, name })
       });
-      if (!r.ok) throw new Error('削除に失敗しました');
+      if (!r.ok) { 
+        throw new Error('削除に失敗しました'); 
+      }
       await loadClinics();
-    };
-    if (typeof wrapWithLoading === 'function') {
-      await wrapWithLoading(executor, '診療所を削除中...');
-    } else {
-      await executor();
     }
   } catch (error) {
     alert(error.message);
@@ -427,32 +464,24 @@ document.getElementById('clinicReload').addEventListener('click', () => {
 document.getElementById('clinicOrder').addEventListener('change', renderClinics);
 document.getElementById('clinicQ').addEventListener('input', renderClinics);
 
-// -------------------- 分類（検査/診療/資格） --------------------
+// -------------------- 分類（検査/診療） --------------------
 async function loadCategories(type, listElId){
-  try {
-    const r = await fetch(`${BASE}/api/listCategories?type=${type}`);
-    const d = await r.json();
-    const cats = (d.ok ? d.categories : []) || [];
-    const box = document.getElementById(listElId);
-    box.innerHTML = "";
-    cats.forEach(cat=>{
-      const row = document.createElement('div');
-      row.className = "flex items-center justify-between px-3 py-2";
-      row.innerHTML = `
-        <div class="flex-1">${cat}</div>
-        <div class="flex gap-2">
-          <button class="px-2 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300" onclick='renameCategory("${type}","${cat.replace(/"/g,'&quot;')}")'>改名</button>
-          <button class="px-2 py-1 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200" onclick='deleteCategory("${type}","${cat.replace(/"/g,'&quot;')}")'>削除</button>
-        </div>`;
-      box.appendChild(row);
-    });
-  } catch (error) {
-    console.error(`分類読み込みエラー (${type}):`, error);
-    const box = document.getElementById(listElId);
-    if (box) {
-      box.innerHTML = '<div class="text-gray-500 p-4">データの読み込みに失敗しました</div>';
-    }
-  }
+  const r = await fetch(`${BASE}/api/listCategories?type=${type}`);
+  const d = await r.json();
+  const cats = (d.ok ? d.categories : []) || [];
+  const box = document.getElementById(listElId);
+  box.innerHTML = "";
+  cats.forEach(cat=>{
+    const row = document.createElement('div');
+    row.className = "flex items-center justify-between px-3 py-2";
+    row.innerHTML = `
+      <div class="flex-1">${cat}</div>
+      <div class="flex gap-2">
+        <button class="px-2 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300" onclick='renameCategory("${type}","${cat.replace(/"/g,'&quot;')}")'>改名</button>
+        <button class="px-2 py-1 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200" onclick='deleteCategory("${type}","${cat.replace(/"/g,'&quot;')}")'>削除</button>
+      </div>`;
+    box.appendChild(row);
+  });
 }
 async function addCategory(type, inputId){
   const name = document.getElementById(inputId).value.trim();
@@ -462,7 +491,7 @@ async function addCategory(type, inputId){
     body: JSON.stringify({ type, name })
   });
   document.getElementById(inputId).value="";
-  await loadCategories(type, type==='test'?'catTestList':type==='service'?'catSvcList':'catQualList');
+  await loadCategories(type, type==='test'?'catTestList':'catSvcList');
 }
 async function renameCategory(type, oldName){
   const newName = prompt("新しい分類名", oldName);
@@ -471,7 +500,7 @@ async function renameCategory(type, oldName){
     method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({ type, oldName, newName })
   });
-  await loadCategories(type, type==='test'?'catTestList':type==='service'?'catSvcList':'catQualList');
+  await loadCategories(type, type==='test'?'catTestList':'catSvcList');
 }
 async function deleteCategory(type, name){
   if (!confirm(`削除しますか？\n${name}`)) return;
@@ -479,235 +508,160 @@ async function deleteCategory(type, name){
     method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({ type, name })
   });
-  await loadCategories(type, type==='test'?'catTestList':type==='service'?'catSvcList':'catQualList');
+  await loadCategories(type, type==='test'?'catTestList':'catSvcList');
 }
-
 document.getElementById('catTestAdd').addEventListener('click', ()=>addCategory('test','catTestNew'));
 document.getElementById('catSvcAdd').addEventListener('click',  ()=>addCategory('service','catSvcNew'));
-document.getElementById('catQualAdd').addEventListener('click', ()=>addCategory('qual','catQualNew'));
 
-// -------------------- マスター（検査/診療/資格/診療科） --------------------
+// -------------------- マスター（検査/診療） --------------------
 async function loadMaster(type, listElId, statusSelId, qId){
-  try {
-    const status = document.getElementById(statusSelId).value;
-    const q = (document.getElementById(qId).value||'').trim().toLowerCase();
-    const url = new URL(`${BASE}/api/listMaster`);
-    url.searchParams.set("type", type);
-    if (status) url.searchParams.set("status", status);
-    url.searchParams.set("includeSimilar", "true");
-    const r = await fetch(url.toString());
-    const d = await r.json();
-    const items = (d.ok ? d.items : []) || [];
-    const box = document.getElementById(listElId);
-    box.innerHTML = "";
+  const status = document.getElementById(statusSelId).value;
+  const q = (document.getElementById(qId).value||'').trim().toLowerCase();
+  const url = new URL(`${BASE}/api/listMaster`);
+  url.searchParams.set("type", type);
+  if (status) url.searchParams.set("status", status);
+  url.searchParams.set("includeSimilar", "true");
+  const r = await fetch(url.toString());
+  const d = await r.json();
+  const items = (d.ok ? d.items : []) || [];
+  const box = document.getElementById(listElId);
+  box.innerHTML = "";
 
-    // 資格分類の自動設定とフィルタリング
-    const filtered = items.filter(it=>{
-      if (!q) return true;
-      const s = `${it.category} ${it.name} ${it.canonical_name||''}`.toLowerCase();
-      return s.includes(q);
-    }).map(it => {
-      // sortGroupが空の場合、適当な値を設定
-      if (!it.sortGroup && type === 'qual') {
-        if (it.name.includes('医師') || it.name.includes('医学')) {
-          it.sortGroup = '医師・医学系';
-        } else if (it.name.includes('看護') || it.name.includes('保健')) {
-          it.sortGroup = '看護・保健系';
-        } else if (it.name.includes('薬剤') || it.name.includes('薬学')) {
-          it.sortGroup = '薬剤・薬学系';
-        } else if (it.name.includes('技師') || it.name.includes('技術')) {
-          it.sortGroup = '技師・技術系';
-        } else if (it.name.includes('療法') || it.name.includes('リハビリ')) {
-          it.sortGroup = 'リハビリ・療法系';
-        } else {
-          it.sortGroup = 'その他専門職';
-        }
+  const filtered = items.filter(it=>{
+    if (!q) return true;
+    const s = `${it.category} ${it.name} ${it.canonical_name||''}`.toLowerCase();
+    return s.includes(q);
+  });
+
+  const INITIAL_GROUP = Symbol('initial');
+  let currentGroup = INITIAL_GROUP;
+  filtered.forEach(it=>{
+    const group = it.sortGroup || 'その他';
+    if (group !== currentGroup) {
+      if (currentGroup !== INITIAL_GROUP) {
+        const divider = document.createElement('hr');
+        divider.className = 'mt-3 border-gray-200';
+        box.appendChild(divider);
       }
-      return it;
-    });
-
-    // sortGroupで並べ替え
-    filtered.sort((a, b) => {
-      const groupA = a.sortGroup || 'その他';
-      const groupB = b.sortGroup || 'その他';
-      if (groupA !== groupB) {
-        return groupA.localeCompare(groupB, 'ja');
-      }
-      return (a.name || '').localeCompare(b.name || '', 'ja');
-    });
-
-    const INITIAL_GROUP = Symbol('initial');
-    let currentGroup = INITIAL_GROUP;
-    filtered.forEach(it=>{
-      const group = it.sortGroup || 'その他';
-      if (group !== currentGroup) {
-        if (currentGroup !== INITIAL_GROUP) {
-          const divider = document.createElement('hr');
-          divider.className = 'mt-3 border-gray-200';
-          box.appendChild(divider);
-        }
-        currentGroup = group;
-        const headingWrap = document.createElement('div');
-        headingWrap.className = 'mt-4 flex items-center gap-2 first:mt-0';
-        const heading = document.createElement('div');
-        heading.className = "text-sm font-semibold text-gray-600";
-        heading.textContent = group;
-        headingWrap.appendChild(heading);
-        box.appendChild(headingWrap);
-      }
-
-      const div = document.createElement('div');
-      div.className = "mt-1 border rounded p-3 bg-white space-y-2";
-      div.innerHTML = `
-        <div class="flex items-center justify-between">
-          <div class="font-semibold text-blue-800">${it.category} / ${it.name}</div>
-          <div class="text-xs text-gray-500">count: ${it.count||0} / status: ${it.status||'-'}</div>
-        </div>
-        <div class="grid md:grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs text-gray-600">canonical_name（統合名）</label>
-            <input class="w-full border rounded px-2 py-1" value="${(it.canonical_name||'').replace(/"/g,'&quot;')}" data-k="cn">
-          </div>
-          <div>
-            <label class="block text-xs text-gray-600">status</label>
-            <select class="w-full border rounded px-2 py-1" data-k="st">
-              ${["candidate","approved","archived"].map(s=>`<option ${s===(it.status||'')?'selected':''}>${s}</option>`).join("")}
-            </select>
-          </div>
-          <div>
-            <label class="block text-xs text-gray-600">sortGroup</label>
-            <input class="w-full border rounded px-2 py-1" value="${(it.sortGroup||'').replace(/"/g,'&quot;')}" data-k="group" placeholder="例: 内科系">
-          </div>
-
-        </div>
-        <div class="flex gap-2">
-          <button class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 hidden" data-action="update" disabled>更新</button>
-          <button class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700" data-action="delete">削除</button>
-        </div>
-        <div class="similar-matches-container"></div>
-        <div class="text-xs text-gray-500">sources: ${(it.sources||[]).join(", ")}</div>
-      `;
-
-      const updateBtn = div.querySelector('button[data-action="update"]');
-      updateBtn.addEventListener('click', () => {
-        updateMaster(type, it.category, it.name, updateBtn);
-      });
-
-      const cnInput = div.querySelector('input[data-k="cn"]');
-      const stSelect = div.querySelector('select[data-k="st"]');
-      const groupInput = div.querySelector('input[data-k="group"]');
-      const deleteBtn = div.querySelector('button[data-action="delete"]');
-      applyStatusAppearance(stSelect);
-      
-      // 削除ボタンのイベントリスナー
-      deleteBtn.addEventListener('click', () => {
-        deleteMasterItem(type, it.category, it.name);
-      });
-
-      const similarContainer = div.querySelector('.similar-matches-container');
-      if (Array.isArray(it.similarMatches) && it.similarMatches.length > 0) {
-        const similarDiv = document.createElement('div');
-        similarDiv.className = 'bg-yellow-50 border border-yellow-200 rounded p-2 text-xs text-yellow-900';
-        similarDiv.innerHTML = '<div class="font-semibold mb-1">重複候補 (score ≥ 0.92)</div><ul class="space-y-1"></ul>';
-        const ul = similarDiv.querySelector('ul');
-        it.similarMatches.forEach(m => {
-          const li = document.createElement('li');
-          li.className = 'flex items-center justify-between gap-2';
-          const nameText = m.name + (m.canonical_name && m.canonical_name !== m.name ? ` / ${m.canonical_name}` : '');
-          const span = document.createElement('span');
-          span.innerHTML = `${nameText} <span class="text-[11px] text-yellow-700">(status: ${m.status || '-'}, sim: ${m.similarity})</span>`;
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = 'text-blue-700 underline';
-          btn.textContent = '統合名に採用';
-          btn.addEventListener('click', () => {
-            cnInput.value = m.canonical_name || m.name;
-            cnInput.dispatchEvent(new Event('input', { bubbles: true }));
-          });
-          li.append(span, btn);
-          ul.appendChild(li);
-        });
-        similarContainer.appendChild(similarDiv);
-      }
-
-      const initialCn = cnInput.value;
-      const initialSt = stSelect.value;
-      const initialGroup = groupInput.value;
-
-      function refreshButtonState(){
-        const changed = cnInput.value !== initialCn ||
-                        stSelect.value !== initialSt ||
-                        groupInput.value !== initialGroup;
-        updateBtn.disabled = !changed;
-        updateBtn.classList.toggle('hidden', !changed);
-      }
-
-      cnInput.addEventListener('input', refreshButtonState);
-      groupInput.addEventListener('input', refreshButtonState);
-      stSelect.addEventListener('change', () => {
-        refreshButtonState();
-        applyStatusAppearance(stSelect);
-      });
-      refreshButtonState();
-
-      box.appendChild(div);
-    });
-  } catch (error) {
-    console.error(`マスター読み込みエラー (${type}):`, error);
-    const box = document.getElementById(listElId);
-    if (box) {
-      box.innerHTML = '<div class="text-gray-500 p-4">データの読み込みに失敗しました</div>';
+      currentGroup = group;
+      const headingWrap = document.createElement('div');
+      headingWrap.className = 'mt-4 flex items-center gap-2 first:mt-0';
+      const heading = document.createElement('div');
+      heading.className = "text-sm font-semibold text-gray-600";
+      heading.textContent = group;
+      headingWrap.appendChild(heading);
+      box.appendChild(headingWrap);
     }
-  }
+
+    const div = document.createElement('div');
+    div.className = "mt-1 border rounded p-3 bg-white space-y-2";
+    div.innerHTML = `
+      <div class="flex items-center justify-between">
+        <div class="font-semibold text-blue-800">${it.category} / ${it.name}</div>
+        <div class="text-xs text-gray-500">count: ${it.count||0} / status: ${it.status||'-'}</div>
+      </div>
+      <div class="grid md:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs text-gray-600">canonical_name（統合名）</label>
+          <input class="w-full border rounded px-2 py-1" value="${(it.canonical_name||'').replace(/"/g,'&quot;')}" data-k="cn">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-600">status</label>
+          <select class="w-full border rounded px-2 py-1" data-k="st">
+            ${["candidate","approved","archived"].map(s=>`<option ${s===(it.status||'')?'selected':''}>${s}</option>`).join("")}
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-600">sortGroup</label>
+          <input class="w-full border rounded px-2 py-1" value="${(it.sortGroup||'').replace(/"/g,'&quot;')}" data-k="group" placeholder="例: 内科系">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-600">sortOrder</label>
+          <input class="w-full border rounded px-2 py-1" type="number" value="${typeof it.sortOrder === 'number' ? it.sortOrder : ''}" data-k="order" placeholder="例: 100">
+        </div>
+      </div>
+      <div class="">
+        <button class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 hidden" data-action="update" disabled>更新</button>
+      </div>
+      ${Array.isArray(it.similarMatches) && it.similarMatches.length ? `
+        <div class="bg-yellow-50 border border-yellow-200 rounded p-2 text-xs text-yellow-900">
+          <div class="font-semibold mb-1">重複候補 (score ≥ 0.92)</div>
+          <ul class="space-y-1">
+            ${it.similarMatches.map(m=>`
+              <li class="flex items-center justify-between gap-2">
+                <span>${m.name}${m.canonical_name && m.canonical_name!==m.name ? ` / ${m.canonical_name}` : ''} <span class="text-[11px] text-yellow-700">(status: ${m.status || '-'}, sim: ${m.similarity})</span></span>
+                <button type="button" class="text-blue-700 underline" data-action="use-similar" data-value="${(m.canonical_name || m.name).replace(/"/g,'&quot;')}">統合名に採用</button>
+              </li>
+            `).join('')}
+          </ul>
+        </div>
+      ` : ''}
+      <div class="text-xs text-gray-500">sources: ${(it.sources||[]).join(", ")}</div>
+    `;
+
+    const updateBtn = div.querySelector('button[data-action="update"]');
+    updateBtn.addEventListener('click', () => {
+      updateMaster(type, it.category, it.name, updateBtn);
+    });
+
+    const cnInput = div.querySelector('input[data-k="cn"]');
+    const stSelect = div.querySelector('select[data-k="st"]');
+    const groupInput = div.querySelector('input[data-k="group"]');
+    const orderInput = div.querySelector('input[data-k="order"]');
+    applyStatusAppearance(stSelect);
+    const initialCn = cnInput.value;
+    const initialSt = stSelect.value;
+    const initialGroup = groupInput.value;
+    const initialOrder = orderInput.value;
+
+    function refreshButtonState(){
+      const changed = cnInput.value !== initialCn ||
+                      stSelect.value !== initialSt ||
+                      groupInput.value !== initialGroup ||
+                      orderInput.value !== initialOrder;
+      updateBtn.disabled = !changed;
+      updateBtn.classList.toggle('hidden', !changed);
+    }
+
+    cnInput.addEventListener('input', refreshButtonState);
+    groupInput.addEventListener('input', refreshButtonState);
+    orderInput.addEventListener('input', refreshButtonState);
+    stSelect.addEventListener('change', () => {
+      refreshButtonState();
+      applyStatusAppearance(stSelect);
+    });
+    refreshButtonState();
+
+    div.querySelectorAll('button[data-action="use-similar"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        cnInput.value = btn.dataset.value || '';
+        cnInput.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    });
+
+    box.appendChild(div);
+  });
 }
 async function updateMaster(type, category, name, btn){
   const root = btn.closest('.border');
   const cn = root.querySelector('input[data-k="cn"]').value;
   const st = root.querySelector('select[data-k="st"]').value;
   const group = root.querySelector('input[data-k="group"]').value.trim();
-  
-  try {
-    await fetch(`${BASE}/api/updateMasterItem`,{
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({
-        type, category, name,
-        canonical_name: cn,
-        status: st,
-        sortGroup: group || null
-      })
-    });
-    alert("更新しました");
-    btn.disabled = true;
-    btn.classList.add('hidden');
-  } catch (error) {
-    alert("更新に失敗しました: " + error.message);
-  }
-}
-
-async function deleteMasterItem(type, category, name) {
-  if (!confirm(`この資格を削除してもよろしいですか？\n\n分類: ${category}\n名称: ${name}`)) {
-    return;
-  }
-  
-  try {
-    const response = await fetch(`${BASE}/api/deleteMasterItem`, {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ type, category, name })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    
-    alert("削除しました");
-    // リストを再読み込み
-    if (type === 'qual') {
-      await loadMaster(type, 'mstQualList', 'mstQualStatus', 'mstQualQ');
-    }
-  } catch (error) {
-    alert("削除に失敗しました: " + error.message);
-  }
+  const orderRaw = root.querySelector('input[data-k="order"]').value.trim();
+  const sortOrder = orderRaw === '' ? null : Number(orderRaw);
+  await fetch(`${BASE}/api/updateMasterItem`,{
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({
+      type, category, name,
+      canonical_name: cn,
+      status: st,
+      sortGroup: group || null,
+      sortOrder: Number.isFinite(sortOrder) ? sortOrder : null
+    })
+  });
+  alert("更新しました");
+  btn.disabled = true;
+  btn.classList.add('hidden');
 }
 function exportMaster(type, format){
   const url = `${BASE}/api/exportMaster?type=${type}&format=${format}`;
@@ -736,6 +690,30 @@ function applyStatusAppearance(selectEl){
       break;
   }
 }
+
+function applyStatusAppearance(selectEl){
+  if (!selectEl) return;
+  const accentClasses = [
+    'bg-green-50','text-green-700','border-green-300',
+    'bg-red-50','text-red-700','border-red-300',
+    'bg-gray-100','text-gray-600','border-gray-300'
+  ];
+  selectEl.classList.remove(...accentClasses);
+  switch (selectEl.value) {
+    case 'approved':
+      selectEl.classList.add('bg-green-50','text-green-700','border-green-300');
+      break;
+    case 'candidate':
+      selectEl.classList.add('bg-red-50','text-red-700','border-red-300');
+      break;
+    case 'archived':
+      selectEl.classList.add('bg-gray-100','text-gray-600','border-gray-300');
+      break;
+    default:
+      break;
+  }
+}
+
 function bindStatusFilterAppearance(id){
   const el = document.getElementById(id);
   if (!el) return;
@@ -768,6 +746,7 @@ async function addDepartmentMaster(){
   }
 }
 
+// イベント
 document.getElementById('mstTestReload').addEventListener('click', ()=>loadMaster('test','mstTestList','mstTestStatus','mstTestQ'));
 document.getElementById('mstSvcReload').addEventListener('click',  ()=>loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ'));
 document.getElementById('mstTestStatus').addEventListener('change', ()=>loadMaster('test','mstTestList','mstTestStatus','mstTestQ'));
@@ -782,26 +761,22 @@ bindStatusFilterAppearance('mstTestStatus');
 bindStatusFilterAppearance('mstSvcStatus');
 bindStatusFilterAppearance('mstDeptStatus');
 bindStatusFilterAppearance('mstQualStatus');
+// 資格分類
+document.getElementById('catQualAdd').addEventListener('click', ()=>addCategory('qual','catQualNew'));
+
+// 資格マスター
 document.getElementById('mstQualReload').addEventListener('click', ()=>loadMaster('qual','mstQualList','mstQualStatus','mstQualQ'));
 document.getElementById('mstQualStatus').addEventListener('change', ()=>loadMaster('qual','mstQualList','mstQualStatus','mstQualQ'));
 document.getElementById('mstQualQ').addEventListener('input', ()=>loadMaster('qual','mstQualList','mstQualStatus','mstQualQ'));
 
 // -------------------- AI設定 --------------------
 async function loadAISettings(){
-  try {
-    const r = await fetch(`${BASE}/api/settings`);
-    const d = await r.json();
-    document.getElementById('aiModel').value = d.model || '';
-    document.getElementById('aiPrompt').value = d.prompt || '';
-    document.getElementById('promptExam').value = d.prompt_exam || '';
-    document.getElementById('promptDiagnosis').value = d.prompt_diagnosis || '';
-  } catch (error) {
-    console.error('AI設定読み込みエラー:', error);
-    ['aiModel','aiPrompt','promptExam','promptDiagnosis'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.value = '';
-    });
-  }
+  const r = await fetch(`${BASE}/api/settings`);
+  const d = await r.json();
+  document.getElementById('aiModel').value = d.model || '';
+  document.getElementById('aiPrompt').value = d.prompt || '';
+  document.getElementById('promptExam').value = d.prompt_exam || '';
+  document.getElementById('promptDiagnosis').value = d.prompt_diagnosis || '';
 }
 async function saveAISettings(){
   const model = document.getElementById('aiModel').value.trim();
@@ -826,23 +801,9 @@ document.getElementById('aiSubSave').addEventListener('click', saveAISubSettings
 
 // -------------------- 初期化 --------------------
 (async function init(){
+  // 初期化時は最初のタブ（診療所リスト）のみ読み込み
+  // 他のタブはユーザーが切り替えた時に遅延読み込み
   console.log('管理画面初期化完了 - タブ別遅延読み込み有効');
-  if (typeof wrapWithLoading === 'function') {
-    console.log('NCD Loading system ready');
-  } else {
-    console.error('Loading system initialization failed');
-  }
-  try {
-    console.log('管理画面初期化: 診療所データを読み込み中...');
-    await loadClinics();
-    console.log('診療所データの読み込みが完了しました');
-  } catch (error) {
-    console.error('診療所データの初期読み込みに失敗:', error);
-    const clinicsTbody = document.getElementById('clinicsTbody');
-    if (clinicsTbody) {
-      clinicsTbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-500 p-4">データの読み込みに失敗しました</td></tr>';
-    }
-  }
 })();
 </script>
 </body>
