@@ -251,7 +251,7 @@
   </footer>
 
 <script>
-const BASE = "https://ncd-app.altry.workers.dev";
+const BASE = "";
 const DEPARTMENT_CATEGORY = "標榜診療科";
 
 // -------------------- タブ --------------------
@@ -367,8 +367,21 @@ async function loadTabData(tabId) {
 }
 
 tabs.forEach(t=>t.addEventListener("click", ()=>showTab(t.dataset.target)));
-// 初期表示（最初のタブのみ読み込み）
-showTab("tab-clinics");
+
+// 初期表示はDOM読み込み完了後に実行
+document.addEventListener('DOMContentLoaded', () => {
+  console.log('DOM読み込み完了 - 初期タブを表示');
+  showTab("tab-clinics");
+});
+
+// DOMContentLoadedが既に発火している場合の対応
+if (document.readyState === 'loading') {
+  // まだ読み込み中の場合はイベントリスナーを追加
+} else {
+  // 既に読み込み完了している場合は即座に実行
+  console.log('DOM既に読み込み済み - 初期タブを表示');
+  showTab("tab-clinics");
+}
 
 // -------------------- 診療所リスト --------------------
 let clinicsRaw = [];
@@ -380,7 +393,10 @@ async function loadClinics(){
     renderClinics();
   } catch (error) {
     console.error('診療所リストの読み込みに失敗:', error);
-    alert('診療所リストの読み込みに失敗しました');
+    // エラーでも空のリストで表示を続行
+    clinicsRaw = [];
+    renderClinics();
+    // アラートは表示せず、コンソールログのみ
   }
 }
 function renderClinics(){
@@ -466,22 +482,30 @@ document.getElementById('clinicQ').addEventListener('input', renderClinics);
 
 // -------------------- 分類（検査/診療） --------------------
 async function loadCategories(type, listElId){
-  const r = await fetch(`${BASE}/api/listCategories?type=${type}`);
-  const d = await r.json();
-  const cats = (d.ok ? d.categories : []) || [];
-  const box = document.getElementById(listElId);
-  box.innerHTML = "";
-  cats.forEach(cat=>{
-    const row = document.createElement('div');
-    row.className = "flex items-center justify-between px-3 py-2";
-    row.innerHTML = `
-      <div class="flex-1">${cat}</div>
-      <div class="flex gap-2">
-        <button class="px-2 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300" onclick='renameCategory("${type}","${cat.replace(/"/g,'&quot;')}")'>改名</button>
-        <button class="px-2 py-1 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200" onclick='deleteCategory("${type}","${cat.replace(/"/g,'&quot;')}")'>削除</button>
-      </div>`;
-    box.appendChild(row);
-  });
+  try {
+    const r = await fetch(`${BASE}/api/listCategories?type=${type}`);
+    const d = await r.json();
+    const cats = (d.ok ? d.categories : []) || [];
+    const box = document.getElementById(listElId);
+    box.innerHTML = "";
+    cats.forEach(cat=>{
+      const row = document.createElement('div');
+      row.className = "flex items-center justify-between px-3 py-2";
+      row.innerHTML = `
+        <div class="flex-1">${cat}</div>
+        <div class="flex gap-2">
+          <button class="px-2 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300" onclick='renameCategory("${type}","${cat.replace(/"/g,'&quot;')}")'>改名</button>
+          <button class="px-2 py-1 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200" onclick='deleteCategory("${type}","${cat.replace(/"/g,'&quot;')}")'>削除</button>
+        </div>`;
+      box.appendChild(row);
+    });
+  } catch (error) {
+    console.error(`分類読み込みエラー (${type}):`, error);
+    const box = document.getElementById(listElId);
+    if (box) {
+      box.innerHTML = '<div class="text-gray-500 p-4">データの読み込みに失敗しました</div>';
+    }
+  }
 }
 async function addCategory(type, inputId){
   const name = document.getElementById(inputId).value.trim();
@@ -691,29 +715,6 @@ function applyStatusAppearance(selectEl){
   }
 }
 
-function applyStatusAppearance(selectEl){
-  if (!selectEl) return;
-  const accentClasses = [
-    'bg-green-50','text-green-700','border-green-300',
-    'bg-red-50','text-red-700','border-red-300',
-    'bg-gray-100','text-gray-600','border-gray-300'
-  ];
-  selectEl.classList.remove(...accentClasses);
-  switch (selectEl.value) {
-    case 'approved':
-      selectEl.classList.add('bg-green-50','text-green-700','border-green-300');
-      break;
-    case 'candidate':
-      selectEl.classList.add('bg-red-50','text-red-700','border-red-300');
-      break;
-    case 'archived':
-      selectEl.classList.add('bg-gray-100','text-gray-600','border-gray-300');
-      break;
-    default:
-      break;
-  }
-}
-
 function bindStatusFilterAppearance(id){
   const el = document.getElementById(id);
   if (!el) return;
@@ -771,12 +772,22 @@ document.getElementById('mstQualQ').addEventListener('input', ()=>loadMaster('qu
 
 // -------------------- AI設定 --------------------
 async function loadAISettings(){
-  const r = await fetch(`${BASE}/api/settings`);
-  const d = await r.json();
-  document.getElementById('aiModel').value = d.model || '';
-  document.getElementById('aiPrompt').value = d.prompt || '';
-  document.getElementById('promptExam').value = d.prompt_exam || '';
-  document.getElementById('promptDiagnosis').value = d.prompt_diagnosis || '';
+  try {
+    const r = await fetch(`${BASE}/api/settings`);
+    const d = await r.json();
+    document.getElementById('aiModel').value = d.model || '';
+    document.getElementById('aiPrompt').value = d.prompt || '';
+    document.getElementById('promptExam').value = d.prompt_exam || '';
+    document.getElementById('promptDiagnosis').value = d.prompt_diagnosis || '';
+  } catch (error) {
+    console.error('AI設定読み込みエラー:', error);
+    // デフォルト値でフォームを初期化
+    const elements = ['aiModel', 'aiPrompt', 'promptExam', 'promptDiagnosis'];
+    elements.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+  }
 }
 async function saveAISettings(){
   const model = document.getElementById('aiModel').value.trim();
@@ -804,6 +815,72 @@ document.getElementById('aiSubSave').addEventListener('click', saveAISubSettings
   // 初期化時は最初のタブ（診療所リスト）のみ読み込み
   // 他のタブはユーザーが切り替えた時に遅延読み込み
   console.log('管理画面初期化完了 - タブ別遅延読み込み有効');
+  
+  // loading.jsが読み込まれていない場合の補完関数を定義
+  if (typeof wrapWithLoading !== 'function') {
+    console.warn('loading.js が読み込まれていません。フォールバック関数を使用します。');
+    
+    window.wrapWithLoading = async function(asyncFn, message, element) {
+      console.log(message || 'Loading...');
+      if (element) {
+        element.style.opacity = '0.6';
+        element.style.pointerEvents = 'none';
+      }
+      try {
+        const result = await asyncFn();
+        return result;
+      } catch (error) {
+        console.error('非同期処理でエラーが発生:', error);
+        throw error;
+      } finally {
+        if (element) {
+          element.style.opacity = '1';
+          element.style.pointerEvents = 'auto';
+        }
+      }
+    };
+    
+    window.showLoading = function(message) {
+      console.log('Loading:', message || 'データ取得中...');
+    };
+    
+    window.hideLoading = function() {
+      console.log('Loading complete');
+    };
+    
+    window.showLoadingInElement = function(element, message) {
+      if (element) {
+        element.style.opacity = '0.6';
+        element.style.pointerEvents = 'none';
+      }
+      console.log('Element Loading:', message || 'データ取得中...');
+    };
+    
+    window.hideLoadingInElement = function(element) {
+      if (element) {
+        element.style.opacity = '1';
+        element.style.pointerEvents = 'auto';
+      }
+    };
+    
+    console.log('Loading functions fallback initialized successfully');
+  } else {
+    console.log('loading.js が正常に読み込まれました');
+  }
+  
+  // 最初のタブのデータを読み込む
+  try {
+    console.log('管理画面初期化: 診療所データを読み込み中...');
+    await loadClinics();
+    console.log('診療所データの読み込みが完了しました');
+  } catch (error) {
+    console.error('診療所データの初期読み込みに失敗:', error);
+    // エラーでも画面の表示は続行する
+    const clinicsTbody = document.getElementById('clinicsTbody');
+    if (clinicsTbody) {
+      clinicsTbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-500 p-4">データの読み込みに失敗しました</td></tr>';
+    }
+  }
 })();
 </script>
 </body>
