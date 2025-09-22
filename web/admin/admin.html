@@ -5,6 +5,8 @@
   <title>NCD 管理ダッシュボード</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- ローディング機能 -->
+  <script src="../js/loading.js"></script>
 </head>
 <body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col">
   <!-- ヘッダー -->
@@ -255,21 +257,131 @@ const DEPARTMENT_CATEGORY = "標榜診療科";
 // -------------------- タブ --------------------
 const tabs = document.querySelectorAll(".tab");
 const panels = document.querySelectorAll(".tab-panel");
-function showTab(id){
+
+// タブ別データ読み込み状態管理
+const tabDataLoaded = {
+  'tab-clinics': false,
+  'tab-cat-qual': false,
+  'tab-master-qual': false,
+  'tab-cat-test': false,
+  'tab-cat-service': false,
+  'tab-master-test': false,
+  'tab-master-service': false,
+  'tab-master-dept': false,
+  'tab-ai': false,
+  'tab-todo': false
+};
+
+async function showTab(id){
   panels.forEach(p=>p.classList.add("hidden"));
-  document.getElementById(id)?.classList.remove("hidden");
+  const targetPanel = document.getElementById(id);
+  if (targetPanel) {
+    targetPanel.classList.remove("hidden");
+  }
   tabs.forEach(t=>t.classList.toggle("border-blue-600", t.dataset.target===id));
+  
+  // タブのデータが未読み込みの場合は遅延読み込み
+  if (!tabDataLoaded[id]) {
+    await loadTabData(id);
+    tabDataLoaded[id] = true;
+  }
 }
+
+async function loadTabData(tabId) {
+  const targetPanel = document.getElementById(tabId);
+  if (!targetPanel) return;
+
+  try {
+    switch (tabId) {
+      case 'tab-clinics':
+        if (typeof wrapWithLoading === 'function') {
+          await wrapWithLoading(() => loadClinics(), '診療所リストを読み込み中...', targetPanel);
+        } else {
+          await loadClinics();
+        }
+        break;
+      case 'tab-cat-qual':
+        if (typeof wrapWithLoading === 'function') {
+          await wrapWithLoading(() => loadCategories('qual','catQualList'), '資格分類を読み込み中...', targetPanel);
+        } else {
+          await loadCategories('qual','catQualList');
+        }
+        break;
+      case 'tab-master-qual':
+        if (typeof wrapWithLoading === 'function') {
+          await wrapWithLoading(() => loadMaster('qual','mstQualList','mstQualStatus','mstQualQ'), '資格マスターを読み込み中...', targetPanel);
+        } else {
+          await loadMaster('qual','mstQualList','mstQualStatus','mstQualQ');
+        }
+        break;
+      case 'tab-cat-test':
+        if (typeof wrapWithLoading === 'function') {
+          await wrapWithLoading(() => loadCategories('test','catTestList'), '検査分類を読み込み中...', targetPanel);
+        } else {
+          await loadCategories('test','catTestList');
+        }
+        break;
+      case 'tab-cat-service':
+        if (typeof wrapWithLoading === 'function') {
+          await wrapWithLoading(() => loadCategories('service','catSvcList'), '診療分類を読み込み中...', targetPanel);
+        } else {
+          await loadCategories('service','catSvcList');
+        }
+        break;
+      case 'tab-master-test':
+        if (typeof wrapWithLoading === 'function') {
+          await wrapWithLoading(() => loadMaster('test','mstTestList','mstTestStatus','mstTestQ'), '検査マスターを読み込み中...', targetPanel);
+        } else {
+          await loadMaster('test','mstTestList','mstTestStatus','mstTestQ');
+        }
+        break;
+      case 'tab-master-service':
+        if (typeof wrapWithLoading === 'function') {
+          await wrapWithLoading(() => loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ'), '診療マスターを読み込み中...', targetPanel);
+        } else {
+          await loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ');
+        }
+        break;
+      case 'tab-master-dept':
+        if (typeof wrapWithLoading === 'function') {
+          await wrapWithLoading(() => loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ'), '標榜診療科マスターを読み込み中...', targetPanel);
+        } else {
+          await loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ');
+        }
+        break;
+      case 'tab-ai':
+        if (typeof wrapWithLoading === 'function') {
+          await wrapWithLoading(() => loadAISettings(), 'AI設定を読み込み中...', targetPanel);
+        } else {
+          await loadAISettings();
+        }
+        break;
+      case 'tab-todo':
+        // TODOはiframe内なので特別な処理は不要
+        break;
+    }
+  } catch (error) {
+    console.error(`タブデータの読み込みに失敗: ${tabId}`, error);
+    alert(`データの読み込みに失敗しました: ${tabId}`);
+  }
+}
+
 tabs.forEach(t=>t.addEventListener("click", ()=>showTab(t.dataset.target)));
+// 初期表示（最初のタブのみ読み込み）
 showTab("tab-clinics");
 
 // -------------------- 診療所リスト --------------------
 let clinicsRaw = [];
 async function loadClinics(){
-  const r = await fetch(`${BASE}/api/listClinics`);
-  const d = await r.json();
-  clinicsRaw = (d.ok && d.clinics) ? d.clinics : [];
-  renderClinics();
+  try {
+    const r = await fetch(`${BASE}/api/listClinics`);
+    const d = await r.json();
+    clinicsRaw = (d.ok && d.clinics) ? d.clinics : [];
+    renderClinics();
+  } catch (error) {
+    console.error('診療所リストの読み込みに失敗:', error);
+    alert('診療所リストの読み込みに失敗しました');
+  }
 }
 function renderClinics(){
   const q = (document.getElementById('clinicQ').value || '').trim().toLowerCase();
@@ -313,15 +425,42 @@ function selectClinic(c){
 async function deleteClinic(id, name){
   if (!id && !name) { alert("削除対象のID/名称が不明です"); return; }
   if (!confirm(`削除してよろしいですか？\n${name || id}`)) return;
-  const r = await fetch(`${BASE}/api/deleteClinic`, {
-    method: "POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({ id, name })
-  });
-  if (!r.ok) { alert("削除に失敗しました"); return; }
-  await loadClinics();
+  
+  try {
+    if (typeof wrapWithLoading === 'function') {
+      await wrapWithLoading(async () => {
+        const r = await fetch(`${BASE}/api/deleteClinic`, {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({ id, name })
+        });
+        if (!r.ok) { 
+          throw new Error('削除に失敗しました'); 
+        }
+        await loadClinics();
+      }, '診療所を削除中...');
+    } else {
+      const r = await fetch(`${BASE}/api/deleteClinic`, {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ id, name })
+      });
+      if (!r.ok) { 
+        throw new Error('削除に失敗しました'); 
+      }
+      await loadClinics();
+    }
+  } catch (error) {
+    alert(error.message);
+  }
 }
-document.getElementById('clinicReload').addEventListener('click', loadClinics);
+document.getElementById('clinicReload').addEventListener('click', () => {
+  if (typeof wrapWithLoading === 'function') {
+    wrapWithLoading(loadClinics, '診療所リストを再読み込み中...');
+  } else {
+    loadClinics();
+  }
+});
 document.getElementById('clinicOrder').addEventListener('change', renderClinics);
 document.getElementById('clinicQ').addEventListener('input', renderClinics);
 
@@ -662,22 +801,9 @@ document.getElementById('aiSubSave').addEventListener('click', saveAISubSettings
 
 // -------------------- 初期化 --------------------
 (async function init(){
-  // クリニック
-  await loadClinics();
-
-  // 分類
-  await loadCategories('test','catTestList');
-  await loadCategories('service','catSvcList');
-  await loadCategories('qual','catQualList');
-
-  // マスター
-  await loadMaster('test','mstTestList','mstTestStatus','mstTestQ');
-  await loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ');
-  await loadMaster('qual','mstQualList','mstQualStatus','mstQualQ');
-  await loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ');
-
-  // AI設定
-  await loadAISettings();
+  // 初期化時は最初のタブ（診療所リスト）のみ読み込み
+  // 他のタブはユーザーが切り替えた時に遅延読み込み
+  console.log('管理画面初期化完了 - タブ別遅延読み込み有効');
 })();
 </script>
 </body>

@@ -1,10 +1,12 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
   <title>施設選択 - NCD</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- ローディング機能 -->
+  <script src="js/loading.js"></script>
 </head>
 <body class="bg-gray-50 text-gray-800 min-h-screen">
 
@@ -32,42 +34,50 @@
   <script>
     async function loadClinics() {
       const box = document.getElementById("clinicList");
-      box.innerHTML = "<div class='text-gray-500'>読み込み中...</div>";
+      
       try {
-        const res = await fetch("https://ncd-app.altry.workers.dev/api/listClinics");
-        const data = await res.json();
-        box.innerHTML = "";
+        await wrapWithLoading(async () => {
+          const res = await fetch("https://ncd-app.altry.workers.dev/api/listClinics");
+          if (!res.ok) {
+            throw new Error(`API error: ${res.status}`);
+          }
+          const data = await res.json();
+          box.innerHTML = "";
 
-        const clinics = (data && data.ok && Array.isArray(data.clinics)) ? data.clinics : [];
-        if (clinics.length === 0) {
-          box.innerHTML = "<p class='text-gray-500'>登録済みの施設はありません。</p>";
-          return;
-        }
+          const clinics = (data && data.ok && Array.isArray(data.clinics)) ? data.clinics : [];
+          if (clinics.length === 0) {
+            box.innerHTML = "<p class='text-gray-500'>登録済みの施設はありません。</p>";
+            return;
+          }
 
-        // 名前で昇順にしておくと選びやすい
-        clinics.sort((a,b)=> (a.name||"").localeCompare(b.name||""));
+          // 名前で昇順にしておくと選びやすい
+          clinics.sort((a,b)=> (a.name||"").localeCompare(b.name||""));
 
-        clinics.forEach(c => {
-          const btn = document.createElement("button");
-          btn.className = "w-full text-left px-4 py-3 border rounded hover:bg-blue-50 transition";
-          btn.innerHTML = `
-            <div class="font-semibold text-blue-800">${c.name || "（名称未登録）"}</div>
-            <div class="text-sm text-gray-500">${c.address || ""}</div>
-          `;
-          btn.onclick = () => {
-            localStorage.setItem("selectedClinic", JSON.stringify(c));
-            document.getElementById("selectedClinic").textContent = `選択中: ${c.name || ""}`;
-            // 施設ホームへ遷移（ハブ画面）
-            window.location.href = "clinicHome.html";
-          };
-          box.appendChild(btn);
-        });
+          clinics.forEach(c => {
+            const btn = document.createElement("button");
+            btn.className = "w-full text-left px-4 py-3 border rounded hover:bg-blue-50 transition";
+            btn.innerHTML = `
+              <div class="font-semibold text-blue-800">${c.name || "（名称未登録）"}</div>
+              <div class="text-sm text-gray-500">${c.address || ""}</div>
+            `;
+            btn.onclick = () => {
+              localStorage.setItem("selectedClinic", JSON.stringify(c));
+              document.getElementById("selectedClinic").textContent = `選択中: ${c.name || ""}`;
+              // 施設ホームへ遷移（ハブ画面）
+              window.location.href = "clinicHome.html";
+            };
+            box.appendChild(btn);
+          });
+        }, '診療所リストを読み込み中...', box);
+        
       } catch (err) {
         box.innerHTML = `<p class='text-red-600'>エラーが発生しました: ${err.message}</p>`;
+        console.error('診療所リスト読み込みエラー:', err);
       }
     }
 
-    loadClinics();
+    // ページ読み込み時に実行
+    document.addEventListener('DOMContentLoaded', loadClinics);
   </script>
 </body>
 </html>
