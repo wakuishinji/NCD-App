@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <title>開発ToDo管理</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://kit.fontawesome.com/a2d9d6b3e2.js" crossorigin="anonymous"></script>
 </head>
 <body class="bg-gray-100 text-gray-800">
   <!-- 共通ヘッダー -->
@@ -108,8 +107,8 @@ function renderTodos() {
             <option ${todo.priority==="P2"?"selected":""}>P2</option>
             <option ${todo.priority==="P3"?"selected":""}>P3</option>
           </select>
-          <button onclick="deleteTask(${idx})" class="text-red-600">
-            <i class="fas fa-trash"></i>
+          <button onclick="deleteTask(${idx})" class="text-red-600 text-sm font-semibold">
+            削除
           </button>
         </div>
         <div class="text-xs text-gray-500 pl-6 sm:pl-10">作成: ${formatDate(todo.createdAt)}</div>
