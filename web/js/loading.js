@@ -10,7 +10,6 @@ class LoadingManager {
   }
 
   init() {
-    // ローディングオーバーレイのHTML作成
     this.loadingOverlay = document.createElement('div');
     this.loadingOverlay.id = 'ncd-loading-overlay';
     this.loadingOverlay.className = 'ncd-loading-overlay';
@@ -20,8 +19,7 @@ class LoadingManager {
         <div class="ncd-loading-text">データ取得中...</div>
       </div>
     `;
-    
-    // CSS スタイル追加
+
     if (!document.getElementById('ncd-loading-styles')) {
       const style = document.createElement('style');
       style.id = 'ncd-loading-styles';
@@ -77,7 +75,6 @@ class LoadingManager {
           100% { transform: rotate(360deg); }
         }
 
-        /* タブ専用の小さいローディング */
         .ncd-tab-loading {
           position: absolute;
           top: 0;
@@ -114,14 +111,15 @@ class LoadingManager {
       document.head.appendChild(style);
     }
 
-    // body に追加
-    document.body.appendChild(this.loadingOverlay);
+    if (document.body) {
+      document.body.appendChild(this.loadingOverlay);
+    } else {
+      document.addEventListener('DOMContentLoaded', () => {
+        document.body.appendChild(this.loadingOverlay);
+      });
+    }
   }
 
-  /**
-   * グローバルローディングを表示
-   * @param {string} message - 表示メッセージ（デフォルト: "データ取得中..."）
-   */
   show(message = 'データ取得中...') {
     const textEl = this.loadingOverlay.querySelector('.ncd-loading-text');
     if (textEl) {
@@ -130,32 +128,20 @@ class LoadingManager {
     this.loadingOverlay.classList.add('show');
   }
 
-  /**
-   * グローバルローディングを隠す
-   */
   hide() {
     this.loadingOverlay.classList.remove('show');
   }
 
-  /**
-   * 指定した要素に相対的なローディングを表示
-   * @param {HTMLElement} targetElement - 対象の要素
-   * @param {string} message - 表示メッセージ
-   */
   showInElement(targetElement, message = 'データ取得中...') {
     if (!targetElement) return;
-
-    // 既存のローディングを削除
     this.hideInElement(targetElement);
 
-    // 相対位置設定
     const originalPosition = getComputedStyle(targetElement).position;
     if (originalPosition === 'static') {
       targetElement.style.position = 'relative';
       targetElement.dataset.originalPosition = 'static';
     }
 
-    // ローディング要素作成
     const loading = document.createElement('div');
     loading.className = 'ncd-tab-loading';
     loading.innerHTML = `
@@ -166,29 +152,19 @@ class LoadingManager {
     `;
 
     targetElement.appendChild(loading);
-    
-    // 表示アニメーション
     requestAnimationFrame(() => {
       loading.classList.add('show');
     });
-
     return loading;
   }
 
-  /**
-   * 指定した要素のローディングを隠す
-   * @param {HTMLElement} targetElement - 対象の要素
-   */
   hideInElement(targetElement) {
     if (!targetElement) return;
-
     const loading = targetElement.querySelector('.ncd-tab-loading');
     if (loading) {
       loading.classList.remove('show');
       setTimeout(() => {
         loading.remove();
-        
-        // 元の position を復元
         if (targetElement.dataset.originalPosition === 'static') {
           targetElement.style.position = '';
           delete targetElement.dataset.originalPosition;
@@ -197,12 +173,6 @@ class LoadingManager {
     }
   }
 
-  /**
-   * 非同期処理を自動的にローディングでラップ
-   * @param {Function} asyncFunction - 実行する非同期関数
-   * @param {string} message - ローディングメッセージ
-   * @param {HTMLElement} targetElement - 特定の要素内でローディング（省略時はグローバル）
-   */
   async wrap(asyncFunction, message = 'データ取得中...', targetElement = null) {
     try {
       if (targetElement) {
@@ -210,9 +180,7 @@ class LoadingManager {
       } else {
         this.show(message);
       }
-      
-      const result = await asyncFunction();
-      return result;
+      return await asyncFunction();
     } finally {
       if (targetElement) {
         this.hideInElement(targetElement);
@@ -223,10 +191,7 @@ class LoadingManager {
   }
 }
 
-// グローバルインスタンス作成
 const NCDLoading = new LoadingManager();
-
-// グローバル関数として便利メソッドを公開
 window.showLoading = (message) => NCDLoading.show(message);
 window.hideLoading = () => NCDLoading.hide();
 window.showLoadingInElement = (element, message) => NCDLoading.showInElement(element, message);
