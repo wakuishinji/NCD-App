@@ -69,3 +69,63 @@
 - 本ファイルは日本語で記述し、合意事項を確定版として反映する。
 - 重要な設定変更・運用上の方針は本ファイルに追記していく。
 - 本番で作業しているとき以外にコードを変更した場合は毎回プッシュし、本番側が自動でプルしている状態でブラウザ確認を行う。
+
+## 本日確認・決定事項（2025-09-25）
+
+### 1. 本番APIの配置とルーティング
+- 本番で利用するCloudflare Workersは「ncd-app」を正とする。
+- IISのURL Rewriteで以下を設定済み（メソッド保持のため 307 Temporary Redirect）。
+  - `/api/*`   → `https://ncd-app.altry.workers.dev/api/{R:1}`（Redirect: 307, Append query string: ON）
+  - `/api/v1/*`→ `https://ncd-app.altry.workers.dev/api/v1/{R:1}`（Redirect: 307, Append query string: ON）
+- 将来的にブラウザのURLを変えたくない、またはCORS制御をIIS側に寄せたい場合は、ARR（アプリケーション リクエスト ルーティング）によるRewrite方式へ切替可能。
+  - 例: `action type="Rewrite"` / `url="https://ncd-app.altry.workers.dev/api/{R:1}"`
+  - Server Variables の例: `X-Forwarded-For={REMOTE_ADDR}`, `X-Forwarded-Proto=https`
+
+### 2. Cloudflare Workers側の設定（ncd-app）
+- Secrets:
+  - `OPENAI_API_KEY` を「Secret（機密変数）」として登録済み（値はダッシュボード上でマスク表示）。
+- KV Bindings:
+  - KV Namespace `SETTINGS` を Variable name `SETTINGS` でバインド済み。
+- Git接続（自動デプロイ）:
+  - GitHub `wakuishinji/NCD-App` の `main` ブランチと接続。
+  - main にマージ/プッシュすると自動で ncd-app Worker にデプロイ。
+  - PRプレビューは必要に応じて有効化（Preview環境にもSecretが必要な場合は別途設定）。
+
+### 3. セキュリティと構成の変更点
+- `wrangler.toml` から `OPENAI_API_KEY` を削除し、Secrets運用へ移行（漏洩防止・履歴に残さない）。
+- ローカル開発でAI機能を試す場合は、一時的に環境変数で起動:
+  - mac/linux: `OPENAI_API_KEY=sk-xxxx npx wrangler pages dev web --port 3000`
+  - Windows PowerShell: `$Env:OPENAI_API_KEY='sk-xxxx'; npx wrangler pages dev web --port 3000`
+- `.gitignore` に `.wrangler/` を追加し、開発キャッシュをリポジトリに含めない。
+
+### 4. 開発/実装メモ
+- Workers実装（`functions/index.js`）はフル機能のAPIを提供。
+- Pages Functions（`functions/api/[[route]].js`）は現在サブセットのみ（`settings`/`listClinics` 等）。
+  - 今後、WorkersのAPI群（マスター/カテゴリ/ToDo/AI重複検出など）をPages Functionsへ段階移植予定。
+- ローカル動作:
+  - 静的フロントは `npx wrangler pages dev web --port 3000` で確認可能。
+  - 一部APIは簡易Pythonサーバ（`simple_server.py` / `test_server.py`）でスタブ応答可能。
+
+### 5. 動作確認コマンド（例）
+- 設定保存（シークレット不要）:
+  - `POST https://ncd-app.altry.workers.dev/api/settings`
+    - body: `{ "model":"gpt-4o-mini", "prompt":"医療説明用のサンプルを作ってください" }`
+- 設定取得（シークレット不要）:
+  - `GET  https://ncd-app.altry.workers.dev/api/settings`
+- 生成（シークレット必須・課金注意）:
+  - `POST https://ncd-app.altry.workers.dev/api/generate`
+    - body: `{ "messages":[{"role":"user","content":"テスト。短く返答してください。"}] }`
+- カテゴリ（デフォルト初期化される想定）:
+  - `GET  https://ncd-app.altry.workers.dev/api/listCategories?type=test`
+
+### 6. 運用フロー（サマリ）
+1. 開発ブランチ（`genspark_ai_developer` 等）で変更 → 直後にコミット。
+2. PR作成/更新 → レビュー。
+3. main にマージ → Cloudflare（ncd-app）が自動デプロイ。
+4. IIS は `/api/*` を ncd-app へ転送するため、フロント（IIS）+ API（Workers）の構成で即時反映。
+
+### 7. 注意事項
+- APIキーは必ずSecrets管理。リポジトリやPR本文に貼らない。
+- `/api/generate` はOpenAI課金が発生するため、テストは短文・最小回数で。
+- 404が出る場合: 叩いているURLがPages側になっていないか、まず `*.workers.dev` を直叩きで動作を確認。
+

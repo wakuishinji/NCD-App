@@ -1,6 +1,9 @@
 .DS_Store
 node_modules/
-package-lock.json
+# package-lock.json (tracked)
+.wrangler/
+.wrangler/**
+
 *.log
 .env
 .DS_Store

@@ -3,8 +3,8 @@ main = "./functions/index.js"
 account_id = "ac0368dfc48fccd5c736a34c04c05e72"
 compatibility_date = "2025-09-07"
 
-[vars]
-OPENAI_API_KEY = "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"
+# [vars] moved to secrets-only usage
+# OPENAI_API_KEY moved to secrets (set via `wrangler secret put OPENAI_API_KEY` or env var for local dev)
 
 [[kv_namespaces]]
 binding = "SETTINGS"
