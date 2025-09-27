@@ -501,10 +501,39 @@ async function loadMaster(type, listElId, statusSelId, qId){
     const box = document.getElementById(listElId);
     box.innerHTML = "";
 
+    // 資格分類の自動設定とフィルタリング
     const filtered = items.filter(it=>{
       if (!q) return true;
       const s = `${it.category} ${it.name} ${it.canonical_name||''}`.toLowerCase();
       return s.includes(q);
+    }).map(it => {
+      // sortGroupが空の場合、適当な値を設定
+      if (!it.sortGroup && type === 'qual') {
+        if (it.name.includes('医師') || it.name.includes('医学')) {
+          it.sortGroup = '医師・医学系';
+        } else if (it.name.includes('看護') || it.name.includes('保健')) {
+          it.sortGroup = '看護・保健系';
+        } else if (it.name.includes('薬剤') || it.name.includes('薬学')) {
+          it.sortGroup = '薬剤・薬学系';
+        } else if (it.name.includes('技師') || it.name.includes('技術')) {
+          it.sortGroup = '技師・技術系';
+        } else if (it.name.includes('療法') || it.name.includes('リハビリ')) {
+          it.sortGroup = 'リハビリ・療法系';
+        } else {
+          it.sortGroup = 'その他専門職';
+        }
+      }
+      return it;
+    });
+
+    // sortGroupで並べ替え
+    filtered.sort((a, b) => {
+      const groupA = a.sortGroup || 'その他';
+      const groupB = b.sortGroup || 'その他';
+      if (groupA !== groupB) {
+        return groupA.localeCompare(groupB, 'ja');
+      }
+      return (a.name || '').localeCompare(b.name || '', 'ja');
     });
 
     const INITIAL_GROUP = Symbol('initial');
@@ -549,13 +578,11 @@ async function loadMaster(type, listElId, statusSelId, qId){
             <label class="block text-xs text-gray-600">sortGroup</label>
             <input class="w-full border rounded px-2 py-1" value="${(it.sortGroup||'').replace(/"/g,'&quot;')}" data-k="group" placeholder="例: 内科系">
           </div>
-          <div>
-            <label class="block text-xs text-gray-600">sortOrder</label>
-            <input class="w-full border rounded px-2 py-1" type="number" value="${typeof it.sortOrder === 'number' ? it.sortOrder : ''}" data-k="order" placeholder="例: 100">
-          </div>
+
         </div>
-        <div>
+        <div class="flex gap-2">
           <button class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 hidden" data-action="update" disabled>更新</button>
+          <button class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700" data-action="delete">削除</button>
         </div>
         <div class="similar-matches-container"></div>
         <div class="text-xs text-gray-500">sources: ${(it.sources||[]).join(", ")}</div>
@@ -569,8 +596,13 @@ async function loadMaster(type, listElId, statusSelId, qId){
       const cnInput = div.querySelector('input[data-k="cn"]');
       const stSelect = div.querySelector('select[data-k="st"]');
       const groupInput = div.querySelector('input[data-k="group"]');
-      const orderInput = div.querySelector('input[data-k="order"]');
+      const deleteBtn = div.querySelector('button[data-action="delete"]');
       applyStatusAppearance(stSelect);
+      
+      // 削除ボタンのイベントリスナー
+      deleteBtn.addEventListener('click', () => {
+        deleteMasterItem(type, it.category, it.name);
+      });
 
       const similarContainer = div.querySelector('.similar-matches-container');
       if (Array.isArray(it.similarMatches) && it.similarMatches.length > 0) {
@@ -601,20 +633,17 @@ async function loadMaster(type, listElId, statusSelId, qId){
       const initialCn = cnInput.value;
       const initialSt = stSelect.value;
       const initialGroup = groupInput.value;
-      const initialOrder = orderInput.value;
 
       function refreshButtonState(){
         const changed = cnInput.value !== initialCn ||
                         stSelect.value !== initialSt ||
-                        groupInput.value !== initialGroup ||
-                        orderInput.value !== initialOrder;
+                        groupInput.value !== initialGroup;
         updateBtn.disabled = !changed;
         updateBtn.classList.toggle('hidden', !changed);
       }
 
       cnInput.addEventListener('input', refreshButtonState);
       groupInput.addEventListener('input', refreshButtonState);
-      orderInput.addEventListener('input', refreshButtonState);
       stSelect.addEventListener('change', () => {
         refreshButtonState();
         applyStatusAppearance(stSelect);
@@ -636,21 +665,49 @@ async function updateMaster(type, category, name, btn){
   const cn = root.querySelector('input[data-k="cn"]').value;
   const st = root.querySelector('select[data-k="st"]').value;
   const group = root.querySelector('input[data-k="group"]').value.trim();
-  const orderRaw = root.querySelector('input[data-k="order"]').value.trim();
-  const sortOrder = orderRaw === '' ? null : Number(orderRaw);
-  await fetch(`${BASE}/api/updateMasterItem`,{
-    method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({
-      type, category, name,
-      canonical_name: cn,
-      status: st,
-      sortGroup: group || null,
-      sortOrder: Number.isFinite(sortOrder) ? sortOrder : null
-    })
-  });
-  alert("更新しました");
-  btn.disabled = true;
-  btn.classList.add('hidden');
+  
+  try {
+    await fetch(`${BASE}/api/updateMasterItem`,{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({
+        type, category, name,
+        canonical_name: cn,
+        status: st,
+        sortGroup: group || null
+      })
+    });
+    alert("更新しました");
+    btn.disabled = true;
+    btn.classList.add('hidden');
+  } catch (error) {
+    alert("更新に失敗しました: " + error.message);
+  }
+}
+
+async function deleteMasterItem(type, category, name) {
+  if (!confirm(`この資格を削除してもよろしいですか？\n\n分類: ${category}\n名称: ${name}`)) {
+    return;
+  }
+  
+  try {
+    const response = await fetch(`${BASE}/api/deleteMasterItem`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ type, category, name })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    
+    alert("削除しました");
+    // リストを再読み込み
+    if (type === 'qual') {
+      await loadMaster(type, 'mstQualList', 'mstQualStatus', 'mstQualQ');
+    }
+  } catch (error) {
+    alert("削除に失敗しました: " + error.message);
+  }
 }
 function exportMaster(type, format){
   const url = `${BASE}/api/exportMaster?type=${type}&format=${format}`;
