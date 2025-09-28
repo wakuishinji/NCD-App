@@ -38,6 +38,10 @@
           <label class="block text-sm text-gray-700 mb-1">名称</label>
           <input id="clinicName" class="w-full border rounded px-3 py-2" />
         </div>
+        <div>
+          <label class="block text-sm text-gray-700 mb-1">郵便番号</label>
+          <input id="clinicPostalCode" type="text" inputmode="numeric" pattern="[0-9\\-]*" class="w-full border rounded px-3 py-2" placeholder="123-4567" />
+        </div>
         <div class="md:col-span-2">
           <label class="block text-sm text-gray-700 mb-1">住所</label>
           <input id="clinicAddress" class="w-full border rounded px-3 py-2" />
@@ -233,6 +237,7 @@ const TIME_DEFAULTS = {
   pm: { start: '14:00', end: '18:00' }
 };
 const TIME_STEP_MINUTES = 5;
+const ZIP_LOOKUP_ENDPOINT = 'https://zipcloud.ibsnet.co.jp/api/search';
 let scheduleState = {
   patterns: createEmptyPatterns(),
   days: {}
@@ -240,6 +245,7 @@ let scheduleState = {
 let scheduleEditPanelEl = null;
 let scheduleToggleBtnEl = null;
 let scheduleDoneBtnEl = null;
+let latestPostalLookup = '';
 
 function toggleLoadingOverlay(show) {
   const overlay = document.getElementById("loadingOverlay");
@@ -253,6 +259,17 @@ function normalizeText(v) {
 
 function equalsIgnoreCase(a, b) {
   return normalizeText(a).toLowerCase() === normalizeText(b).toLowerCase();
+}
+
+function normalizePostalCode(value) {
+  return (value || '').replace(/\D/g, '');
+}
+
+function formatPostalCode(value) {
+  const digits = normalizePostalCode(value);
+  if (!digits) return '';
+  if (digits.length <= 3) return digits;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}`;
 }
 
 function createEmptyPatterns() {
@@ -613,6 +630,82 @@ function initTimeInputDefaults() {
   });
 }
 
+async function fetchAddressForPostalCode(zipDigits) {
+  const url = new URL(ZIP_LOOKUP_ENDPOINT);
+  url.searchParams.set('zipcode', zipDigits);
+  const res = await fetch(url.toString());
+  if (!res.ok) {
+    throw new Error(`郵便番号検索に失敗しました (HTTP ${res.status})`);
+  }
+  const data = await res.json();
+  if (data?.status !== 200 || !Array.isArray(data?.results) || !data.results.length) {
+    throw new Error(data?.message || '該当する住所が見つかりませんでした');
+  }
+  const result = data.results[0];
+  return `${result.address1 || ''}${result.address2 || ''}${result.address3 || ''}`.trim();
+}
+
+async function tryAutoFillAddress({ force = false } = {}) {
+  const postalInput = document.getElementById('clinicPostalCode');
+  const addressInput = document.getElementById('clinicAddress');
+  if (!postalInput || !addressInput) return;
+
+  const digits = normalizePostalCode(postalInput.value);
+  if (digits.length !== 7) {
+    if (force && digits.length > 0) {
+      alert('郵便番号は7桁で入力してください');
+    }
+    latestPostalLookup = '';
+    return;
+  }
+
+  if (!force && latestPostalLookup === digits) {
+    return;
+  }
+
+  try {
+    const address = await fetchAddressForPostalCode(digits);
+    if (address) {
+      addressInput.value = address;
+    }
+    latestPostalLookup = digits;
+  } catch (err) {
+    latestPostalLookup = '';
+    if (force) {
+      alert(err.message || '郵便番号から住所を取得できませんでした');
+    }
+  }
+}
+
+function initPostalCodeField() {
+  const postalInput = document.getElementById('clinicPostalCode');
+  if (!postalInput) return;
+
+  const updateValue = () => {
+    const formatted = formatPostalCode(postalInput.value);
+    if (postalInput.value !== formatted) {
+      postalInput.value = formatted;
+    }
+  };
+
+  postalInput.addEventListener('input', () => {
+    updateValue();
+    const digits = normalizePostalCode(postalInput.value);
+    if (digits.length === 7) {
+      tryAutoFillAddress({ force: false });
+    } else {
+      latestPostalLookup = '';
+    }
+  });
+
+  postalInput.addEventListener('blur', () => {
+    updateValue();
+    tryAutoFillAddress({ force: true });
+  });
+
+  postalInput.value = formatPostalCode(postalInput.value);
+}
+
 function renderDepartmentChecklist(selectedNames) {
   const container = document.getElementById("departmentOptions");
   if (!container) return;
@@ -819,6 +912,7 @@ function getTimeText(sel, patterns){
 
 async function saveClinic() {
   const name       = document.getElementById("clinicName").value.trim();
+  const postalCode = formatPostalCode(document.getElementById("clinicPostalCode").value);
   const address    = document.getElementById("clinicAddress").value.trim();
   const phone      = document.getElementById("clinicPhone").value.trim();
   const fax        = document.getElementById("clinicFax").value.trim();
@@ -866,6 +960,7 @@ async function saveClinic() {
   const clinicData = {
     id: currentClinicId,
     name,
+    postalCode,
     address,
     phone,
     fax,
@@ -909,6 +1004,7 @@ function loadClinicDetail() {
     scheduleState.days = {};
     applyScheduleStateToForm();
     renderDisplay();
+    latestPostalLookup = '';
     return;
   }
 
@@ -917,6 +1013,8 @@ function loadClinicDetail() {
   retainedQualifications = clinic.doctors?.qualifications || "";
 
   document.getElementById("clinicName").value      = clinic.name || "";
+  const loadedPostal = formatPostalCode(clinic.postalCode || '');
+  document.getElementById("clinicPostalCode").value = loadedPostal;
   document.getElementById("clinicAddress").value   = clinic.address || "";
   document.getElementById("clinicPhone").value     = clinic.phone || "";
   document.getElementById("clinicFax").value       = clinic.fax || "";
@@ -937,6 +1035,8 @@ function loadClinicDetail() {
   document.getElementById("reservationUrl").value = reservationData.url || "";
   updateReservationField();
 
+  latestPostalLookup = normalizePostalCode(loadedPostal);
+
   const deptState = parseDepartments(clinic.departments);
   renderDepartmentChecklist(deptState.master);
   document.getElementById("departmentOthers").value = deptState.others.join("\n");
@@ -953,6 +1053,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     initDepartmentSelectionUI();
     initScheduleEditorUI();
     initTimeInputDefaults();
+    initPostalCodeField();
     await loadDepartmentMaster();
     loadClinicDetail();
   } finally {
