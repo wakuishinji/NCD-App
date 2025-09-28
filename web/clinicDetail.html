@@ -107,61 +107,71 @@
 
     <!-- 診療時間設定 -->
     <section class="bg-white rounded shadow p-6" id="clinic-schedule">
-      <h2 class="text-lg font-semibold text-blue-800 mb-4">診療時間設定</h2>
-
-      <!-- パターン登録 -->
-      <div class="border rounded p-4">
-        <h3 class="font-medium text-gray-800 mb-3">診療時間パターン登録</h3>
-        <div class="grid md:grid-cols-2 gap-3">
-          <div>
-            <div class="text-sm text-gray-600 mb-1">午前A</div>
-            <div class="flex items-center gap-2">
-              <input type="time" id="amA_start" class="border rounded px-2 py-1">～
-              <input type="time" id="amA_end" class="border rounded px-2 py-1">
-            </div>
-          </div>
-          <div>
-            <div class="text-sm text-gray-600 mb-1">午前B</div>
-            <div class="flex items-center gap-2">
-              <input type="time" id="amB_start" class="border rounded px-2 py-1">～
-              <input type="time" id="amB_end" class="border rounded px-2 py-1">
-            </div>
-          </div>
-          <div>
-            <div class="text-sm text-gray-600 mb-1">午後A</div>
-            <div class="flex items-center gap-2">
-              <input type="time" id="pmA_start" class="border rounded px-2 py-1">～
-              <input type="time" id="pmA_end" class="border rounded px-2 py-1">
-            </div>
-          </div>
-          <div>
-            <div class="text-sm text-gray-600 mb-1">午後B</div>
-            <div class="flex items-center gap-2">
-              <input type="time" id="pmB_start" class="border rounded px-2 py-1">～
-              <input type="time" id="pmB_end" class="border rounded px-2 py-1">
-            </div>
-          </div>
-        </div>
-        <button onclick="savePatterns()" class="mt-3 bg-gray-700 text-white px-4 py-2 rounded hover:bg-gray-800">パターン保存</button>
+      <div class="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <h2 class="text-lg font-semibold text-blue-800">診療時間設定</h2>
+        <button id="scheduleToggleBtn" type="button" class="self-start rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">入力する</button>
       </div>
+      <p class="text-sm text-gray-600 mb-4">診療時間を編集する場合は「入力する」ボタンを押してください。表示中の内容は保存済みの設定です。</p>
 
-      <!-- 曜日ごとの設定 -->
-      <div class="mt-6 border rounded p-4">
-        <div class="flex items-center justify-between mb-3">
-          <h3 class="font-medium text-gray-800">曜日ごとの診療パターン設定</h3>
-          <div class="flex gap-2">
-            <button onclick="applyAll('am')" class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">午前すべて 午前A</button>
-            <button onclick="applyAll('pm')" class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">午後すべて 午後A</button>
-            <button onclick="saveSchedule()" class="bg-gray-700 text-white px-3 py-1 rounded hover:bg-gray-800">曜日設定を保存</button>
+      <div id="scheduleEditPanel" class="space-y-6 hidden" aria-hidden="true">
+        <!-- パターン登録 -->
+        <div class="border rounded p-4">
+          <h3 class="font-medium text-gray-800 mb-3">診療時間パターン登録</h3>
+          <div class="grid md:grid-cols-2 gap-3">
+            <div>
+              <div class="text-sm text-gray-600 mb-1">午前A</div>
+              <div class="flex items-center gap-2">
+                <input type="time" id="amA_start" class="border rounded px-2 py-1">～
+                <input type="time" id="amA_end" class="border rounded px-2 py-1">
+              </div>
+            </div>
+            <div>
+              <div class="text-sm text-gray-600 mb-1">午前B</div>
+              <div class="flex items-center gap-2">
+                <input type="time" id="amB_start" class="border rounded px-2 py-1">～
+                <input type="time" id="amB_end" class="border rounded px-2 py-1">
+              </div>
+            </div>
+            <div>
+              <div class="text-sm text-gray-600 mb-1">午後A</div>
+              <div class="flex items-center gap-2">
+                <input type="time" id="pmA_start" class="border rounded px-2 py-1">～
+                <input type="time" id="pmA_end" class="border rounded px-2 py-1">
+              </div>
+            </div>
+            <div>
+              <div class="text-sm text-gray-600 mb-1">午後B</div>
+              <div class="flex items-center gap-2">
+                <input type="time" id="pmB_start" class="border rounded px-2 py-1">～
+                <input type="time" id="pmB_end" class="border rounded px-2 py-1">
+              </div>
+            </div>
+          </div>
+          <button onclick="savePatterns()" class="mt-3 bg-gray-700 text-white px-4 py-2 rounded hover:bg-gray-800">パターン保存</button>
+        </div>
+
+        <!-- 曜日ごとの設定 -->
+        <div class="border rounded p-4">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-medium text-gray-800">曜日ごとの診療パターン設定</h3>
+            <div class="flex gap-2">
+              <button onclick="applyAll('am')" class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">午前すべて 午前A</button>
+              <button onclick="applyAll('pm')" class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">午後すべて 午後A</button>
+              <button onclick="saveSchedule()" class="bg-gray-700 text-white px-3 py-1 rounded hover:bg-gray-800">曜日設定を保存</button>
+            </div>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="min-w-full border text-sm">
+              <thead class="bg-gray-100">
+                <tr><th class="border px-2 py-1">曜日</th><th class="border px-2 py-1">午前</th><th class="border px-2 py-1">午後</th></tr>
+              </thead>
+              <tbody id="scheduleBody"></tbody>
+            </table>
           </div>
         </div>
-        <div class="overflow-x-auto">
-          <table class="min-w-full border text-sm">
-            <thead class="bg-gray-100">
-              <tr><th class="border px-2 py-1">曜日</th><th class="border px-2 py-1">午前</th><th class="border px-2 py-1">午後</th></tr>
-            </thead>
-            <tbody id="scheduleBody"></tbody>
-          </table>
+
+        <div class="flex justify-end">
+          <button id="scheduleEditDone" type="button" class="rounded bg-gray-700 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800">完了</button>
         </div>
       </div>
 
@@ -209,6 +219,14 @@ let departmentToggleBtnEl = null;
 const DEPARTMENT_CACHE_KEY = 'ncd_department_master_cache_v1';
 const DEPARTMENT_CACHE_TTL = 10 * 60 * 1000;
 let pendingDepartmentRender = false;
+const DEFAULT_PATTERN_KEYS = ['amA','amB','pmA','pmB'];
+let scheduleState = {
+  patterns: createEmptyPatterns(),
+  days: {}
+};
+let scheduleEditPanelEl = null;
+let scheduleToggleBtnEl = null;
+let scheduleDoneBtnEl = null;
 
 function toggleLoadingOverlay(show) {
   const overlay = document.getElementById("loadingOverlay");
@@ -222,6 +240,80 @@ function normalizeText(v) {
 
 function equalsIgnoreCase(a, b) {
   return normalizeText(a).toLowerCase() === normalizeText(b).toLowerCase();
+}
+
+function createEmptyPatterns() {
+  return {
+    amA: ["", ""],
+    amB: ["", ""],
+    pmA: ["", ""],
+    pmB: ["", ""]
+  };
+}
+
+function sanitizePatterns(source) {
+  const base = createEmptyPatterns();
+  if (!source || typeof source !== 'object') return base;
+  DEFAULT_PATTERN_KEYS.forEach(key => {
+    const slot = Array.isArray(source[key]) ? source[key] : [];
+    base[key] = [slot[0] || '', slot[1] || ''];
+  });
+  return base;
+}
+
+function sanitizeScheduleDays(source) {
+  const result = {};
+  if (source && typeof source === 'object') {
+    Object.keys(source).forEach(day => {
+      const raw = source[day] || {};
+      result[day] = {
+        am: raw.am || '休診',
+        pm: raw.pm || '休診'
+      };
+    });
+  }
+  return result;
+}
+
+function readScheduleFormPatterns() {
+  return {
+    amA: [document.getElementById('amA_start').value, document.getElementById('amA_end').value],
+    amB: [document.getElementById('amB_start').value, document.getElementById('amB_end').value],
+    pmA: [document.getElementById('pmA_start').value, document.getElementById('pmA_end').value],
+    pmB: [document.getElementById('pmB_start').value, document.getElementById('pmB_end').value]
+  };
+}
+
+function readScheduleFormDays() {
+  const output = {};
+  days.forEach((d, i) => {
+    output[d] = {
+      am: document.getElementById(`am_${i}`).value,
+      pm: document.getElementById(`pm_${i}`).value
+    };
+  });
+  return output;
+}
+
+function applyScheduleStateToForm() {
+  const patterns = scheduleState.patterns || createEmptyPatterns();
+  document.getElementById('amA_start').value = patterns.amA?.[0] || '';
+  document.getElementById('amA_end').value = patterns.amA?.[1] || '';
+  document.getElementById('amB_start').value = patterns.amB?.[0] || '';
+  document.getElementById('amB_end').value = patterns.amB?.[1] || '';
+  document.getElementById('pmA_start').value = patterns.pmA?.[0] || '';
+  document.getElementById('pmA_end').value = patterns.pmA?.[1] || '';
+  document.getElementById('pmB_start').value = patterns.pmB?.[0] || '';
+  document.getElementById('pmB_end').value = patterns.pmB?.[1] || '';
+
+  const dayState = scheduleState.days || {};
+  days.forEach((d, i) => {
+    const info = dayState[d] || {};
+    const amSel = document.getElementById(`am_${i}`);
+    const pmSel = document.getElementById(`pm_${i}`);
+    if (amSel) amSel.value = info.am || '休診';
+    if (pmSel) pmSel.value = info.pm || '休診';
+  });
 }
 
 function readDepartmentMasterCache() {
@@ -388,6 +480,52 @@ function initDepartmentSelectionUI() {
   }
 }
 
+function showScheduleEditor() {
+  if (!scheduleEditPanelEl) return;
+  scheduleEditPanelEl.classList.remove('hidden');
+  scheduleEditPanelEl.setAttribute('aria-hidden', 'false');
+  if (scheduleToggleBtnEl) {
+    scheduleToggleBtnEl.setAttribute('aria-expanded', 'true');
+  }
+  scheduleEditPanelEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function hideScheduleEditor() {
+  if (!scheduleEditPanelEl) return;
+  scheduleEditPanelEl.classList.add('hidden');
+  scheduleEditPanelEl.setAttribute('aria-hidden', 'true');
+  if (scheduleToggleBtnEl) {
+    scheduleToggleBtnEl.setAttribute('aria-expanded', 'false');
+    scheduleToggleBtnEl.focus();
+  }
+  scheduleState.patterns = sanitizePatterns(readScheduleFormPatterns());
+  scheduleState.days = readScheduleFormDays();
+  renderDisplay();
+}
+
+function initScheduleEditorUI() {
+  scheduleEditPanelEl = document.getElementById('scheduleEditPanel');
+  scheduleToggleBtnEl = document.getElementById('scheduleToggleBtn');
+  scheduleDoneBtnEl = document.getElementById('scheduleEditDone');
+
+  if (scheduleEditPanelEl) {
+    scheduleEditPanelEl.setAttribute('aria-hidden', 'true');
+  }
+
+  if (scheduleToggleBtnEl) {
+    scheduleToggleBtnEl.setAttribute('aria-expanded', 'false');
+    scheduleToggleBtnEl.addEventListener('click', () => {
+      showScheduleEditor();
+    });
+  }
+
+  if (scheduleDoneBtnEl) {
+    scheduleDoneBtnEl.addEventListener('click', () => {
+      hideScheduleEditor();
+    });
+  }
+}
+
 function renderDepartmentChecklist(selectedNames) {
   const container = document.getElementById("departmentOptions");
   if (!container) return;
@@ -519,12 +657,16 @@ function initScheduleTable(){
         <td class="border px-2 py-1 text-center">${d}</td>
         <td class="border px-2 py-1 text-center">
           <select id="am_${i}" class="border rounded px-2 py-1">
-            <option>午前A</option><option>午前B</option><option>休診</option>
+            <option selected>休診</option>
+            <option>午前A</option>
+            <option>午前B</option>
           </select>
         </td>
         <td class="border px-2 py-1 text-center">
           <select id="pm_${i}" class="border rounded px-2 py-1">
-            <option>午後A</option><option>午後B</option><option>休診</option>
+            <option selected>休診</option>
+            <option>午後A</option>
+            <option>午後B</option>
           </select>
         </td>
       </tr>`;
@@ -533,13 +675,8 @@ function initScheduleTable(){
 initScheduleTable();
 
 function savePatterns(){
-  const patterns = {
-    amA:[document.getElementById("amA_start").value, document.getElementById("amA_end").value],
-    amB:[document.getElementById("amB_start").value, document.getElementById("amB_end").value],
-    pmA:[document.getElementById("pmA_start").value, document.getElementById("pmA_end").value],
-    pmB:[document.getElementById("pmB_start").value, document.getElementById("pmB_end").value]
-  };
-  localStorage.setItem("patterns", JSON.stringify(patterns));
+  scheduleState.patterns = sanitizePatterns(readScheduleFormPatterns());
+  renderDisplay();
   alert("診療時間パターンを保存しました");
 }
 
@@ -551,22 +688,16 @@ function applyAll(type){
 }
 
 function saveSchedule(){
-  const schedule = {};
-  days.forEach((d,i)=>{
-    schedule[d] = {
-      am: document.getElementById("am_"+i).value,
-      pm: document.getElementById("pm_"+i).value
-    };
-  });
-  localStorage.setItem("schedule", JSON.stringify(schedule));
+  scheduleState.days = readScheduleFormDays();
   renderDisplay();
 }
 
 function renderDisplay(){
   const display = document.getElementById("displayBody");
+  if (!display) return;
   display.innerHTML = "";
-  const patterns = JSON.parse(localStorage.getItem("patterns")||"{}");
-  const schedule = JSON.parse(localStorage.getItem("schedule")||"{}");
+  const patterns = scheduleState.patterns || createEmptyPatterns();
+  const schedule = scheduleState.days || {};
 
   days.forEach(d=>{
     const am = schedule[d]?.am || "休診";
@@ -581,13 +712,21 @@ function renderDisplay(){
 }
 
 function getTimeText(sel, patterns){
+  const formatRange = (range) => {
+    if (!Array.isArray(range)) return '';
+    const [start, end] = range;
+    if (!start && !end) return '未設定';
+    if (start && end) return `${start}～${end}`;
+    return start || end || '未設定';
+  };
+
   switch(sel){
-    case "午前A": return patterns.amA?.join("～") || "";
-    case "午前B": return patterns.amB?.join("～") || "";
-    case "午後A": return patterns.pmA?.join("～") || "";
-    case "午後B": return patterns.pmB?.join("～") || "";
+    case "午前A": return formatRange(patterns.amA);
+    case "午前B": return formatRange(patterns.amB);
+    case "午後A": return formatRange(patterns.pmA);
+    case "午後B": return formatRange(patterns.pmB);
     case "休診": return "休診";
-    default: return "";
+    default: return sel || '';
   }
 }
 
@@ -631,8 +770,9 @@ async function saveClinic() {
     return;
   }
 
-  const patterns = JSON.parse(localStorage.getItem("patterns") || "{}");
-  const schedule = JSON.parse(localStorage.getItem("schedule") || "{}");
+  scheduleState.patterns = sanitizePatterns(readScheduleFormPatterns());
+  scheduleState.days = readScheduleFormDays();
+  renderDisplay();
 
   const clinicData = {
     id: currentClinicId,
@@ -643,7 +783,7 @@ async function saveClinic() {
       parttime: Number(parttime||0),
       qualifications: retainedQualifications || ""
     },
-    schedule: { patterns, days: schedule },
+    schedule: { patterns: scheduleState.patterns, days: scheduleState.days },
     homepage: { available: hasHomepage, url: homepageUrl },
     reservation: { available: hasReservation, url: reservationUrl },
     departments: {
@@ -673,7 +813,13 @@ async function saveClinic() {
 // 選択済み施設から初期値ロード
 function loadClinicDetail() {
   const stored = localStorage.getItem("selectedClinic");
-  if (!stored) { renderDisplay(); return; }
+  if (!stored) {
+    scheduleState.patterns = createEmptyPatterns();
+    scheduleState.days = {};
+    applyScheduleStateToForm();
+    renderDisplay();
+    return;
+  }
 
   const clinic = JSON.parse(stored);
   currentClinicId = clinic.id || "";
@@ -702,20 +848,9 @@ function loadClinicDetail() {
   renderDepartmentChecklist(deptState.master);
   document.getElementById("departmentOthers").value = deptState.others.join("\n");
 
-  const patterns = clinic.schedule?.patterns || {};
-  if (patterns.amA) { amA_start.value = patterns.amA[0] || ""; amA_end.value = patterns.amA[1] || ""; }
-  if (patterns.amB) { amB_start.value = patterns.amB[0] || ""; amB_end.value = patterns.amB[1] || ""; }
-  if (patterns.pmA) { pmA_start.value = patterns.pmA[0] || ""; pmA_end.value = patterns.pmA[1] || ""; }
-  if (patterns.pmB) { pmB_start.value = patterns.pmB[0] || ""; pmB_end.value = patterns.pmB[1] || ""; }
-
-  const schedule = clinic.schedule?.days || {};
-  days.forEach((d,i)=>{
-    if (schedule[d]) {
-      document.getElementById("am_"+i).value = schedule[d].am || "休診";
-      document.getElementById("pm_"+i).value = schedule[d].pm || "休診";
-    }
-  });
-
+  scheduleState.patterns = sanitizePatterns(clinic.schedule?.patterns);
+  scheduleState.days = sanitizeScheduleDays(clinic.schedule?.days);
+  applyScheduleStateToForm();
   renderDisplay();
 }
 
@@ -723,6 +858,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   toggleLoadingOverlay(true);
   try {
     initDepartmentSelectionUI();
+    initScheduleEditorUI();
     await loadDepartmentMaster();
     loadClinicDetail();
   } finally {
