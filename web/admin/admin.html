@@ -568,14 +568,14 @@ async function handleMasterCsvImport(type, file) {
   let success = 0;
   const failures = [];
 
-  await withPanelLoading(panelId, message, async () => {
+  await withPanelLoading(panelId, `${message}（CSV取込中...）`, async () => {
     for (const row of targets) {
       const [category, name, desc = ''] = row;
       try {
         const res = await fetch(`${BASE}/api/addMasterItem`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type, category, name, desc, source: 'admin-csv.import' })
+          body: JSON.stringify({ type, category, name, desc, source: 'admin-csv.import', status: 'approved' })
         });
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
@@ -879,7 +879,7 @@ async function updateMaster(type, btn){
   const [listId, statusId, queryId] = listInfo;
 
   try {
-    await withPanelLoading(panelId, message, async () => {
+    await withPanelLoading(panelId, `${message}（保存中...）`, async () => {
       const res = await fetch(`${BASE}/api/updateMasterItem`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

@@ -426,7 +426,7 @@ if (routeMatch(url, "GET", "listClinics")) {
     if (routeMatch(url, "POST", "addMasterItem")) {
       try {
         const body = await request.json();
-        const { type, category, name, desc, source } = body || {};
+        const { type, category, name, desc, source, status } = body || {};
         if (!type || !category || !name) {
           return new Response(JSON.stringify({ error: "type, category, name は必須です" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -464,6 +464,9 @@ if (routeMatch(url, "GET", "listClinics")) {
         }
         if (source) {
           item.sources = Array.from(new Set([...(item.sources || []), source]));
+        }
+        if (status && ["candidate","approved","archived"].includes(status)) {
+          item.status = status;
         }
 
         await env.SETTINGS.put(key, JSON.stringify(item));
