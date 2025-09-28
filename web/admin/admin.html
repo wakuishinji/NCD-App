@@ -262,67 +262,31 @@ async function showTab(id){
   try {
     switch(id) {
       case 'tab-clinics':
-        if (typeof wrapWithLoading === 'function') {
-          await wrapWithLoading(loadClinics, '診療所リストを読み込み中...', targetPanel);
-        } else {
-          await loadClinics();
-        }
+        await withPanelLoading(id, '診療所リストを読み込み中...', () => loadClinics());
         break;
       case 'tab-cat-qual':
-        if (typeof wrapWithLoading === 'function') {
-          await wrapWithLoading(() => loadCategories('qual','catQualList'), '資格分類を読み込み中...', targetPanel);
-        } else {
-          await loadCategories('qual','catQualList');
-        }
+        await withPanelLoading(id, '資格分類を読み込み中...', () => loadCategories('qual','catQualList'));
         break;
       case 'tab-master-qual':
-        if (typeof wrapWithLoading === 'function') {
-          await wrapWithLoading(() => loadMaster('qual','mstQualList','mstQualStatus','mstQualQ'), '資格マスターを読み込み中...', targetPanel);
-        } else {
-          await loadMaster('qual','mstQualList','mstQualStatus','mstQualQ');
-        }
+        await withPanelLoading(id, '資格マスターを読み込み中...', () => loadMaster('qual','mstQualList','mstQualStatus','mstQualQ'));
         break;
       case 'tab-cat-test':
-        if (typeof wrapWithLoading === 'function') {
-          await wrapWithLoading(() => loadCategories('test','catTestList'), '検査分類を読み込み中...', targetPanel);
-        } else {
-          await loadCategories('test','catTestList');
-        }
+        await withPanelLoading(id, '検査分類を読み込み中...', () => loadCategories('test','catTestList'));
         break;
       case 'tab-cat-service':
-        if (typeof wrapWithLoading === 'function') {
-          await wrapWithLoading(() => loadCategories('service','catSvcList'), '診療分類を読み込み中...', targetPanel);
-        } else {
-          await loadCategories('service','catSvcList');
-        }
+        await withPanelLoading(id, '診療分類を読み込み中...', () => loadCategories('service','catSvcList'));
         break;
       case 'tab-master-test':
-        if (typeof wrapWithLoading === 'function') {
-          await wrapWithLoading(() => loadMaster('test','mstTestList','mstTestStatus','mstTestQ'), '検査マスターを読み込み中...', targetPanel);
-        } else {
-          await loadMaster('test','mstTestList','mstTestStatus','mstTestQ');
-        }
+        await withPanelLoading(id, '検査マスターを読み込み中...', () => loadMaster('test','mstTestList','mstTestStatus','mstTestQ'));
         break;
       case 'tab-master-service':
-        if (typeof wrapWithLoading === 'function') {
-          await wrapWithLoading(() => loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ'), '診療マスターを読み込み中...', targetPanel);
-        } else {
-          await loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ');
-        }
+        await withPanelLoading(id, '診療マスターを読み込み中...', () => loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ'));
         break;
       case 'tab-master-dept':
-        if (typeof wrapWithLoading === 'function') {
-          await wrapWithLoading(() => loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ'), '標榜診療科マスターを読み込み中...', targetPanel);
-        } else {
-          await loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ');
-        }
+        await withPanelLoading(id, '標榜診療科マスターを読み込み中...', () => loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ'));
         break;
       case 'tab-ai':
-        if (typeof wrapWithLoading === 'function') {
-          await wrapWithLoading(() => loadAISettings(), 'AI設定を読み込み中...', targetPanel);
-        } else {
-          await loadAISettings();
-        }
+        await withPanelLoading(id, 'AI設定を読み込み中...', () => loadAISettings());
         break;
       case 'tab-todo':
         // iframe 内のため特別な処理は不要
@@ -487,6 +451,14 @@ document.getElementById('catSvcAdd').addEventListener('click',  ()=>addCategory(
 document.getElementById('catQualAdd').addEventListener('click', ()=>addCategory('qual','catQualNew'));
 
 // -------------------- マスター（検査/診療/資格/診療科） --------------------
+function withPanelLoading(panelId, message, asyncFn){
+  const panel = document.getElementById(panelId);
+  if (typeof wrapWithLoading === 'function') {
+    return wrapWithLoading(asyncFn, message, panel);
+  }
+  return asyncFn();
+}
+
 async function loadMaster(type, listElId, statusSelId, qId){
   try {
     const status = document.getElementById(statusSelId).value;
@@ -690,20 +662,40 @@ async function deleteMasterItem(type, category, name) {
   }
   
   try {
-    const response = await fetch(`${BASE}/api/deleteMasterItem`, {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ type, category, name })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    
-    alert("削除しました");
-    // リストを再読み込み
-    if (type === 'qual') {
-      await loadMaster(type, 'mstQualList', 'mstQualStatus', 'mstQualQ');
+    const panelMap = {
+      qual: 'tab-master-qual',
+      test: 'tab-master-test',
+      service: 'tab-master-service',
+      department: 'tab-master-dept'
+    };
+    const listMap = {
+      qual: ['mstQualList', 'mstQualStatus', 'mstQualQ'],
+      test: ['mstTestList', 'mstTestStatus', 'mstTestQ'],
+      service: ['mstSvcList', 'mstSvcStatus', 'mstSvcQ'],
+      department: ['mstDeptList', 'mstDeptStatus', 'mstDeptQ']
+    };
+    const messageMap = {
+      qual: '資格マスターを読み込み中...',
+      test: '検査マスターを読み込み中...',
+      service: '診療マスターを読み込み中...',
+      department: '標榜診療科マスターを読み込み中...'
+    };
+    const [listId, statusId, queryId] = listMap[type] || [];
+    if (listId && statusId && queryId) {
+      await withPanelLoading(panelMap[type], messageMap[type] || 'データ取得中...', async () => {
+        const response = await fetch(`${BASE}/api/deleteMasterItem`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({ type, category, name })
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        await loadMaster(type, listId, statusId, queryId);
+      });
+      alert("削除しました");
     }
   } catch (error) {
     alert("削除に失敗しました: " + error.message);
@@ -754,37 +746,63 @@ async function addDepartmentMaster(){
     return;
   }
   try {
-    const res = await fetch(`${BASE}/api/addMasterItem`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: 'department', category: DEPARTMENT_CATEGORY, name, source: 'admin-manual' })
+    await withPanelLoading('tab-master-dept', '標榜診療科マスターを読み込み中...', async () => {
+      const res = await fetch(`${BASE}/api/addMasterItem`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: 'department', category: DEPARTMENT_CATEGORY, name, source: 'admin-manual' })
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      input.value = '';
+      await loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ');
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    input.value = '';
-    await loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ');
     alert('候補として追加しました。ステータスを承認に変更すると施設詳細で選択できます。');
   } catch (err) {
     alert('診療科の追加に失敗しました: ' + err.message);
   }
 }
 
-document.getElementById('mstTestReload').addEventListener('click', ()=>loadMaster('test','mstTestList','mstTestStatus','mstTestQ'));
-document.getElementById('mstSvcReload').addEventListener('click',  ()=>loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ'));
-document.getElementById('mstTestStatus').addEventListener('change', ()=>loadMaster('test','mstTestList','mstTestStatus','mstTestQ'));
-document.getElementById('mstSvcStatus').addEventListener('change', ()=>loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ'));
-document.getElementById('mstTestQ').addEventListener('input', ()=>loadMaster('test','mstTestList','mstTestStatus','mstTestQ'));
-document.getElementById('mstSvcQ').addEventListener('input',  ()=>loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ'));
+document.getElementById('mstTestReload').addEventListener('click', async () => {
+  await withPanelLoading('tab-master-test', '検査マスターを読み込み中...', () => loadMaster('test','mstTestList','mstTestStatus','mstTestQ'));
+});
+document.getElementById('mstSvcReload').addEventListener('click', async () => {
+  await withPanelLoading('tab-master-service', '診療マスターを読み込み中...', () => loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ'));
+});
+document.getElementById('mstTestStatus').addEventListener('change', async () => {
+  await withPanelLoading('tab-master-test', '検査マスターを読み込み中...', () => loadMaster('test','mstTestList','mstTestStatus','mstTestQ'));
+});
+document.getElementById('mstSvcStatus').addEventListener('change', async () => {
+  await withPanelLoading('tab-master-service', '診療マスターを読み込み中...', () => loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ'));
+});
+document.getElementById('mstTestQ').addEventListener('input', () => {
+  loadMaster('test','mstTestList','mstTestStatus','mstTestQ');
+});
+document.getElementById('mstSvcQ').addEventListener('input', () => {
+  loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ');
+});
 document.getElementById('mstDeptAdd').addEventListener('click', addDepartmentMaster);
-document.getElementById('mstDeptReload').addEventListener('click', ()=>loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ'));
-document.getElementById('mstDeptStatus').addEventListener('change', ()=>loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ'));
-document.getElementById('mstDeptQ').addEventListener('input',  ()=>loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ'));
+document.getElementById('mstDeptReload').addEventListener('click', async () => {
+  await withPanelLoading('tab-master-dept', '標榜診療科マスターを読み込み中...', () => loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ'));
+});
+document.getElementById('mstDeptStatus').addEventListener('change', async () => {
+  await withPanelLoading('tab-master-dept', '標榜診療科マスターを読み込み中...', () => loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ'));
+});
+document.getElementById('mstDeptQ').addEventListener('input', () => {
+  loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ');
+});
 bindStatusFilterAppearance('mstTestStatus');
 bindStatusFilterAppearance('mstSvcStatus');
 bindStatusFilterAppearance('mstDeptStatus');
 bindStatusFilterAppearance('mstQualStatus');
-document.getElementById('mstQualReload').addEventListener('click', ()=>loadMaster('qual','mstQualList','mstQualStatus','mstQualQ'));
-document.getElementById('mstQualStatus').addEventListener('change', ()=>loadMaster('qual','mstQualList','mstQualStatus','mstQualQ'));
-document.getElementById('mstQualQ').addEventListener('input', ()=>loadMaster('qual','mstQualList','mstQualStatus','mstQualQ'));
+document.getElementById('mstQualReload').addEventListener('click', async () => {
+  await withPanelLoading('tab-master-qual', '資格マスターを読み込み中...', () => loadMaster('qual','mstQualList','mstQualStatus','mstQualQ'));
+});
+document.getElementById('mstQualStatus').addEventListener('change', async () => {
+  await withPanelLoading('tab-master-qual', '資格マスターを読み込み中...', () => loadMaster('qual','mstQualList','mstQualStatus','mstQualQ'));
+});
+document.getElementById('mstQualQ').addEventListener('input', () => {
+  loadMaster('qual','mstQualList','mstQualStatus','mstQualQ');
+});
 
 // -------------------- AI設定 --------------------
 async function loadAISettings(){

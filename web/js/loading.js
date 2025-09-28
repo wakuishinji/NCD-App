@@ -142,6 +142,13 @@ class LoadingManager {
       targetElement.dataset.originalPosition = 'static';
     }
 
+    if (!targetElement.offsetHeight) {
+      targetElement.dataset.appliedMinHeight = targetElement.style.minHeight || '__empty__';
+      if (!targetElement.style.minHeight) {
+        targetElement.style.minHeight = '200px';
+      }
+    }
+
     const loading = document.createElement('div');
     loading.className = 'ncd-tab-loading';
     loading.innerHTML = `
@@ -168,6 +175,15 @@ class LoadingManager {
         if (targetElement.dataset.originalPosition === 'static') {
           targetElement.style.position = '';
           delete targetElement.dataset.originalPosition;
+        }
+        if (Object.prototype.hasOwnProperty.call(targetElement.dataset, 'appliedMinHeight')) {
+          const prev = targetElement.dataset.appliedMinHeight;
+          if (prev === '__empty__') {
+            targetElement.style.minHeight = '';
+          } else {
+            targetElement.style.minHeight = prev;
+          }
+          delete targetElement.dataset.appliedMinHeight;
         }
       }, 200);
     }
