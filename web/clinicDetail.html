@@ -220,6 +220,10 @@ const DEPARTMENT_CACHE_KEY = 'ncd_department_master_cache_v1';
 const DEPARTMENT_CACHE_TTL = 10 * 60 * 1000;
 let pendingDepartmentRender = false;
 const DEFAULT_PATTERN_KEYS = ['amA','amB','pmA','pmB'];
+const TIME_DEFAULTS = {
+  am: { start: '09:00', end: '12:00' },
+  pm: { start: '14:00', end: '18:00' }
+};
 let scheduleState = {
   patterns: createEmptyPatterns(),
   days: {}
@@ -246,8 +250,8 @@ function createEmptyPatterns() {
   return {
     amA: ["09:00", "12:00"],
     amB: ["09:00", "12:00"],
-    pmA: ["15:00", "18:00"],
-    pmB: ["15:00", "18:00"]
+    pmA: ["14:00", "18:00"],
+    pmB: ["14:00", "18:00"]
   };
 }
 
@@ -524,6 +528,33 @@ function initScheduleEditorUI() {
       hideScheduleEditor();
     });
   }
+}
+
+function initTimeInputDefaults() {
+  const inputs = Array.from(document.querySelectorAll("input[type='time']"));
+  inputs.forEach(input => {
+    input.step = 300;
+    const id = input.id || '';
+    const isAm = id.startsWith('am');
+    const isPm = id.startsWith('pm');
+    if (!isAm && !isPm) return;
+
+    input.addEventListener('focus', () => {
+      if (input.value) return;
+      const defaults = isAm ? TIME_DEFAULTS.am : TIME_DEFAULTS.pm;
+      const isStart = id.endsWith('_start');
+      const fallback = defaults[isStart ? 'start' : 'end'];
+      if (!fallback) return;
+      input.value = fallback;
+      if (typeof input.setSelectionRange === 'function') {
+        try {
+          input.setSelectionRange(0, fallback.length);
+        } catch (err) {
+          // Some browsers prevent selection on time inputs; ignore.
+        }
+      }
+    });
+  });
 }
 
 function renderDepartmentChecklist(selectedNames) {
@@ -859,6 +890,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   try {
     initDepartmentSelectionUI();
     initScheduleEditorUI();
+    initTimeInputDefaults();
     await loadDepartmentMaster();
     loadClinicDetail();
   } finally {
