@@ -153,6 +153,9 @@
               <option value="approved">承認</option>
               <option value="archived">廃止</option>
             </select>
+            <select id="mstTestCategory" class="border rounded px-3 py-2 min-w-[160px]">
+              <option value="">全ての分類</option>
+            </select>
             <input id="mstTestQ" class="border rounded px-3 py-2 flex-1" placeholder="検索（分類・名称）">
             <button id="mstTestReload" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">再読込</button>
           </div>
@@ -176,6 +179,9 @@
               <option value="candidate">候補</option>
               <option value="approved">承認</option>
               <option value="archived">廃止</option>
+            </select>
+            <select id="mstSvcCategory" class="border rounded px-3 py-2 min-w-[160px]">
+              <option value="">全ての分類</option>
             </select>
             <input id="mstSvcQ" class="border rounded px-3 py-2 flex-1" placeholder="検索（分類・名称）">
             <button id="mstSvcReload" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">再読込</button>
@@ -260,10 +266,10 @@ const MASTER_PANEL_MAP = {
   department: 'tab-master-dept'
 };
 const MASTER_LIST_MAP = {
-  qual: ['mstQualList', 'mstQualStatus', 'mstQualQ'],
-  test: ['mstTestList', 'mstTestStatus', 'mstTestQ'],
-  service: ['mstSvcList', 'mstSvcStatus', 'mstSvcQ'],
-  department: ['mstDeptList', 'mstDeptStatus', 'mstDeptQ']
+  qual: ['mstQualList', 'mstQualStatus', 'mstQualQ', null],
+  test: ['mstTestList', 'mstTestStatus', null, 'mstTestCategory'],
+  service: ['mstSvcList', 'mstSvcStatus', null, 'mstSvcCategory'],
+  department: ['mstDeptList', 'mstDeptStatus', 'mstDeptQ', null]
 };
 const MASTER_MESSAGE_MAP = {
   qual: '資格マスターを読み込み中...',
@@ -321,10 +327,10 @@ async function showTab(id){
         await withPanelLoading(id, '診療分類を読み込み中...', () => loadCategories('service','catSvcList'));
         break;
       case 'tab-master-test':
-        await withPanelLoading(id, '検査マスターを読み込み中...', () => loadMaster('test','mstTestList','mstTestStatus','mstTestQ'));
+        await withPanelLoading(id, '検査マスターを読み込み中...', () => loadMaster('test','mstTestList','mstTestStatus','mstTestQ','mstTestCategory'));
         break;
       case 'tab-master-service':
-        await withPanelLoading(id, '診療マスターを読み込み中...', () => loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ'));
+        await withPanelLoading(id, '診療マスターを読み込み中...', () => loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ','mstSvcCategory'));
         break;
       case 'tab-master-dept':
         await withPanelLoading(id, '標榜診療科マスターを読み込み中...', () => loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ'));
@@ -442,6 +448,8 @@ async function loadCategories(type, listElId){
     const d = await r.json();
     const cats = (d.ok ? d.categories : []) || [];
     MASTER_CATEGORY_OPTIONS[type] = cats;
+    if (type === 'test') populateCategoryFilter('test', 'mstTestCategory');
+    if (type === 'service') populateCategoryFilter('service', 'mstSvcCategory');
     const box = document.getElementById(listElId);
     box.innerHTML = "";
     cats.forEach(cat=>{
@@ -550,7 +558,7 @@ async function handleMasterCsvImport(type, file) {
     alert('CSV取込に対応していないマスターです');
     return;
   }
-  const [listId, statusId, queryId] = listInfo;
+  const [listId, statusId, queryId, categoryId] = listInfo;
   const message = MASTER_MESSAGE_MAP[type] || 'データを読み込み中...';
 
   const text = await file.text();
@@ -592,7 +600,7 @@ async function handleMasterCsvImport(type, file) {
         failures.push({ row, error: err.message });
       }
     }
-    await loadMaster(type, listId, statusId, queryId);
+    await loadMaster(type, listId, statusId, queryId, categoryId);
   });
 
   let messageText = `CSV取込が完了しました。成功: ${success}`;
@@ -618,27 +626,55 @@ function setupCsvImport(type, buttonId, inputId) {
 }
 
 function renderCategoryControl(type, currentValue) {
-  if (type === 'qual' || type === 'department') {
+  const options = MASTER_CATEGORY_OPTIONS[type] || [];
+  if (type === 'test' || type === 'service') {
+    const optsHtml = options.map(opt => `
+      <option value="${escapeAttr(opt)}" ${opt === currentValue ? 'selected' : ''}>${escapeHtml(opt)}</option>
+    `).join('');
+    return `
+      <select class="w-full border rounded px-2 py-1" data-k="category">
+        <option value="">分類を選択</option>
+        ${optsHtml}
+      </select>
+    `;
+  }
+
+  if (!options.length) {
     return `<input class="w-full border rounded px-2 py-1" value="${escapeAttr(currentValue || '')}" data-k="category" placeholder="分類を入力">`;
   }
-  const options = MASTER_CATEGORY_OPTIONS[type] || [];
+
   const optsHtml = options.map(opt => `
     <option value="${escapeAttr(opt)}" ${opt === currentValue ? 'selected' : ''}>${escapeHtml(opt)}</option>
   `).join('');
+  const needsCustom = currentValue && !options.includes(currentValue);
   return `
     <select class="w-full border rounded px-2 py-1" data-k="category">
       <option value="">分類を選択</option>
       ${optsHtml}
-      <option value="__custom" ${currentValue && !options.includes(currentValue) ? 'selected' : ''}>（直接入力）</option>
+      <option value="__custom" ${needsCustom ? 'selected' : ''}>（直接入力）</option>
     </select>
-    <input class="mt-2 w-full border rounded px-2 py-1 ${currentValue && !options.includes(currentValue) ? '' : 'hidden'}" value="${escapeAttr(currentValue && !options.includes(currentValue) ? currentValue : '')}" data-k="category-manual" placeholder="分類を入力">
+    <input class="mt-2 w-full border rounded px-2 py-1 ${needsCustom ? '' : 'hidden'}" value="${escapeAttr(needsCustom ? currentValue : '')}" data-k="category-manual" placeholder="分類を入力">
   `;
 }
 
-async function loadMaster(type, listElId, statusSelId, qId){
+function populateCategoryFilter(type, selectId) {
+  const select = document.getElementById(selectId);
+  if (!select) return;
+  const options = MASTER_CATEGORY_OPTIONS[type] || [];
+  const current = select.value;
+  select.innerHTML = '<option value="">全ての分類</option>' + options.map(opt => `
+    <option value="${escapeAttr(opt)}">${escapeHtml(opt)}</option>
+  `).join('');
+  if (options.includes(current)) {
+    select.value = current;
+  }
+}
+
+async function loadMaster(type, listElId, statusSelId, qId, categorySelId){
   try {
-    const status = document.getElementById(statusSelId).value;
-    const q = (document.getElementById(qId).value||'').trim().toLowerCase();
+    const status = document.getElementById(statusSelId)?.value || '';
+    const q = qId ? (document.getElementById(qId)?.value || '').trim().toLowerCase() : '';
+    const categoryFilter = categorySelId ? (document.getElementById(categorySelId)?.value || '') : '';
     const url = new URL(`${BASE}/api/listMaster`);
     url.searchParams.set("type", type);
     if (status) url.searchParams.set("status", status);
@@ -649,11 +685,22 @@ async function loadMaster(type, listElId, statusSelId, qId){
     const box = document.getElementById(listElId);
     box.innerHTML = "";
 
+    if ((type === 'test' || type === 'service') && categorySelId) {
+      const categories = Array.from(new Set(items.map(it => it.category).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ja'));
+      if (categories.length && categories.join('\u0000') !== (MASTER_CATEGORY_OPTIONS[type] || []).join('\u0000')) {
+        MASTER_CATEGORY_OPTIONS[type] = categories;
+      }
+      populateCategoryFilter(type, categorySelId);
+    }
+
     // 資格分類の自動設定とフィルタリング
     const filtered = items.filter(it=>{
-      if (!q) return true;
-      const s = `${it.category} ${it.name} ${it.canonical_name||''}`.toLowerCase();
-      return s.includes(q);
+      if (categoryFilter && (it.category || '') !== categoryFilter) return false;
+      if (q) {
+        const s = `${it.category} ${it.name} ${it.canonical_name||''}`.toLowerCase();
+        if (!s.includes(q)) return false;
+      }
+      return true;
     }).map(it => {
       // sortGroupが空の場合、適当な値を設定
       if (!it.sortGroup && type === 'qual') {
@@ -674,10 +721,17 @@ async function loadMaster(type, listElId, statusSelId, qId){
       return it;
     });
 
-    // sortGroupで並べ替え
+    const categoryOrder = (type === 'test' || type === 'service') ? (MASTER_CATEGORY_OPTIONS[type] || []) : [];
     filtered.sort((a, b) => {
-      const groupA = a.sortGroup || a.category || 'その他';
-      const groupB = b.sortGroup || b.category || 'その他';
+      if (type === 'test' || type === 'service') {
+        const idxA = categoryOrder.indexOf(a.category);
+        const idxB = categoryOrder.indexOf(b.category);
+        if (idxA !== idxB) {
+          return (idxA === -1 ? Number.MAX_SAFE_INTEGER : idxA) - (idxB === -1 ? Number.MAX_SAFE_INTEGER : idxB);
+        }
+      }
+      const groupA = (type === 'test' || type === 'service') ? (a.category || 'その他') : (a.sortGroup || 'その他');
+      const groupB = (type === 'test' || type === 'service') ? (b.category || 'その他') : (b.sortGroup || 'その他');
       const gcmp = groupA.localeCompare(groupB, 'ja');
       if (gcmp !== 0) return gcmp;
       return (a.name || '').localeCompare(b.name || '', 'ja');
@@ -686,7 +740,7 @@ async function loadMaster(type, listElId, statusSelId, qId){
     const INITIAL_GROUP = Symbol('initial');
     let currentGroup = INITIAL_GROUP;
     filtered.forEach(it=>{
-      const group = it.sortGroup || 'その他';
+      const group = (type === 'test' || type === 'service') ? (it.category || 'その他') : (it.sortGroup || 'その他');
       if (group !== currentGroup) {
         if (currentGroup !== INITIAL_GROUP) {
           const divider = document.createElement('hr');
@@ -858,6 +912,7 @@ async function updateMaster(type, btn){
   const originalName = row.dataset.originalName || '';
 
   const categoryInput = row.querySelector('[data-k="category"]');
+  const categoryManual = row.querySelector('[data-k="category-manual"]');
   const nameInput = row.querySelector('[data-k="name"]');
   const descInput = row.querySelector('[data-k="desc"]');
   const cnInput = row.querySelector('[data-k="cn"]');
@@ -911,7 +966,7 @@ async function updateMaster(type, btn){
     return;
   }
 
-  const [listId, statusId, queryId] = listInfo;
+  const [listId, statusId, queryId, categoryId] = listInfo;
 
   try {
     await withPanelLoading(panelId, `${message}（保存中...）`, async () => {
@@ -925,7 +980,7 @@ async function updateMaster(type, btn){
         throw new Error(`HTTP ${res.status}`);
       }
 
-      await loadMaster(type, listId, statusId, queryId);
+      await loadMaster(type, listId, statusId, queryId, categoryId);
     });
     alert("更新しました");
   } catch (error) {
@@ -940,8 +995,8 @@ async function deleteMasterItem(type, category, name) {
   }
   
   try {
-    const [listId, statusId, queryId] = MASTER_LIST_MAP[type] || [];
-    if (listId && statusId && queryId) {
+    const [listId, statusId, queryId, categoryId] = MASTER_LIST_MAP[type] || [];
+    if (listId && statusId) {
       await withPanelLoading(MASTER_PANEL_MAP[type], MASTER_MESSAGE_MAP[type] || 'データ取得中...', async () => {
         const response = await fetch(`${BASE}/api/deleteMasterItem`, {
           method: "POST",
@@ -953,7 +1008,7 @@ async function deleteMasterItem(type, category, name) {
           throw new Error(`HTTP ${response.status}`);
         }
 
-        await loadMaster(type, listId, statusId, queryId);
+        await loadMaster(type, listId, statusId, queryId, categoryId);
       });
       alert(`${typeLabel[type] || '項目'}を削除しました`);
     }
@@ -1023,22 +1078,28 @@ async function addDepartmentMaster(){
 }
 
 document.getElementById('mstTestReload').addEventListener('click', async () => {
-  await withPanelLoading(MASTER_PANEL_MAP.test, MASTER_MESSAGE_MAP.test, () => loadMaster('test','mstTestList','mstTestStatus','mstTestQ'));
+  await withPanelLoading(MASTER_PANEL_MAP.test, MASTER_MESSAGE_MAP.test, () => loadMaster('test','mstTestList','mstTestStatus','mstTestQ','mstTestCategory'));
 });
 document.getElementById('mstSvcReload').addEventListener('click', async () => {
-  await withPanelLoading(MASTER_PANEL_MAP.service, MASTER_MESSAGE_MAP.service, () => loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ'));
+  await withPanelLoading(MASTER_PANEL_MAP.service, MASTER_MESSAGE_MAP.service, () => loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ','mstSvcCategory'));
 });
 document.getElementById('mstTestStatus').addEventListener('change', async () => {
-  await withPanelLoading(MASTER_PANEL_MAP.test, MASTER_MESSAGE_MAP.test, () => loadMaster('test','mstTestList','mstTestStatus','mstTestQ'));
+  await withPanelLoading(MASTER_PANEL_MAP.test, MASTER_MESSAGE_MAP.test, () => loadMaster('test','mstTestList','mstTestStatus','mstTestQ','mstTestCategory'));
 });
 document.getElementById('mstSvcStatus').addEventListener('change', async () => {
-  await withPanelLoading(MASTER_PANEL_MAP.service, MASTER_MESSAGE_MAP.service, () => loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ'));
+  await withPanelLoading(MASTER_PANEL_MAP.service, MASTER_MESSAGE_MAP.service, () => loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ','mstSvcCategory'));
+});
+document.getElementById('mstTestCategory').addEventListener('change', async () => {
+  await withPanelLoading(MASTER_PANEL_MAP.test, MASTER_MESSAGE_MAP.test, () => loadMaster('test','mstTestList','mstTestStatus','mstTestQ','mstTestCategory'));
+});
+document.getElementById('mstSvcCategory').addEventListener('change', async () => {
+  await withPanelLoading(MASTER_PANEL_MAP.service, MASTER_MESSAGE_MAP.service, () => loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ','mstSvcCategory'));
 });
 document.getElementById('mstTestQ').addEventListener('input', () => {
-  loadMaster('test','mstTestList','mstTestStatus','mstTestQ');
+  loadMaster('test','mstTestList','mstTestStatus','mstTestQ','mstTestCategory');
 });
 document.getElementById('mstSvcQ').addEventListener('input', () => {
-  loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ');
+  loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ','mstSvcCategory');
 });
 document.getElementById('mstDeptAdd').addEventListener('click', addDepartmentMaster);
 document.getElementById('mstDeptReload').addEventListener('click', async () => {
