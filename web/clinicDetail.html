@@ -118,32 +118,32 @@
         <div class="border rounded p-4">
           <h3 class="font-medium text-gray-800 mb-3">診療時間パターン登録</h3>
           <div class="grid md:grid-cols-2 gap-3">
-            <div>
-              <div class="text-sm text-gray-600 mb-1">午前A</div>
+            <div class="rounded border border-blue-200 bg-blue-50/60 p-3">
+              <div class="text-sm font-semibold text-blue-800 mb-2">午前A</div>
               <div class="flex items-center gap-2">
-                <input type="time" id="amA_start" class="border rounded px-2 py-1">～
-                <input type="time" id="amA_end" class="border rounded px-2 py-1">
+                <input type="time" id="amA_start" step="300" class="border rounded px-2 py-1">～
+                <input type="time" id="amA_end" step="300" class="border rounded px-2 py-1">
               </div>
             </div>
-            <div>
-              <div class="text-sm text-gray-600 mb-1">午前B</div>
+            <div class="rounded border border-blue-200 bg-blue-50/60 p-3">
+              <div class="text-sm font-semibold text-blue-800 mb-2">午前B</div>
               <div class="flex items-center gap-2">
-                <input type="time" id="amB_start" class="border rounded px-2 py-1">～
-                <input type="time" id="amB_end" class="border rounded px-2 py-1">
+                <input type="time" id="amB_start" step="300" class="border rounded px-2 py-1">～
+                <input type="time" id="amB_end" step="300" class="border rounded px-2 py-1">
               </div>
             </div>
-            <div>
-              <div class="text-sm text-gray-600 mb-1">午後A</div>
+            <div class="rounded border border-amber-200 bg-amber-50/60 p-3">
+              <div class="text-sm font-semibold text-amber-700 mb-2">午後A</div>
               <div class="flex items-center gap-2">
-                <input type="time" id="pmA_start" class="border rounded px-2 py-1">～
-                <input type="time" id="pmA_end" class="border rounded px-2 py-1">
+                <input type="time" id="pmA_start" step="300" class="border rounded px-2 py-1">～
+                <input type="time" id="pmA_end" step="300" class="border rounded px-2 py-1">
               </div>
             </div>
-            <div>
-              <div class="text-sm text-gray-600 mb-1">午後B</div>
+            <div class="rounded border border-amber-200 bg-amber-50/60 p-3">
+              <div class="text-sm font-semibold text-amber-700 mb-2">午後B</div>
               <div class="flex items-center gap-2">
-                <input type="time" id="pmB_start" class="border rounded px-2 py-1">～
-                <input type="time" id="pmB_end" class="border rounded px-2 py-1">
+                <input type="time" id="pmB_start" step="300" class="border rounded px-2 py-1">～
+                <input type="time" id="pmB_end" step="300" class="border rounded px-2 py-1">
               </div>
             </div>
           </div>
@@ -244,10 +244,10 @@ function equalsIgnoreCase(a, b) {
 
 function createEmptyPatterns() {
   return {
-    amA: ["", ""],
-    amB: ["", ""],
-    pmA: ["", ""],
-    pmB: ["", ""]
+    amA: ["09:00", "12:00"],
+    amB: ["09:00", "12:00"],
+    pmA: ["15:00", "18:00"],
+    pmB: ["15:00", "18:00"]
   };
 }
 
