@@ -233,7 +233,8 @@ function updateTestSelect(selectedValue = "") {
       category: item.category || "",
       name: item.name || "",
       desc: item.desc || "",
-      canonical: item.canonical_name || ""
+      canonical: item.canonical_name || "",
+      samples: Array.isArray(item.desc_samples) ? item.desc_samples : []
     });
     const labelDesc = item.desc ? `（${item.desc}）` : (item.canonical_name ? `（別名: ${item.canonical_name}）` : "");
     option.textContent = `${item.name}${labelDesc}`;
@@ -280,7 +281,8 @@ function applySelectedTestDetails() {
   toggleManualInput(false);
   try {
     const parsed = JSON.parse(value);
-    els.desc.value = parsed.desc || "";
+    const fallbackSample = Array.isArray(parsed.samples) ? parsed.samples[0] : "";
+    els.desc.value = parsed.desc || fallbackSample || parsed.canonical || "";
   } catch (err) {
     console.warn("failed to parse selected test", err);
     els.desc.value = "";
