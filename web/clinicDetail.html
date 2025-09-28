@@ -86,7 +86,8 @@
       <h2 class="text-lg font-semibold text-blue-800 mb-4">標榜診療科</h2>
       <p class="text-sm text-gray-600 mb-4">マスターで承認済みの診療科を複数選択できます。該当がない場合は「その他診療科」に入力してください（1行につき1診療科）。</p>
       <div class="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div id="departmentSummaryWrap" class="text-sm text-gray-700 hidden">
+        <div id="departmentSummaryWrap" class="hidden rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+          <span class="font-semibold text-blue-800">選択済：</span>
           <span id="departmentSummary"></span>
         </div>
         <button id="departmentToggleBtn" type="button" class="self-start rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">選択する</button>
@@ -205,6 +206,9 @@ let retainedQualifications = "";
 let departmentMaster = [];
 let departmentSelectionEl = null;
 let departmentToggleBtnEl = null;
+const DEPARTMENT_CACHE_KEY = 'ncd_department_master_cache_v1';
+const DEPARTMENT_CACHE_TTL = 10 * 60 * 1000;
+let pendingDepartmentRender = false;
 
 function toggleLoadingOverlay(show) {
   const overlay = document.getElementById("loadingOverlay");
@@ -218,6 +222,90 @@ function normalizeText(v) {
 
 function equalsIgnoreCase(a, b) {
   return normalizeText(a).toLowerCase() === normalizeText(b).toLowerCase();
+}
+
+function readDepartmentMasterCache() {
+  try {
+    const raw = localStorage.getItem(DEPARTMENT_CACHE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!Array.isArray(data.items) || typeof data.timestamp !== 'number') return null;
+    if (Date.now() - data.timestamp > DEPARTMENT_CACHE_TTL) return null;
+    return data.items;
+  } catch (err) {
+    console.warn('failed to read department master cache', err);
+    return null;
+  }
+}
+
+function writeDepartmentMasterCache(items) {
+  try {
+    localStorage.setItem(DEPARTMENT_CACHE_KEY, JSON.stringify({ timestamp: Date.now(), items }));
+  } catch (err) {
+    console.warn('failed to write department master cache', err);
+  }
+}
+
+function applyDepartmentMaster(items, { skipRenderWhenOpen = false } = {}) {
+  departmentMaster = Array.isArray(items) ? items : [];
+  const selectionOpen = departmentSelectionEl && !departmentSelectionEl.classList.contains('hidden');
+  if (skipRenderWhenOpen && selectionOpen) {
+    pendingDepartmentRender = true;
+    return;
+  }
+  pendingDepartmentRender = false;
+  renderDepartmentChecklist();
+}
+
+async function fetchDepartmentMaster({ silent = false, skipRenderWhenOpen = false } = {}) {
+  try {
+    const url = new URL(`${BASE}/api/listMaster`);
+    url.searchParams.set('type', 'department');
+    url.searchParams.set('status', 'approved');
+    const res = await fetch(url.toString());
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const collator = new Intl.Collator('ja');
+    const items = ((data.ok ? data.items : []) || []).sort((a, b) => {
+      const ao = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER;
+      const bo = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER;
+      if (ao !== bo) return ao - bo;
+      const ag = a.sortGroup || '';
+      const bg = b.sortGroup || '';
+      const gcmp = collator.compare(ag, bg);
+      if (gcmp !== 0) return gcmp;
+      return collator.compare(a.name || '', b.name || '');
+    });
+    writeDepartmentMasterCache(items);
+    applyDepartmentMaster(items, { skipRenderWhenOpen });
+    return items;
+  } catch (err) {
+    if (!silent) {
+      console.warn('failed to load department master', err);
+      departmentMaster = [];
+      renderDepartmentChecklist();
+    }
+    throw err;
+  }
+}
+
+async function loadDepartmentMaster({ allowCache = true } = {}) {
+  if (allowCache) {
+    const cached = readDepartmentMasterCache();
+    if (cached) {
+      applyDepartmentMaster(cached, { skipRenderWhenOpen: false });
+      fetchDepartmentMaster({ silent: true, skipRenderWhenOpen: true }).catch(err => {
+        console.warn('background department master refresh failed', err);
+      });
+      return true;
+    }
+  }
+  try {
+    await fetchDepartmentMaster({ silent: false, skipRenderWhenOpen: false });
+  } catch (err) {
+    // already logged inside fetchDepartmentMaster
+  }
+  return false;
 }
 
 function updateDepartmentSummary() {
@@ -267,7 +355,12 @@ function hideDepartmentSelection() {
   if (departmentToggleBtnEl) {
     departmentToggleBtnEl.setAttribute("aria-expanded", "false");
   }
-  updateDepartmentSummary();
+  if (pendingDepartmentRender) {
+    renderDepartmentChecklist();
+    pendingDepartmentRender = false;
+  } else {
+    updateDepartmentSummary();
+  }
 }
 
 function initDepartmentSelectionUI() {
@@ -368,32 +461,6 @@ function renderDepartmentChecklist(selectedNames) {
     cb.addEventListener("change", updateDepartmentSummary);
   });
   updateDepartmentSummary();
-}
-
-async function loadDepartmentMaster() {
-  try {
-    const url = new URL(`${BASE}/api/listMaster`);
-    url.searchParams.set('type', 'department');
-    url.searchParams.set('status', 'approved');
-    const res = await fetch(url.toString());
-    const data = await res.json();
-    const collator = new Intl.Collator('ja');
-    departmentMaster = (data.ok ? data.items : [])
-      .sort((a, b) => {
-        const ao = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER;
-        const bo = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER;
-        if (ao !== bo) return ao - bo;
-        const ag = a.sortGroup || '';
-        const bg = b.sortGroup || '';
-        const gcmp = collator.compare(ag, bg);
-        if (gcmp !== 0) return gcmp;
-        return collator.compare(a.name || '', b.name || '');
-      });
-  } catch (err) {
-    console.warn('failed to load department master', err);
-    departmentMaster = [];
-  }
-  renderDepartmentChecklist();
 }
 
 function parseDepartments(raw) {
