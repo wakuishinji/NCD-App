@@ -235,6 +235,32 @@ function toggleManualInput(show) {
   }
 }
 
+function applySelectedTestDetails() {
+  const value = els.nameSelect.value;
+  if (!value) {
+    toggleManualInput(false);
+    els.desc.value = "";
+    updateFormState();
+    return;
+  }
+
+  if (value === "__direct") {
+    toggleManualInput(true);
+    updateFormState();
+    return;
+  }
+
+  toggleManualInput(false);
+  try {
+    const parsed = JSON.parse(value);
+    els.desc.value = parsed.desc || "";
+  } catch (err) {
+    console.warn("failed to parse selected test", err);
+    els.desc.value = "";
+  }
+  updateFormState();
+}
+
 function updateFormState() {
   const category = els.category.value;
   const selected = els.nameSelect.value;
@@ -494,12 +520,10 @@ async function removeTest(index) {
 
 els.category.addEventListener("change", () => {
   updateTestSelect();
+  els.desc.value = "";
   updateFormState();
 });
-els.nameSelect.addEventListener("change", () => {
-  toggleManualInput(els.nameSelect.value === "__direct");
-  updateFormState();
-});
+els.nameSelect.addEventListener("change", applySelectedTestDetails);
 els.manualInput.addEventListener("input", updateFormState);
 els.desc.addEventListener("input", updateFormState);
 els.submit.addEventListener("click", handleSubmit);
