@@ -139,9 +139,11 @@
         <section id="tab-master-test" class="tab-panel hidden">
           <div class="flex items-center justify-between mb-3">
             <h2 class="text-lg font-semibold text-blue-800">検査マスターの管理</h2>
-            <div class="flex gap-2">
+            <div class="flex gap-2 items-center">
               <button class="bg-gray-700 text-white px-3 py-2 rounded hover:bg-gray-800" onclick="exportMaster('test','json')">JSON出力</button>
               <button class="bg-gray-700 text-white px-3 py-2 rounded hover:bg-gray-800" onclick="exportMaster('test','csv')">CSV出力</button>
+              <button id="mstTestImport" class="bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700">CSV取込</button>
+              <input type="file" id="mstTestCsvInput" accept=".csv,text/csv" class="hidden" />
             </div>
           </div>
           <div class="flex gap-2 mb-3">
@@ -161,9 +163,11 @@
         <section id="tab-master-service" class="tab-panel hidden">
           <div class="flex items-center justify-between mb-3">
             <h2 class="text-lg font-semibold text-blue-800">診療マスターの管理</h2>
-            <div class="flex gap-2">
+            <div class="flex gap-2 items-center">
               <button class="bg-gray-700 text-white px-3 py-2 rounded hover:bg-gray-800" onclick="exportMaster('service','json')">JSON出力</button>
               <button class="bg-gray-700 text-white px-3 py-2 rounded hover:bg-gray-800" onclick="exportMaster('service','csv')">CSV出力</button>
+              <button id="mstSvcImport" class="bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700">CSV取込</button>
+              <input type="file" id="mstSvcCsvInput" accept=".csv,text/csv" class="hidden" />
             </div>
           </div>
           <div class="flex gap-2 mb-3">
@@ -249,6 +253,40 @@
 <script>
 const BASE = "https://ncd-app.altry.workers.dev";
 const DEPARTMENT_CATEGORY = "標榜診療科";
+const MASTER_PANEL_MAP = {
+  qual: 'tab-master-qual',
+  test: 'tab-master-test',
+  service: 'tab-master-service',
+  department: 'tab-master-dept'
+};
+const MASTER_LIST_MAP = {
+  qual: ['mstQualList', 'mstQualStatus', 'mstQualQ'],
+  test: ['mstTestList', 'mstTestStatus', 'mstTestQ'],
+  service: ['mstSvcList', 'mstSvcStatus', 'mstSvcQ'],
+  department: ['mstDeptList', 'mstDeptStatus', 'mstDeptQ']
+};
+const MASTER_MESSAGE_MAP = {
+  qual: '資格マスターを読み込み中...',
+  test: '検査マスターを読み込み中...',
+  service: '診療マスターを読み込み中...',
+  department: '標榜診療科マスターを読み込み中...'
+};
+
+function escapeAttr(val) {
+  return String(val ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function escapeHtml(val) {
+  return String(val ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 
 // -------------------- タブ --------------------
 const tabs = document.querySelectorAll(".tab");
@@ -459,6 +497,119 @@ function withPanelLoading(panelId, message, asyncFn){
   return asyncFn();
 }
 
+function parseCsv(text) {
+  const rows = [];
+  let current = [];
+  let value = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (char === '"') {
+      if (inQuotes && text[i + 1] === '"') {
+        value += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === ',' && !inQuotes) {
+      current.push(value);
+      value = '';
+    } else if ((char === '\n' || char === '\r') && !inQuotes) {
+      if (char === '\r' && text[i + 1] === '\n') i++;
+      current.push(value);
+      rows.push(current);
+      current = [];
+      value = '';
+    } else {
+      value += char;
+    }
+  }
+
+  // push final value
+  if (value.length || inQuotes || current.length) {
+    current.push(value);
+    rows.push(current);
+  }
+
+  return rows.filter(row => row.some(cell => String(cell).trim().length));
+}
+
+async function handleMasterCsvImport(type, file) {
+  if (!file) return;
+  const panelId = MASTER_PANEL_MAP[type];
+  const listInfo = MASTER_LIST_MAP[type];
+  if (!panelId || !listInfo) {
+    alert('CSV取込に対応していないマスターです');
+    return;
+  }
+  const [listId, statusId, queryId] = listInfo;
+  const message = MASTER_MESSAGE_MAP[type] || 'データを読み込み中...';
+
+  const text = await file.text();
+  const rows = parseCsv(text);
+  if (!rows.length) {
+    alert('CSVにデータがありません');
+    return;
+  }
+
+  let startIndex = 0;
+  const header = rows[0].map(cell => String(cell).trim());
+  if (header[0] === '分類' && header[1] === '名称' && header[2] === '説明') {
+    startIndex = 1;
+  }
+
+  const targets = rows.slice(startIndex).map(row => row.map(cell => String(cell).trim())).filter(row => row[0] && row[1]);
+  if (!targets.length) {
+    alert('取り込む項目がありません（分類と名称は必須です）');
+    return;
+  }
+
+  let success = 0;
+  const failures = [];
+
+  await withPanelLoading(panelId, message, async () => {
+    for (const row of targets) {
+      const [category, name, desc = ''] = row;
+      try {
+        const res = await fetch(`${BASE}/api/addMasterItem`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type, category, name, desc, source: 'admin-csv.import' })
+        });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        success += 1;
+      } catch (err) {
+        failures.push({ row, error: err.message });
+      }
+    }
+    await loadMaster(type, listId, statusId, queryId);
+  });
+
+  let messageText = `CSV取込が完了しました。成功: ${success}`;
+  if (failures.length) {
+    messageText += ` / 失敗: ${failures.length}`;
+    console.warn('CSV import failures', failures);
+  }
+  alert(messageText);
+}
+
+function setupCsvImport(type, buttonId, inputId) {
+  const button = document.getElementById(buttonId);
+  const input = document.getElementById(inputId);
+  if (!button || !input) return;
+  button.addEventListener('click', () => input.click());
+  input.addEventListener('change', async (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (file) {
+      await handleMasterCsvImport(type, file);
+    }
+    input.value = '';
+  });
+}
+
 async function loadMaster(type, listElId, statusSelId, qId){
   try {
     const status = document.getElementById(statusSelId).value;
@@ -529,16 +680,32 @@ async function loadMaster(type, listElId, statusSelId, qId){
       }
 
       const div = document.createElement('div');
-      div.className = "mt-1 border rounded p-3 bg-white space-y-2";
+      div.className = "mt-1 border rounded p-3 bg-white space-y-3";
+      div.dataset.masterRow = "true";
+      div.dataset.originalCategory = it.category || "";
+      div.dataset.originalName = it.name || "";
+
+      const showDescField = type === 'test' || type === 'service' || (typeof it.desc === 'string' && it.desc);
+      const safeDesc = escapeHtml(it.desc || "");
+
       div.innerHTML = `
-        <div class="flex items-center justify-between">
-          <div class="font-semibold text-blue-800">${it.category} / ${it.name}</div>
-          <div class="text-xs text-gray-500">count: ${it.count||0} / status: ${it.status||'-'}</div>
-        </div>
         <div class="grid md:grid-cols-2 gap-3">
           <div>
+            <label class="block text-xs text-gray-600">分類</label>
+            <input class="w-full border rounded px-2 py-1" value="${escapeAttr(it.category || '')}" data-k="category" placeholder="例: 循環器">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600">名称</label>
+            <input class="w-full border rounded px-2 py-1" value="${escapeAttr(it.name || '')}" data-k="name" placeholder="名称を入力">
+          </div>
+          ${showDescField ? `
+          <div class="md:col-span-2">
+            <label class="block text-xs text-gray-600">説明</label>
+            <textarea class="w-full border rounded px-3 py-2 text-sm" rows="3" data-k="desc" placeholder="説明を入力">${safeDesc}</textarea>
+          </div>` : ''}
+          <div>
             <label class="block text-xs text-gray-600">canonical_name（統合名）</label>
-            <input class="w-full border rounded px-2 py-1" value="${(it.canonical_name||'').replace(/"/g,'&quot;')}" data-k="cn">
+            <input class="w-full border rounded px-2 py-1" value="${escapeAttr(it.canonical_name || '')}" data-k="cn" placeholder="例: 正式名称">
           </div>
           <div>
             <label class="block text-xs text-gray-600">status</label>
@@ -548,32 +715,39 @@ async function loadMaster(type, listElId, statusSelId, qId){
           </div>
           <div>
             <label class="block text-xs text-gray-600">sortGroup</label>
-            <input class="w-full border rounded px-2 py-1" value="${(it.sortGroup||'').replace(/"/g,'&quot;')}" data-k="group" placeholder="例: 内科系">
+            <input class="w-full border rounded px-2 py-1" value="${escapeAttr(it.sortGroup || '')}" data-k="group" placeholder="例: 内科系">
           </div>
-
+          <div>
+            <label class="block text-xs text-gray-600">sortOrder</label>
+            <input class="w-full border rounded px-2 py-1" type="number" value="${typeof it.sortOrder === 'number' ? it.sortOrder : ''}" data-k="order" placeholder="例: 100">
+          </div>
         </div>
         <div class="flex gap-2">
           <button class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 hidden" data-action="update" disabled>更新</button>
           <button class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700" data-action="delete">削除</button>
         </div>
+        <div class="text-xs text-gray-500">count: ${it.count || 0} / sources: ${(it.sources||[]).join(', ')}</div>
         <div class="similar-matches-container"></div>
-        <div class="text-xs text-gray-500">sources: ${(it.sources||[]).join(", ")}</div>
       `;
 
       const updateBtn = div.querySelector('button[data-action="update"]');
-      updateBtn.addEventListener('click', () => {
-        updateMaster(type, it.category, it.name, updateBtn);
-      });
-
+      const deleteBtn = div.querySelector('button[data-action="delete"]');
+      const categoryInput = div.querySelector('input[data-k="category"]');
+      const nameInput = div.querySelector('input[data-k="name"]');
+      const descInput = div.querySelector('textarea[data-k="desc"]');
       const cnInput = div.querySelector('input[data-k="cn"]');
       const stSelect = div.querySelector('select[data-k="st"]');
       const groupInput = div.querySelector('input[data-k="group"]');
-      const deleteBtn = div.querySelector('button[data-action="delete"]');
+      const orderInput = div.querySelector('input[data-k="order"]');
+
       applyStatusAppearance(stSelect);
-      
-      // 削除ボタンのイベントリスナー
+
+      updateBtn.addEventListener('click', () => {
+        updateMaster(type, updateBtn);
+      });
+
       deleteBtn.addEventListener('click', () => {
-        deleteMasterItem(type, it.category, it.name);
+        deleteMasterItem(type, div.dataset.originalCategory || '', div.dataset.originalName || '');
       });
 
       const similarContainer = div.querySelector('.similar-matches-container');
@@ -587,7 +761,7 @@ async function loadMaster(type, listElId, statusSelId, qId){
           li.className = 'flex items-center justify-between gap-2';
           const nameText = m.name + (m.canonical_name && m.canonical_name !== m.name ? ` / ${m.canonical_name}` : '');
           const span = document.createElement('span');
-          span.innerHTML = `${nameText} <span class="text-[11px] text-yellow-700">(status: ${m.status || '-'}, sim: ${m.similarity})</span>`;
+          span.innerHTML = `${escapeHtml(nameText)} <span class="text-[11px] text-yellow-700">(status: ${m.status || '-'}, sim: ${m.similarity})</span>`;
           const btn = document.createElement('button');
           btn.type = 'button';
           btn.className = 'text-blue-700 underline';
@@ -602,20 +776,34 @@ async function loadMaster(type, listElId, statusSelId, qId){
         similarContainer.appendChild(similarDiv);
       }
 
-      const initialCn = cnInput.value;
-      const initialSt = stSelect.value;
-      const initialGroup = groupInput.value;
+      const initialState = {
+        category: categoryInput ? categoryInput.value : '',
+        name: nameInput ? nameInput.value : '',
+        desc: descInput ? descInput.value : '',
+        cn: cnInput ? cnInput.value : '',
+        status: stSelect ? stSelect.value : '',
+        group: groupInput ? groupInput.value : '',
+        order: orderInput ? orderInput.value : ''
+      };
 
       function refreshButtonState(){
-        const changed = cnInput.value !== initialCn ||
-                        stSelect.value !== initialSt ||
-                        groupInput.value !== initialGroup;
+        const changed =
+          (categoryInput && categoryInput.value !== initialState.category) ||
+          (nameInput && nameInput.value !== initialState.name) ||
+          (descInput && descInput.value !== initialState.desc) ||
+          (cnInput && cnInput.value !== initialState.cn) ||
+          (stSelect && stSelect.value !== initialState.status) ||
+          (groupInput && groupInput.value !== initialState.group) ||
+          (orderInput && orderInput.value !== initialState.order);
         updateBtn.disabled = !changed;
         updateBtn.classList.toggle('hidden', !changed);
       }
 
-      cnInput.addEventListener('input', refreshButtonState);
-      groupInput.addEventListener('input', refreshButtonState);
+      [categoryInput, nameInput, descInput, cnInput, groupInput, orderInput].forEach(input => {
+        if (!input) return;
+        const evt = input.tagName === 'SELECT' ? 'change' : 'input';
+        input.addEventListener(evt, refreshButtonState);
+      });
       stSelect.addEventListener('change', () => {
         refreshButtonState();
         applyStatusAppearance(stSelect);
@@ -632,57 +820,94 @@ async function loadMaster(type, listElId, statusSelId, qId){
     }
   }
 }
-async function updateMaster(type, category, name, btn){
-  const root = btn.closest('.border');
-  const cn = root.querySelector('input[data-k="cn"]').value;
-  const st = root.querySelector('select[data-k="st"]').value;
-  const group = root.querySelector('input[data-k="group"]').value.trim();
-  
+async function updateMaster(type, btn){
+  const row = btn.closest('[data-master-row]');
+  if (!row) return;
+
+  const originalCategory = row.dataset.originalCategory || '';
+  const originalName = row.dataset.originalName || '';
+
+  const categoryInput = row.querySelector('[data-k="category"]');
+  const nameInput = row.querySelector('[data-k="name"]');
+  const descInput = row.querySelector('[data-k="desc"]');
+  const cnInput = row.querySelector('[data-k="cn"]');
+  const stSelect = row.querySelector('[data-k="st"]');
+  const groupInput = row.querySelector('[data-k="group"]');
+  const orderInput = row.querySelector('[data-k="order"]');
+
+  const payload = {
+    type,
+    category: originalCategory,
+    name: originalName,
+    canonical_name: cnInput ? cnInput.value.trim() : '',
+    status: stSelect ? stSelect.value : '',
+    sortGroup: groupInput ? groupInput.value.trim() || null : null
+  };
+
+  if (orderInput) {
+    const raw = orderInput.value.trim();
+    payload.sortOrder = raw === '' ? null : Number(raw);
+  }
+
+  if (categoryInput) {
+    const newCat = categoryInput.value.trim();
+    if (newCat && newCat !== originalCategory) {
+      payload.newCategory = newCat;
+    }
+  }
+
+  if (nameInput) {
+    const newName = nameInput.value.trim();
+    if (newName && newName !== originalName) {
+      payload.newName = newName;
+    }
+  }
+
+  if (descInput) {
+    payload.desc = descInput.value.trim();
+  }
+
+  const listInfo = MASTER_LIST_MAP[type];
+  const panelId = MASTER_PANEL_MAP[type];
+  const message = MASTER_MESSAGE_MAP[type] || 'データ更新中...';
+
+  if (!listInfo) {
+    alert('この種別は更新対象外です');
+    return;
+  }
+
+  const [listId, statusId, queryId] = listInfo;
+
   try {
-    await fetch(`${BASE}/api/updateMasterItem`,{
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({
-        type, category, name,
-        canonical_name: cn,
-        status: st,
-        sortGroup: group || null
-      })
+    await withPanelLoading(panelId, message, async () => {
+      const res = await fetch(`${BASE}/api/updateMasterItem`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      await loadMaster(type, listId, statusId, queryId);
     });
     alert("更新しました");
-    btn.disabled = true;
-    btn.classList.add('hidden');
   } catch (error) {
     alert("更新に失敗しました: " + error.message);
   }
 }
 
 async function deleteMasterItem(type, category, name) {
-  if (!confirm(`この資格を削除してもよろしいですか？\n\n分類: ${category}\n名称: ${name}`)) {
+  const typeLabel = { qual: '資格', test: '検査', service: '診療', department: '診療科' };
+  if (!confirm(`この${typeLabel[type] || '項目'}を削除してもよろしいですか？\n\n分類: ${category}\n名称: ${name}`)) {
     return;
   }
   
   try {
-    const panelMap = {
-      qual: 'tab-master-qual',
-      test: 'tab-master-test',
-      service: 'tab-master-service',
-      department: 'tab-master-dept'
-    };
-    const listMap = {
-      qual: ['mstQualList', 'mstQualStatus', 'mstQualQ'],
-      test: ['mstTestList', 'mstTestStatus', 'mstTestQ'],
-      service: ['mstSvcList', 'mstSvcStatus', 'mstSvcQ'],
-      department: ['mstDeptList', 'mstDeptStatus', 'mstDeptQ']
-    };
-    const messageMap = {
-      qual: '資格マスターを読み込み中...',
-      test: '検査マスターを読み込み中...',
-      service: '診療マスターを読み込み中...',
-      department: '標榜診療科マスターを読み込み中...'
-    };
-    const [listId, statusId, queryId] = listMap[type] || [];
+    const [listId, statusId, queryId] = MASTER_LIST_MAP[type] || [];
     if (listId && statusId && queryId) {
-      await withPanelLoading(panelMap[type], messageMap[type] || 'データ取得中...', async () => {
+      await withPanelLoading(MASTER_PANEL_MAP[type], MASTER_MESSAGE_MAP[type] || 'データ取得中...', async () => {
         const response = await fetch(`${BASE}/api/deleteMasterItem`, {
           method: "POST",
           headers: {"Content-Type": "application/json"},
@@ -695,7 +920,7 @@ async function deleteMasterItem(type, category, name) {
 
         await loadMaster(type, listId, statusId, queryId);
       });
-      alert("削除しました");
+      alert(`${typeLabel[type] || '項目'}を削除しました`);
     }
   } catch (error) {
     alert("削除に失敗しました: " + error.message);
@@ -763,16 +988,16 @@ async function addDepartmentMaster(){
 }
 
 document.getElementById('mstTestReload').addEventListener('click', async () => {
-  await withPanelLoading('tab-master-test', '検査マスターを読み込み中...', () => loadMaster('test','mstTestList','mstTestStatus','mstTestQ'));
+  await withPanelLoading(MASTER_PANEL_MAP.test, MASTER_MESSAGE_MAP.test, () => loadMaster('test','mstTestList','mstTestStatus','mstTestQ'));
 });
 document.getElementById('mstSvcReload').addEventListener('click', async () => {
-  await withPanelLoading('tab-master-service', '診療マスターを読み込み中...', () => loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ'));
+  await withPanelLoading(MASTER_PANEL_MAP.service, MASTER_MESSAGE_MAP.service, () => loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ'));
 });
 document.getElementById('mstTestStatus').addEventListener('change', async () => {
-  await withPanelLoading('tab-master-test', '検査マスターを読み込み中...', () => loadMaster('test','mstTestList','mstTestStatus','mstTestQ'));
+  await withPanelLoading(MASTER_PANEL_MAP.test, MASTER_MESSAGE_MAP.test, () => loadMaster('test','mstTestList','mstTestStatus','mstTestQ'));
 });
 document.getElementById('mstSvcStatus').addEventListener('change', async () => {
-  await withPanelLoading('tab-master-service', '診療マスターを読み込み中...', () => loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ'));
+  await withPanelLoading(MASTER_PANEL_MAP.service, MASTER_MESSAGE_MAP.service, () => loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ'));
 });
 document.getElementById('mstTestQ').addEventListener('input', () => {
   loadMaster('test','mstTestList','mstTestStatus','mstTestQ');
@@ -782,10 +1007,10 @@ document.getElementById('mstSvcQ').addEventListener('input', () => {
 });
 document.getElementById('mstDeptAdd').addEventListener('click', addDepartmentMaster);
 document.getElementById('mstDeptReload').addEventListener('click', async () => {
-  await withPanelLoading('tab-master-dept', '標榜診療科マスターを読み込み中...', () => loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ'));
+  await withPanelLoading(MASTER_PANEL_MAP.department, MASTER_MESSAGE_MAP.department, () => loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ'));
 });
 document.getElementById('mstDeptStatus').addEventListener('change', async () => {
-  await withPanelLoading('tab-master-dept', '標榜診療科マスターを読み込み中...', () => loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ'));
+  await withPanelLoading(MASTER_PANEL_MAP.department, MASTER_MESSAGE_MAP.department, () => loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ'));
 });
 document.getElementById('mstDeptQ').addEventListener('input', () => {
   loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ');
@@ -795,14 +1020,17 @@ bindStatusFilterAppearance('mstSvcStatus');
 bindStatusFilterAppearance('mstDeptStatus');
 bindStatusFilterAppearance('mstQualStatus');
 document.getElementById('mstQualReload').addEventListener('click', async () => {
-  await withPanelLoading('tab-master-qual', '資格マスターを読み込み中...', () => loadMaster('qual','mstQualList','mstQualStatus','mstQualQ'));
+  await withPanelLoading(MASTER_PANEL_MAP.qual, MASTER_MESSAGE_MAP.qual, () => loadMaster('qual','mstQualList','mstQualStatus','mstQualQ'));
 });
 document.getElementById('mstQualStatus').addEventListener('change', async () => {
-  await withPanelLoading('tab-master-qual', '資格マスターを読み込み中...', () => loadMaster('qual','mstQualList','mstQualStatus','mstQualQ'));
+  await withPanelLoading(MASTER_PANEL_MAP.qual, MASTER_MESSAGE_MAP.qual, () => loadMaster('qual','mstQualList','mstQualStatus','mstQualQ'));
 });
 document.getElementById('mstQualQ').addEventListener('input', () => {
   loadMaster('qual','mstQualList','mstQualStatus','mstQualQ');
 });
+
+setupCsvImport('test', 'mstTestImport', 'mstTestCsvInput');
+setupCsvImport('service', 'mstSvcImport', 'mstSvcCsvInput');
 
 // -------------------- AI設定 --------------------
 async function loadAISettings(){

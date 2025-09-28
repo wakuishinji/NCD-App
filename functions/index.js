@@ -460,6 +460,7 @@ if (routeMatch(url, "GET", "listClinics")) {
 
         if (desc) {
           item.desc_samples = Array.from(new Set([desc, ...(item.desc_samples || [])])).slice(0, 5);
+          item.desc = desc;
         }
         if (source) {
           item.sources = Array.from(new Set([...(item.sources || []), source]));
@@ -488,6 +489,9 @@ if (routeMatch(url, "GET", "listClinics")) {
         const val = await env.SETTINGS.get(k.name);
         if (!val) continue;
         const obj = JSON.parse(val);
+        if (typeof obj.desc !== 'string' && Array.isArray(obj.desc_samples) && obj.desc_samples.length) {
+          obj.desc = obj.desc_samples[0];
+        }
         if (status && obj.status !== status) continue;
         obj._key = k.name;
         items.push(obj);
@@ -539,7 +543,7 @@ if (routeMatch(url, "GET", "listClinics")) {
     if (routeMatch(url, "POST", "updateMasterItem")) {
       try {
         const body = await request.json();
-        const { type, category, name, status, canonical_name, sortGroup, sortOrder } = body || {};
+        const { type, category, name, status, canonical_name, sortGroup, sortOrder, newCategory, newName, desc } = body || {};
         if (!type || !category || !name) {
           return new Response(JSON.stringify({ error: "type, category, name は必須です" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -565,9 +569,43 @@ if (routeMatch(url, "GET", "listClinics")) {
           const num = Number(sortOrder);
           obj.sortOrder = Number.isFinite(num) ? num : null;
         }
+        if (typeof desc === "string") {
+          obj.desc = desc;
+          if (desc) {
+            obj.desc_samples = Array.from(new Set([desc, ...(obj.desc_samples || [])])).slice(0, 5);
+          }
+        }
+
+        let targetCategory = category;
+        let targetName = name;
+        if (typeof newCategory === "string" && newCategory.trim()) {
+          targetCategory = newCategory.trim();
+        }
+        if (typeof newName === "string" && newName.trim()) {
+          targetName = newName.trim();
+        }
+
+        const newKey = normalizeKey(type, targetCategory, targetName);
+        const renaming = newKey !== key;
+        if (renaming) {
+          const existsNew = await env.SETTINGS.get(newKey);
+          if (existsNew) {
+            return new Response(JSON.stringify({ error: "同じ分類・名称の項目が既に存在します" }), {
+              status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+        }
+
+        obj.category = targetCategory;
+        obj.name = targetName;
         obj.updated_at = Math.floor(Date.now() / 1000);
 
-        await env.SETTINGS.put(key, JSON.stringify(obj));
+        if (renaming) {
+          await env.SETTINGS.delete(key);
+          await env.SETTINGS.put(newKey, JSON.stringify(obj));
+        } else {
+          await env.SETTINGS.put(key, JSON.stringify(obj));
+        }
         return new Response(JSON.stringify({ ok: true, item: obj }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -576,6 +614,38 @@ if (routeMatch(url, "GET", "listClinics")) {
       }
     }
     // <<< END: MASTER_UPDATE >>>
+
+    // <<< START: MASTER_DELETE >>>
+    if (routeMatch(url, "POST", "deleteMasterItem")) {
+      try {
+        const body = await request.json();
+        const { type, category, name } = body || {};
+        if (!type || !category || !name) {
+          return new Response(JSON.stringify({ error: "type, category, name は必須です" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        if (!["test", "service", "qual", "department"].includes(type)) {
+          return new Response(JSON.stringify({ error: "type は test / service / qual / department" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const key = normalizeKey(type, category, name);
+        const existing = await env.SETTINGS.get(key);
+        if (!existing) {
+          return new Response(JSON.stringify({ error: "対象が見つかりません" }), {
+            status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        await env.SETTINGS.delete(key);
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (err) {
+        return new Response("Error: " + err.message, { status: 500, headers: corsHeaders });
+      }
+    }
+    // <<< END: MASTER_DELETE >>>
 
     // <<< START: MASTER_EXPORT >>>
     if (routeMatch(url, "GET", "exportMaster")) {
@@ -590,10 +660,10 @@ if (routeMatch(url, "GET", "listClinics")) {
       }
 
       if (format === "csv") {
-        const header = ["type","category","name","canonical_name","status","count","sources"].join(",");
+        const header = ["分類","名称","説明"].join(",");
         const rows = items.map(o =>
-          [o.type, o.category, o.name, o.canonical_name||"", o.status, o.count||0, (o.sources||[]).join("|")]
-          .map(x => `"${String(x).replace(/"/g,'""')}"`).join(",")
+          [o.category, o.name, o.desc || ""]
+            .map(x => `"${String(x ?? '').replace(/"/g,'""')}"`).join(",")
         );
         return new Response([header, ...rows].join("\n"), {
           headers: { ...corsHeaders, "Content-Type":"text/csv; charset=utf-8" }
