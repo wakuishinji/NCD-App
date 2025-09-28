@@ -271,6 +271,12 @@ const MASTER_MESSAGE_MAP = {
   service: '診療マスターを読み込み中...',
   department: '標榜診療科マスターを読み込み中...'
 };
+const MASTER_CATEGORY_OPTIONS = {
+  test: [],
+  service: [],
+  qual: [],
+  department: []
+};
 
 function escapeAttr(val) {
   return String(val ?? '')
@@ -435,6 +441,7 @@ async function loadCategories(type, listElId){
     const r = await fetch(`${BASE}/api/listCategories?type=${type}`);
     const d = await r.json();
     const cats = (d.ok ? d.categories : []) || [];
+    MASTER_CATEGORY_OPTIONS[type] = cats;
     const box = document.getElementById(listElId);
     box.innerHTML = "";
     cats.forEach(cat=>{
@@ -610,6 +617,24 @@ function setupCsvImport(type, buttonId, inputId) {
   });
 }
 
+function renderCategoryControl(type, currentValue) {
+  if (type === 'qual' || type === 'department') {
+    return `<input class="w-full border rounded px-2 py-1" value="${escapeAttr(currentValue || '')}" data-k="category" placeholder="分類を入力">`;
+  }
+  const options = MASTER_CATEGORY_OPTIONS[type] || [];
+  const optsHtml = options.map(opt => `
+    <option value="${escapeAttr(opt)}" ${opt === currentValue ? 'selected' : ''}>${escapeHtml(opt)}</option>
+  `).join('');
+  return `
+    <select class="w-full border rounded px-2 py-1" data-k="category">
+      <option value="">分類を選択</option>
+      ${optsHtml}
+      <option value="__custom" ${currentValue && !options.includes(currentValue) ? 'selected' : ''}>（直接入力）</option>
+    </select>
+    <input class="mt-2 w-full border rounded px-2 py-1 ${currentValue && !options.includes(currentValue) ? '' : 'hidden'}" value="${escapeAttr(currentValue && !options.includes(currentValue) ? currentValue : '')}" data-k="category-manual" placeholder="分類を入力">
+  `;
+}
+
 async function loadMaster(type, listElId, statusSelId, qId){
   try {
     const status = document.getElementById(statusSelId).value;
@@ -651,11 +676,10 @@ async function loadMaster(type, listElId, statusSelId, qId){
 
     // sortGroupで並べ替え
     filtered.sort((a, b) => {
-      const groupA = a.sortGroup || 'その他';
-      const groupB = b.sortGroup || 'その他';
-      if (groupA !== groupB) {
-        return groupA.localeCompare(groupB, 'ja');
-      }
+      const groupA = a.sortGroup || a.category || 'その他';
+      const groupB = b.sortGroup || b.category || 'その他';
+      const gcmp = groupA.localeCompare(groupB, 'ja');
+      if (gcmp !== 0) return gcmp;
       return (a.name || '').localeCompare(b.name || '', 'ja');
     });
 
@@ -692,7 +716,7 @@ async function loadMaster(type, listElId, statusSelId, qId){
         <div class="grid md:grid-cols-2 gap-3">
           <div>
             <label class="block text-xs text-gray-600">分類</label>
-            <input class="w-full border rounded px-2 py-1" value="${escapeAttr(it.category || '')}" data-k="category" placeholder="例: 循環器">
+            ${renderCategoryControl(type, it.category)}
           </div>
           <div>
             <label class="block text-xs text-gray-600">名称</label>
@@ -713,14 +737,6 @@ async function loadMaster(type, listElId, statusSelId, qId){
               ${["candidate","approved","archived"].map(s=>`<option ${s===(it.status||'')?'selected':''}>${s}</option>`).join("")}
             </select>
           </div>
-          <div>
-            <label class="block text-xs text-gray-600">sortGroup</label>
-            <input class="w-full border rounded px-2 py-1" value="${escapeAttr(it.sortGroup || '')}" data-k="group" placeholder="例: 内科系">
-          </div>
-          <div>
-            <label class="block text-xs text-gray-600">sortOrder</label>
-            <input class="w-full border rounded px-2 py-1" type="number" value="${typeof it.sortOrder === 'number' ? it.sortOrder : ''}" data-k="order" placeholder="例: 100">
-          </div>
         </div>
         <div class="flex gap-2">
           <button class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 hidden" data-action="update" disabled>更新</button>
@@ -731,13 +747,14 @@ async function loadMaster(type, listElId, statusSelId, qId){
       `;
 
       const updateBtn = div.querySelector('button[data-action="update"]');
-      const deleteBtn = div.querySelector('button[data-action="delete"]');
-      const categoryInput = div.querySelector('input[data-k="category"]');
+     const deleteBtn = div.querySelector('button[data-action="delete"]');
+     const categoryInput = div.querySelector('[data-k="category"]');
+      const categoryManual = div.querySelector('[data-k="category-manual"]');
       const nameInput = div.querySelector('input[data-k="name"]');
       const descInput = div.querySelector('textarea[data-k="desc"]');
       const cnInput = div.querySelector('input[data-k="cn"]');
       const stSelect = div.querySelector('select[data-k="st"]');
-      const groupInput = div.querySelector('input[data-k="group"]');
+      const groupInput = div.querySelector('[data-k="group"]');
       const orderInput = div.querySelector('input[data-k="order"]');
 
       applyStatusAppearance(stSelect);
@@ -799,11 +816,24 @@ async function loadMaster(type, listElId, statusSelId, qId){
         updateBtn.classList.toggle('hidden', !changed);
       }
 
-      [categoryInput, nameInput, descInput, cnInput, groupInput, orderInput].forEach(input => {
+      const changeTargets = [categoryInput, categoryManual, nameInput, descInput, cnInput, groupInput, orderInput];
+      changeTargets.forEach(input => {
         if (!input) return;
         const evt = input.tagName === 'SELECT' ? 'change' : 'input';
         input.addEventListener(evt, refreshButtonState);
       });
+      if (categoryInput && categoryInput.tagName === 'SELECT' && categoryManual) {
+        categoryInput.addEventListener('change', () => {
+          if (categoryInput.value === '__custom') {
+            categoryManual.classList.remove('hidden');
+            categoryManual.focus();
+          } else {
+            categoryManual.classList.add('hidden');
+            categoryManual.value = '';
+          }
+          refreshButtonState();
+        });
+      }
       stSelect.addEventListener('change', () => {
         refreshButtonState();
         applyStatusAppearance(stSelect);
@@ -835,6 +865,11 @@ async function updateMaster(type, btn){
   const groupInput = row.querySelector('[data-k="group"]');
   const orderInput = row.querySelector('[data-k="order"]');
 
+  let selectedCategory = categoryInput ? categoryInput.value : '';
+  if (categoryInput && categoryInput.tagName === 'SELECT' && categoryInput.value === '__custom') {
+    selectedCategory = (categoryManual?.value || '').trim();
+  }
+
   const payload = {
     type,
     category: originalCategory,
@@ -849,8 +884,8 @@ async function updateMaster(type, btn){
     payload.sortOrder = raw === '' ? null : Number(raw);
   }
 
-  if (categoryInput) {
-    const newCat = categoryInput.value.trim();
+  if (selectedCategory) {
+    const newCat = selectedCategory.trim();
     if (newCat && newCat !== originalCategory) {
       payload.newCategory = newCat;
     }
