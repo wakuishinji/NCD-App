@@ -262,20 +262,23 @@ function renderQualificationList() {
 
   currentQualifications.forEach((q, index) => {
     const row = document.createElement("div");
-    row.className = "flex flex-wrap items-center gap-3 rounded border bg-white px-4 py-3 shadow-sm";
+    row.className = "flex flex-col gap-2 rounded border bg-white px-4 py-3 shadow-sm md:flex-row md:items-center";
 
     const info = document.createElement("div");
-    info.className = "flex flex-wrap items-center gap-2 text-blue-800 font-semibold";
+    info.className = "flex flex-col gap-2 md:flex-row md:items-center md:gap-3 flex-1";
+
     const categoryTag = document.createElement("span");
-    categoryTag.className = "inline-flex items-center rounded-full bg-blue-50 border border-blue-100 px-3 py-1 text-sm";
+    categoryTag.className = "inline-flex justify-center items-center rounded border border-blue-200 bg-blue-50 text-blue-800 font-semibold px-3 py-1 text-sm w-32";
     categoryTag.textContent = q.category || "（未分類）";
+
     const nameTag = document.createElement("span");
-    nameTag.className = "inline-flex items-center rounded-full bg-blue-50 border border-blue-100 px-3 py-1 text-sm";
+    nameTag.className = "text-blue-900 font-semibold text-sm";
     nameTag.textContent = qualificationLabel(q);
+
     info.append(categoryTag, nameTag);
 
     const actions = document.createElement("div");
-    actions.className = "ml-auto flex items-center gap-4 text-sm";
+    actions.className = "flex items-center gap-4 text-sm md:ml-auto";
 
     const editBtn = document.createElement("button");
     editBtn.className = "text-blue-600 hover:text-blue-800";

@@ -1,13 +1,13 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>検査入力 - NCD</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col">
-  <!-- Header -->
+  <!-- ヘッダー -->
   <header class="bg-gradient-to-r from-blue-950 via-slate-900 to-blue-950 text-white shadow">
     <div class="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
       <div class="flex items-center gap-2">
@@ -19,274 +19,507 @@
     </div>
   </header>
 
-  <!-- Main -->
-  <main class="flex-1 max-w-4xl mx-auto p-4 md:p-6">
-    <div class="bg-white rounded shadow p-4 md:p-6 space-y-6">
-      <!-- 入力フォーム -->
-      <section class="space-y-3">
-        <h2 class="text-blue-800 font-semibold">検査の追加</h2>
+  <!-- メイン -->
+  <main class="flex-1 max-w-4xl mx-auto p-4 md:p-6 w-full">
+    <div class="bg-white rounded shadow p-6 space-y-8">
+      <div class="text-sm text-gray-500">選択中の施設: <span id="selectedClinicName" class="font-medium text-blue-800">（未選択）</span></div>
 
-        <!-- 分類 -->
-        <div>
-          <label class="block text-sm text-gray-700 mb-1">分類</label>
-          <select id="testCategory" class="w-full border rounded px-3 py-2">
-            <!-- 管理画面の categories:test を読込 -->
-          </select>
-        </div>
+      <section class="space-y-5">
+        <h2 class="text-blue-800 font-semibold text-lg">検査の追加</h2>
 
-        <!-- 既存マスターから選択（承認済みのみ） -->
-        <div>
-          <label class="block text-sm text-gray-700 mb-1">既存マスターから選択（任意／承認済のみ）</label>
-          <select id="masterPick" class="w-full border rounded px-3 py-2">
-            <option value="">（選択しない）</option>
-          </select>
-          <p class="text-xs text-gray-500 mt-1">※分類を選ぶと、この分類の承認済み検査が表示されます。選ぶと下の名称・説明に反映されます。</p>
-        </div>
+        <div class="grid gap-4 md:grid-cols-2">
+          <div class="space-y-2">
+            <label for="testCategory" class="block text-sm text-gray-700">分類</label>
+            <select id="testCategory" class="w-full border rounded px-3 py-2"></select>
+          </div>
 
-        <!-- 名称 -->
-        <div>
-          <label class="block text-sm text-gray-700 mb-1">検査名</label>
-          <input id="testName" class="w-full border rounded px-3 py-2" placeholder="例: 心エコー検査"/>
-        </div>
-
-        <!-- 説明 -->
-        <div>
-          <label class="block text-sm text-gray-700 mb-1">説明</label>
-          <textarea id="testDesc" rows="4" class="w-full border rounded px-3 py-2" placeholder="例: 心臓の動きや弁の状態が分かる非侵襲検査 など"></textarea>
-          <div class="mt-2 flex items-center gap-2">
-            <button id="btnGenTestDesc" class="bg-indigo-600 text-white px-3 py-2 rounded hover:bg-indigo-700">
-              AIで説明生成
-            </button>
-            <span id="testHint" class="text-xs text-gray-500"></span>
+          <div class="space-y-2">
+            <label for="testNameSelect" class="block text-sm text-gray-700">検査種類</label>
+            <select id="testNameSelect" class="w-full border rounded px-3 py-2" disabled></select>
+            <div id="testManualWrapper" class="hidden">
+              <input id="testManualInput" type="text" class="mt-2 w-full border rounded px-3 py-2" placeholder="直接入力する検査名を入力" />
+              <p class="text-xs text-gray-500 mt-1">入力した検査はマスター候補として自動登録されます。</p>
+            </div>
           </div>
         </div>
 
-        <!-- 操作 -->
-        <div class="flex items-center gap-2">
-          <button id="btnSaveTest" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">保存</button>
-          <button id="btnClear" class="bg-gray-200 px-4 py-2 rounded hover:bg-gray-300">クリア</button>
+        <div>
+          <label for="testDesc" class="block text-sm text-gray-700">検査の説明</label>
+          <textarea id="testDesc" rows="4" class="w-full border rounded px-3 py-2" placeholder="検査の目的や流れ、注意点などを入力"></textarea>
+        </div>
+
+        <div class="flex flex-wrap gap-3">
+          <button id="testClear" class="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">クリア</button>
+          <button id="testSubmit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed" disabled>登録</button>
         </div>
       </section>
 
-      <!-- クリニックに登録済みの検査（簡易一覧） -->
-      <section>
-        <div class="flex items-center justify-between mb-2">
-          <h2 class="text-blue-800 font-semibold">この診療所の検査（登録済）</h2>
-          <button id="btnReloadMine" class="text-sm bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded">再読込</button>
-        </div>
-        <div id="myTests" class="divide-y bg-gray-50 border rounded"></div>
+      <section class="space-y-3">
+        <h2 class="text-blue-800 font-semibold text-lg">登録済 検査一覧</h2>
+        <div id="testList" class="space-y-2"></div>
       </section>
     </div>
   </main>
 
-  <!-- Footer -->
+  <!-- フッター -->
   <footer class="bg-gray-200 text-gray-700 text-center py-4">
     <p class="text-xs">© 2025 中野区医師会 - Nakano Clinic Database</p>
   </footer>
+
+  <!-- ローディングオーバーレイ -->
+  <div id="loadingOverlay" class="hidden fixed inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-50">
+    <div class="bg-white px-6 py-4 rounded shadow text-gray-700 text-base font-semibold">データ読み込み中...</div>
+  </div>
 
 <script>
 const BASE = "https://ncd-app.altry.workers.dev";
 
 let selectedClinic = null;
-function getClinicName(){ return selectedClinic?.name || ""; }
+let clinicData = null;
+let categories = [];
+let masterTests = [];
+let currentTests = [];
+let editingIndex = null;
 
-// ---- 初期化：クリニック確認 ----
-function loadSelectedClinic(){
-  const s = localStorage.getItem("selectedClinic");
-  if (s) {
-    selectedClinic = JSON.parse(s);
-    document.getElementById("clinicTitle").textContent = selectedClinic.name || "";
-  } else {
-    document.getElementById("clinicTitle").textContent = "（未選択）";
-    alert("施設選択または新規登録後にお進みください。");
-  }
+const els = {
+  selectedClinicName: document.getElementById("selectedClinicName"),
+  category: document.getElementById("testCategory"),
+  nameSelect: document.getElementById("testNameSelect"),
+  manualWrapper: document.getElementById("testManualWrapper"),
+  manualInput: document.getElementById("testManualInput"),
+  desc: document.getElementById("testDesc"),
+  submit: document.getElementById("testSubmit"),
+  clear: document.getElementById("testClear"),
+  list: document.getElementById("testList"),
+  overlay: document.getElementById("loadingOverlay")
+};
+
+function setLoading(show) {
+  els.overlay.classList.toggle("hidden", !show);
 }
 
-// ---- 分類の読込（categories:test） ----
-async function loadCategories(){
-  const r = await fetch(`${BASE}/api/listCategories?type=test`);
-  const d = await r.json();
-  const sel = document.getElementById("testCategory");
-  sel.innerHTML = "";
-  const cats = (d.ok ? d.categories : []) || [];
-  if (cats.length === 0) {
-    sel.innerHTML = `<option value="">（分類なし）</option>`;
-  } else {
-    sel.innerHTML = cats.map(c=>`<option>${c}</option>`).join("");
-  }
-}
-
-// ---- マスター（承認済）をカテゴリ別で読込してプルダウンへ ----
-async function loadApprovedMasterForCategory(){
-  const cat = document.getElementById("testCategory").value;
-  const box = document.getElementById("masterPick");
-  box.innerHTML = `<option value="">（選択しない）</option>`;
-
-  const url = new URL(`${BASE}/api/listMaster`);
-  url.searchParams.set("type","test");
-  url.searchParams.set("status","approved");
-  const r = await fetch(url.toString());
-  const d = await r.json();
-  const items = (d.ok ? d.items : []) || [];
-  const filtered = items.filter(it => it.category === cat);
-
-  filtered.forEach(it=>{
-    // 表示は「名称（説明 or canonical_name）」の形
-    const label = `${it.name}${it.desc ? `（${it.desc}）` : (it.canonical_name ? `（別名:${it.canonical_name}）` : "")}`;
-    const opt = document.createElement("option");
-    opt.value = JSON.stringify({ name: it.name, desc: it.desc || "" });
-    opt.textContent = label;
-    box.appendChild(opt);
-  });
-}
-
-// ---- マスター選択 → 名称/説明 に反映 ----
-function onPickMaster(){
-  const v = document.getElementById("masterPick").value;
-  if (!v) return;
+function loadSelectedClinic() {
   try {
-    const obj = JSON.parse(v);
-    document.getElementById("testName").value = obj.name || "";
-    if (obj.desc) document.getElementById("testDesc").value = obj.desc;
-  } catch (_) {}
-}
-
-// ---- AIで説明生成 ----
-async function genDesc(){
-  const name = document.getElementById('testName').value.trim();
-  const category = document.getElementById('testCategory').value;
-  const descEl = document.getElementById('testDesc');
-  const hintEl = document.getElementById('testHint');
-  if(!name){ alert('検査名を入力してください'); return; }
-  hintEl.textContent='AI生成を試行中…';
-
-  // 管理画面のプロンプト設定をGET
-  let sys = "医療説明用のサンプルを作ってください";
-  try {
-    const rs = await fetch(`${BASE}/api/settings`);
-    const ds = await rs.json();
-    if (ds && ds.prompt_exam) sys = ds.prompt_exam;
-  } catch(_){}
-
-  // /api/generate で生成（system プロンプト + ユーザーメッセージ）
-  try{
-    const r = await fetch(`${BASE}/api/generate`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        messages: [
-          { role:"system", content: sys },
-          { role:"user", content: `次の検査について、患者さん向けにやさしく100～150字で要点説明を書いてください。専門用語は補足を入れ、リスクと準備があれば触れてください。\n分類: ${category}\n検査名: ${name}` }
-        ]
-      })
-    });
-    const d = await r.json();
-    // 返りの形は環境により異なるため保険をかける
-    const text = d?.choices?.[0]?.message?.content || d?.text || "";
-    if (text) {
-      descEl.value = text.trim();
-      hintEl.textContent='AIで説明生成しました';
-    } else {
-      hintEl.textContent='AI応答なし';
+    const stored = localStorage.getItem("selectedClinic");
+    if (!stored) {
+      selectedClinic = null;
+      els.selectedClinicName.textContent = "（選択されていません）";
+      alert("施設を選択後に操作してください。");
+      return;
     }
-  }catch(e){
-    hintEl.textContent='AI接続不可';
+    selectedClinic = JSON.parse(stored);
+    els.selectedClinicName.textContent = selectedClinic.name || "（名称未設定）";
+  } catch (err) {
+    console.error("failed to load selected clinic", err);
+    selectedClinic = null;
+    els.selectedClinicName.textContent = "（選択されていません）";
   }
 }
 
-// ---- クリニック既存データ読込（listClinics→該当を抽出） ----
-async function fetchCurrentClinic(){
-  const name = getClinicName();
-  if (!name) return null;
-  const r = await fetch(`${BASE}/api/listClinics`);
-  const d = await r.json();
-  const arr = (d.ok && d.clinics) ? d.clinics : [];
-  return arr.find(c => (c.name === name)) || null;
+async function loadCategories() {
+  try {
+    const res = await fetch(`${BASE}/api/listCategories?type=test`);
+    const data = await res.json();
+    categories = Array.isArray(data?.categories) ? data.categories.filter(Boolean) : [];
+    categories.sort((a, b) => a.localeCompare(b, "ja"));
+  } catch (err) {
+    console.error("failed to load test categories", err);
+    categories = [];
+  }
 }
 
-// ---- 保存（tests配列へ追記 → updateClinic） ----
-async function saveTest(){
-  const clinicName = getClinicName();
-  if (!clinicName){ alert("施設が選択されていません"); return; }
-
-  const category = document.getElementById('testCategory').value.trim();
-  const name = document.getElementById('testName').value.trim();
-  const desc = document.getElementById('testDesc').value.trim();
-  if (!category || !name){ alert("分類と検査名は必須です"); return; }
-
-  // 既存クリニックを取得してマージ（上書き防止）
-  const cur = await fetchCurrentClinic();
-  const tests = Array.isArray(cur?.tests) ? [...cur.tests] : [];
-  tests.push({ category, name, desc });
-
-  const payload = {
-    name: clinicName,
-    // 既存項目を維持しつつ tests を更新
-    ...(cur || { id: clinicName }),
-    tests
-  };
-
-  const r = await fetch(`${BASE}/api/updateClinic`,{
-    method: "POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify(payload)
-  });
-  if (!r.ok) { alert("保存に失敗しました"); return; }
-
-  // 入力欄クリア
-  clearForm();
-  // 自分の検査一覧を更新
-  await loadMyTests();
-  alert("保存しました");
+async function loadTestMaster() {
+  try {
+    const url = new URL(`${BASE}/api/listMaster`);
+    url.searchParams.set("type", "test");
+    url.searchParams.set("status", "approved");
+    const res = await fetch(url.toString());
+    const data = await res.json();
+    masterTests = Array.isArray(data?.items) ? data.items : [];
+  } catch (err) {
+    console.error("failed to load test master", err);
+    masterTests = [];
+  }
 }
 
-// ---- 自分の検査一覧の描画 ----
-async function loadMyTests(){
-  const box = document.getElementById("myTests");
-  box.innerHTML = "";
-  const cur = await fetchCurrentClinic();
-  const tests = Array.isArray(cur?.tests) ? cur.tests : [];
-  if (tests.length === 0) {
-    box.innerHTML = `<div class="px-3 py-2 text-gray-500 text-sm">登録された検査はありません。</div>`;
+async function loadClinicData() {
+  if (!selectedClinic) return;
+  try {
+    const res = await fetch(`${BASE}/api/listClinics`);
+    const data = await res.json();
+    const clinics = Array.isArray(data?.clinics) ? data.clinics : [];
+    clinicData = clinics.find(c => (selectedClinic.id && c.id === selectedClinic.id) || c.name === selectedClinic.name) || { id: selectedClinic?.id, name: selectedClinic?.name };
+    currentTests = Array.isArray(clinicData?.tests) ? [...clinicData.tests] : [];
+  } catch (err) {
+    console.error("failed to load clinic data", err);
+    clinicData = { id: selectedClinic?.id, name: selectedClinic?.name };
+    currentTests = [];
+  }
+}
+
+function populateCategoryOptions() {
+  const select = els.category;
+  select.innerHTML = "";
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "分類を選択してください";
+  select.appendChild(placeholder);
+
+  if (!categories.length) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "（分類が登録されていません）";
+    select.appendChild(opt);
+    select.disabled = true;
     return;
   }
-  tests.forEach((t,i)=>{
+
+  categories.forEach(cat => {
+    const option = document.createElement("option");
+    option.value = cat;
+    option.textContent = cat;
+    select.appendChild(option);
+  });
+  select.disabled = false;
+}
+
+function updateTestSelect(selectedValue = "") {
+  const select = els.nameSelect;
+  const category = els.category.value;
+
+  select.innerHTML = "";
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "検査種類を選択してください";
+  select.appendChild(placeholder);
+
+  if (!category) {
+    select.disabled = true;
+    toggleManualInput(false);
+    return;
+  }
+
+  const filtered = masterTests.filter(item => item.category === category);
+  filtered.forEach(item => {
+    const option = document.createElement("option");
+    option.value = JSON.stringify({
+      category: item.category || "",
+      name: item.name || "",
+      desc: item.desc || "",
+      canonical: item.canonical_name || ""
+    });
+    const labelDesc = item.desc ? `（${item.desc}）` : (item.canonical_name ? `（別名: ${item.canonical_name}）` : "");
+    option.textContent = `${item.name}${labelDesc}`;
+    if (selectedValue && option.value === selectedValue) {
+      option.selected = true;
+    }
+    select.appendChild(option);
+  });
+
+  const directOption = document.createElement("option");
+  directOption.value = "__direct";
+  directOption.textContent = "（直接入力）";
+  if (selectedValue === "__direct") {
+    directOption.selected = true;
+  }
+  select.appendChild(directOption);
+
+  select.disabled = false;
+  toggleManualInput(select.value === "__direct");
+}
+
+function toggleManualInput(show) {
+  els.manualWrapper.classList.toggle("hidden", !show);
+  if (!show) {
+    els.manualInput.value = "";
+  }
+}
+
+function updateFormState() {
+  const category = els.category.value;
+  const selected = els.nameSelect.value;
+  const isManual = selected === "__direct";
+  const manualValue = els.manualInput.value.trim();
+  const descValue = els.desc.value.trim();
+
+  els.submit.disabled = !category || !selected || (isManual && !manualValue) || !descValue;
+}
+
+function renderTestList() {
+  els.list.innerHTML = "";
+  if (!currentTests.length) {
+    const empty = document.createElement("div");
+    empty.className = "px-4 py-6 text-sm text-gray-500 bg-gray-50 border border-dashed rounded";
+    empty.textContent = "登録された検査はありません。";
+    els.list.appendChild(empty);
+    return;
+  }
+
+  currentTests.forEach((t, index) => {
     const row = document.createElement("div");
-    row.className = "px-3 py-2 flex items-start justify-between";
-    row.innerHTML = `
-      <div>
-        <div class="font-semibold">${t.category} / ${t.name}</div>
-        <div class="text-sm text-gray-600 whitespace-pre-wrap">${t.desc||""}</div>
-      </div>
-      <div class="text-sm text-gray-400">#${i+1}</div>
-    `;
-    box.appendChild(row);
+    row.className = "flex flex-col gap-2 rounded border bg-white px-4 py-3 shadow-sm md:flex-row md:items-center";
+
+    const info = document.createElement("div");
+    info.className = "flex flex-col gap-2 md:flex-row md:items-center md:gap-3 flex-1";
+
+    const categoryTag = document.createElement("span");
+    categoryTag.className = "inline-flex justify-center items-center rounded border border-blue-200 bg-blue-50 text-blue-800 font-semibold px-3 py-1 text-sm w-32";
+    categoryTag.textContent = t.category || "（未分類）";
+
+    const content = document.createElement("div");
+    content.className = "flex flex-col gap-1";
+    const nameLine = document.createElement("span");
+    nameLine.className = "text-blue-900 font-semibold text-sm";
+    nameLine.textContent = t.name || "";
+    const descLine = document.createElement("span");
+    descLine.className = "text-sm text-gray-600 whitespace-pre-wrap";
+    descLine.textContent = t.desc || "";
+    content.append(nameLine, descLine);
+
+    info.append(categoryTag, content);
+
+    const actions = document.createElement("div");
+    actions.className = "flex items-center gap-4 text-sm md:ml-auto";
+
+    const editBtn = document.createElement("button");
+    editBtn.className = "text-blue-600 hover:text-blue-800";
+    editBtn.textContent = "編集";
+    editBtn.addEventListener("click", () => startEditing(index));
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "text-red-600 hover:text-red-800";
+    deleteBtn.textContent = "削除";
+    deleteBtn.addEventListener("click", () => removeTest(index));
+
+    actions.append(editBtn, deleteBtn);
+    row.append(info, actions);
+    els.list.appendChild(row);
   });
 }
 
-// ---- クリア ----
-function clearForm(){
-  // プルダウンはカテゴリだけ残し、マスター選択は初期化
-  document.getElementById('masterPick').selectedIndex = 0;
-  document.getElementById('testName').value = "";
-  document.getElementById('testDesc').value = "";
-  document.getElementById('testHint').textContent = "";
+function clearForm() {
+  editingIndex = null;
+  els.submit.textContent = "登録";
+  els.category.value = "";
+  updateTestSelect();
+  els.manualInput.value = "";
+  toggleManualInput(false);
+  els.desc.value = "";
+  updateFormState();
 }
 
-// ---- イベント ----
-document.getElementById('btnGenTestDesc').addEventListener('click', genDesc);
-document.getElementById('btnSaveTest').addEventListener('click', saveTest);
-document.getElementById('btnClear').addEventListener('click', clearForm);
-document.getElementById('btnReloadMine').addEventListener('click', loadMyTests);
-document.getElementById('testCategory').addEventListener('change', loadApprovedMasterForCategory);
-document.getElementById('masterPick').addEventListener('change', onPickMaster);
+function startEditing(index) {
+  const target = currentTests[index];
+  if (!target) return;
+  editingIndex = index;
+  els.submit.textContent = "更新";
+  els.category.value = target.category || "";
+  updateTestSelect();
 
-// ---- 起動 ----
-(async function init(){
-  loadSelectedClinic();
-  await loadCategories();
-  await loadApprovedMasterForCategory();
-  await loadMyTests();
+  const match = masterTests.find(item => item.category === target.category && item.name === target.name);
+  if (match) {
+    const value = JSON.stringify({
+      category: match.category || "",
+      name: match.name || "",
+      desc: match.desc || "",
+      canonical: match.canonical_name || ""
+    });
+    updateTestSelect(value);
+    els.nameSelect.value = value;
+    toggleManualInput(false);
+  } else {
+    updateTestSelect("__direct");
+    els.nameSelect.value = "__direct";
+    toggleManualInput(true);
+    els.manualInput.value = target.name || "";
+  }
+
+  els.desc.value = target.desc || "";
+  updateFormState();
+}
+
+async function registerTestCandidate(category, name, desc) {
+  try {
+    await fetch(`${BASE}/api/addMasterItem`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "test", category, name, desc, source: "clinicTests" })
+    });
+  } catch (err) {
+    console.warn("failed to register test candidate", err);
+  }
+}
+
+async function persistTests() {
+  if (!selectedClinic) {
+    throw new Error("施設が選択されていません");
+  }
+  const payload = {
+    ...(clinicData || {}),
+    id: clinicData?.id || selectedClinic?.id || selectedClinic?.name,
+    name: clinicData?.name || selectedClinic?.name,
+    tests: currentTests
+  };
+
+  const res = await fetch(`${BASE}/api/updateClinic`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+
+  if (!res.ok) {
+    throw new Error(`API error ${res.status}`);
+  }
+
+  let result = null;
+  try {
+    result = await res.json();
+  } catch (err) {
+    console.warn("failed to parse updateClinic response", err);
+  }
+
+  if (result?.clinic) {
+    clinicData = result.clinic;
+    currentTests = Array.isArray(result.clinic.tests) ? [...result.clinic.tests] : [];
+    localStorage.setItem("selectedClinic", JSON.stringify(result.clinic));
+    selectedClinic = result.clinic;
+    els.selectedClinicName.textContent = selectedClinic.name || "（名称未設定）";
+  } else {
+    clinicData = { ...payload };
+  }
+}
+
+async function handleSubmit() {
+  const category = els.category.value;
+  if (!category) {
+    alert("分類を選択してください");
+    return;
+  }
+
+  const selected = els.nameSelect.value;
+  if (!selected) {
+    alert("検査種類を選択してください");
+    return;
+  }
+
+  const desc = els.desc.value.trim();
+  if (!desc) {
+    alert("検査の説明を入力してください");
+    return;
+  }
+
+  let entry = null;
+  if (selected === "__direct") {
+    const manualName = els.manualInput.value.trim();
+    if (!manualName) {
+      alert("検査名を入力してください");
+      return;
+    }
+    entry = { category, name: manualName, desc, source: "manual" };
+  } else {
+    try {
+      const parsed = JSON.parse(selected);
+      entry = {
+        category: parsed.category || category,
+        name: parsed.name || "",
+        desc,
+        source: "master"
+      };
+    } catch (err) {
+      console.error("failed to parse selected test", err);
+      alert("検査の取得に失敗しました。再度選択してください。");
+      return;
+    }
+  }
+
+  const duplicateIndex = currentTests.findIndex((t, idx) => t.category === entry.category && t.name === entry.name && idx !== editingIndex);
+  if (duplicateIndex >= 0) {
+    alert("同じ検査が既に登録されています。");
+    return;
+  }
+
+  const wasEditing = editingIndex !== null;
+  if (wasEditing) {
+    currentTests[editingIndex] = entry;
+  } else {
+    currentTests.push(entry);
+  }
+
+  try {
+    setLoading(true);
+    await persistTests();
+    if (entry.source === "manual") {
+      await registerTestCandidate(entry.category, entry.name, entry.desc);
+    }
+    renderTestList();
+    clearForm();
+    alert(wasEditing ? "検査を更新しました" : "検査を登録しました");
+  } catch (err) {
+    console.error("failed to save test", err);
+    await loadClinicData();
+    renderTestList();
+    alert("保存に失敗しました: " + err.message);
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function removeTest(index) {
+  const target = currentTests[index];
+  if (!target) return;
+  if (!confirm(`この検査を削除しますか？\n${target.category || "（未分類）"} / ${target.name || ""}`)) return;
+
+  const backup = [...currentTests];
+  currentTests.splice(index, 1);
+
+  try {
+    setLoading(true);
+    await persistTests();
+    if (editingIndex === index) {
+      clearForm();
+    } else if (editingIndex !== null && index < editingIndex) {
+      editingIndex -= 1;
+    }
+    renderTestList();
+    alert("削除しました");
+  } catch (err) {
+    console.error("failed to delete test", err);
+    currentTests = backup;
+    renderTestList();
+    alert("削除に失敗しました: " + err.message);
+  } finally {
+    setLoading(false);
+  }
+}
+
+els.category.addEventListener("change", () => {
+  updateTestSelect();
+  updateFormState();
+});
+els.nameSelect.addEventListener("change", () => {
+  toggleManualInput(els.nameSelect.value === "__direct");
+  updateFormState();
+});
+els.manualInput.addEventListener("input", updateFormState);
+els.desc.addEventListener("input", updateFormState);
+els.submit.addEventListener("click", handleSubmit);
+els.clear.addEventListener("click", event => {
+  event.preventDefault();
+  clearForm();
+});
+
+(async function init() {
+  setLoading(true);
+  try {
+    loadSelectedClinic();
+    await Promise.all([loadCategories(), loadTestMaster()]);
+    populateCategoryOptions();
+    clearForm();
+    await loadClinicData();
+    renderTestList();
+  } finally {
+    setLoading(false);
+  }
 })();
 </script>
 </body>
