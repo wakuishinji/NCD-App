@@ -91,9 +91,11 @@
         <section id="tab-master-qual" class="tab-panel hidden">
           <div class="flex items-center justify-between mb-3">
             <h2 class="text-lg font-semibold text-blue-800">資格マスターの管理</h2>
-            <div class="flex gap-2">
+            <div class="flex gap-2 items-center">
               <button class="bg-gray-700 text-white px-3 py-2 rounded hover:bg-gray-800" onclick="exportMaster('qual','json')">JSON出力</button>
               <button class="bg-gray-700 text-white px-3 py-2 rounded hover:bg-gray-800" onclick="exportMaster('qual','csv')">CSV出力</button>
+              <button id="mstQualImport" class="bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700">CSV取込</button>
+              <input type="file" id="mstQualCsvInput" accept=".csv,text/csv" class="hidden" />
             </div>
           </div>
           <div class="flex gap-2 mb-3">
@@ -102,6 +104,9 @@
               <option value="candidate">候補</option>
               <option value="approved">承認</option>
               <option value="archived">廃止</option>
+            </select>
+            <select id="mstQualCategory" class="border rounded px-3 py-2 min-w-[160px]">
+              <option value="">全ての分類</option>
             </select>
             <input id="mstQualQ" class="border rounded px-3 py-2 flex-1" placeholder="検索（分類・名称・issuer）">
             <button id="mstQualReload" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">再読込</button>
@@ -266,7 +271,7 @@ const MASTER_PANEL_MAP = {
   department: 'tab-master-dept'
 };
 const MASTER_LIST_MAP = {
-  qual: ['mstQualList', 'mstQualStatus', 'mstQualQ', null],
+  qual: ['mstQualList', 'mstQualStatus', 'mstQualQ', 'mstQualCategory'],
   test: ['mstTestList', 'mstTestStatus', null, 'mstTestCategory'],
   service: ['mstSvcList', 'mstSvcStatus', null, 'mstSvcCategory'],
   department: ['mstDeptList', 'mstDeptStatus', 'mstDeptQ', null]
@@ -306,7 +311,7 @@ function invalidateMasterCache(type) {
     return;
   }
   MASTER_CACHE[type] = {};
-  if (type === 'test' || type === 'service') {
+  if (type === 'test' || type === 'service' || type === 'qual') {
     MASTER_CATEGORY_OPTIONS[type] = [];
   }
 }
@@ -354,7 +359,7 @@ async function showTab(id){
         await withPanelLoading(id, '資格分類を読み込み中...', () => loadCategories('qual','catQualList'));
         break;
       case 'tab-master-qual':
-        await withPanelLoading(id, '資格マスターを読み込み中...', () => loadMaster('qual','mstQualList','mstQualStatus','mstQualQ'));
+        await withPanelLoading(id, '資格マスターを読み込み中...', () => loadMaster('qual','mstQualList','mstQualStatus','mstQualQ','mstQualCategory'));
         break;
       case 'tab-cat-test':
         await withPanelLoading(id, '検査分類を読み込み中...', () => loadCategories('test','catTestList'));
@@ -486,6 +491,7 @@ async function loadCategories(type, listElId){
     MASTER_CATEGORY_OPTIONS[type] = cats;
     if (type === 'test') populateCategoryFilter('test', 'mstTestCategory');
     if (type === 'service') populateCategoryFilter('service', 'mstSvcCategory');
+    if (type === 'qual') populateCategoryFilter('qual', 'mstQualCategory');
     const box = document.getElementById(listElId);
     box.innerHTML = "";
     cats.forEach(cat=>{
@@ -769,7 +775,8 @@ async function loadMaster(type, listElId, statusSelId, qId, categorySelId, optio
   }
   box.innerHTML = '';
 
-  if ((type === 'test' || type === 'service') && categorySelId) {
+  const supportsCategoryFilter = !!categorySelId && (type === 'test' || type === 'service' || type === 'qual');
+  if (supportsCategoryFilter) {
     const categories = Array.from(new Set(items.map(it => it.category).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ja'));
     if (categories.length && categories.join('\u0000') !== (MASTER_CATEGORY_OPTIONS[type] || []).join('\u0000')) {
       MASTER_CATEGORY_OPTIONS[type] = categories;
@@ -809,9 +816,9 @@ async function loadMaster(type, listElId, statusSelId, qId, categorySelId, optio
     return it;
   });
 
-  const categoryOrder = (type === 'test' || type === 'service') ? (MASTER_CATEGORY_OPTIONS[type] || []) : [];
+  const categoryOrder = supportsCategoryFilter ? (MASTER_CATEGORY_OPTIONS[type] || []) : [];
   filtered.sort((a, b) => {
-    if (type === 'test' || type === 'service') {
+    if (supportsCategoryFilter) {
       const idxA = categoryOrder.indexOf(a.category);
       const idxB = categoryOrder.indexOf(b.category);
       if (idxA !== idxB) {
@@ -1201,14 +1208,18 @@ bindStatusFilterAppearance('mstDeptStatus');
 bindStatusFilterAppearance('mstQualStatus');
 document.getElementById('mstQualReload').addEventListener('click', async () => {
   invalidateMasterCache('qual');
-  await withPanelLoading(MASTER_PANEL_MAP.qual, MASTER_MESSAGE_MAP.qual, () => loadMaster('qual','mstQualList','mstQualStatus','mstQualQ', undefined, { force: true }));
+  await withPanelLoading(MASTER_PANEL_MAP.qual, MASTER_MESSAGE_MAP.qual, () => loadMaster('qual','mstQualList','mstQualStatus','mstQualQ','mstQualCategory', { force: true }));
 });
 document.getElementById('mstQualStatus').addEventListener('change', async () => {
-  await withPanelLoading(MASTER_PANEL_MAP.qual, MASTER_MESSAGE_MAP.qual, () => loadMaster('qual','mstQualList','mstQualStatus','mstQualQ'));
+  await withPanelLoading(MASTER_PANEL_MAP.qual, MASTER_MESSAGE_MAP.qual, () => loadMaster('qual','mstQualList','mstQualStatus','mstQualQ','mstQualCategory'));
 });
-const handleQualSearch = debounce(() => loadMaster('qual','mstQualList','mstQualStatus','mstQualQ', undefined, { skipFetch: true }), 300);
+document.getElementById('mstQualCategory').addEventListener('change', () => {
+  loadMaster('qual','mstQualList','mstQualStatus','mstQualQ','mstQualCategory', { skipFetch: true });
+});
+const handleQualSearch = debounce(() => loadMaster('qual','mstQualList','mstQualStatus','mstQualQ','mstQualCategory', { skipFetch: true }), 300);
 document.getElementById('mstQualQ').addEventListener('input', handleQualSearch);
 
+setupCsvImport('qual', 'mstQualImport', 'mstQualCsvInput');
 setupCsvImport('test', 'mstTestImport', 'mstTestCsvInput');
 setupCsvImport('service', 'mstSvcImport', 'mstSvcCsvInput');
 
