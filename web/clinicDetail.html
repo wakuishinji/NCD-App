@@ -238,6 +238,7 @@ const TIME_DEFAULTS = {
 };
 const TIME_STEP_MINUTES = 5;
 const ZIP_LOOKUP_ENDPOINT = 'https://zipcloud.ibsnet.co.jp/api/search';
+const UNSAVED_WARNING_MESSAGE = '未保存の変更があります。保存せずに移動しますか？';
 let scheduleState = {
   patterns: createEmptyPatterns(),
   days: {}
@@ -246,6 +247,8 @@ let scheduleEditPanelEl = null;
 let scheduleToggleBtnEl = null;
 let scheduleDoneBtnEl = null;
 let latestPostalLookup = '';
+let isDirty = false;
+let suppressDirtyTracking = false;
 
 function toggleLoadingOverlay(show) {
   const overlay = document.getElementById("loadingOverlay");
@@ -270,6 +273,72 @@ function formatPostalCode(value) {
   if (!digits) return '';
   if (digits.length <= 3) return digits;
   return `${digits.slice(0, 3)}-${digits.slice(3, 7)}`;
+}
+
+function markDirty() {
+  if (suppressDirtyTracking) return;
+  isDirty = true;
+}
+
+function resetDirtyState() {
+  isDirty = false;
+  const postalInput = document.getElementById('clinicPostalCode');
+  latestPostalLookup = postalInput ? normalizePostalCode(postalInput.value) : '';
+}
+
+function withDirtySuppressed(fn) {
+  suppressDirtyTracking = true;
+  try {
+    fn();
+  } finally {
+    suppressDirtyTracking = false;
+  }
+}
+
+function shouldTrackDirty(target) {
+  if (!target || !target.tagName) return false;
+  const tag = target.tagName.toLowerCase();
+  if (tag === 'input') {
+    const type = (target.type || '').toLowerCase();
+    if (["submit","button","reset","image","file","hidden"].includes(type)) {
+      return false;
+    }
+  }
+  return tag === 'input' || tag === 'textarea' || tag === 'select';
+}
+
+function handlePotentialDirty(event) {
+  if (shouldTrackDirty(event.target)) {
+    markDirty();
+  }
+}
+
+function handleNavigationAttempt(event) {
+  if (!isDirty) return;
+  if (event.defaultPrevented) return;
+  if (event.button !== undefined && event.button !== 0) return;
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  const targetNode = event.target instanceof Element ? event.target : event.target?.parentElement;
+  if (!targetNode) return;
+  const anchor = targetNode.closest('a[href]');
+  if (!anchor) return;
+  if (anchor.dataset.ignoreDirty === 'true') return;
+  const href = anchor.getAttribute('href');
+  if (!href || href.startsWith('#')) return;
+  if (anchor.hasAttribute('download')) return;
+  if (/^javascript:/i.test(href) || /^mailto:/i.test(href)) return;
+  const targetAttr = anchor.getAttribute('target');
+  if (targetAttr && targetAttr !== '_self') return;
+  const destination = new URL(href, window.location.href);
+  if (destination.href === window.location.href) return;
+
+  const proceed = window.confirm(UNSAVED_WARNING_MESSAGE);
+  if (!proceed) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  } else {
+    resetDirtyState();
+  }
 }
 
 function createEmptyPatterns() {
@@ -665,8 +734,11 @@ async function tryAutoFillAddress({ force = false } = {}) {
 
   try {
     const address = await fetchAddressForPostalCode(digits);
-    if (address) {
-      addressInput.value = address;
+    if (address && address !== addressInput.value) {
+      withDirtySuppressed(() => {
+        addressInput.value = address;
+      });
+      markDirty();
     }
     latestPostalLookup = digits;
   } catch (err) {
@@ -696,11 +768,15 @@ function initPostalCodeField() {
     } else {
       latestPostalLookup = '';
     }
+    markDirty();
   });
 
   postalInput.addEventListener('blur', () => {
     updateValue();
     tryAutoFillAddress({ force: true });
+    if (postalInput.value) {
+      markDirty();
+    }
   });
 
   postalInput.value = formatPostalCode(postalInput.value);
@@ -828,6 +904,16 @@ document.querySelectorAll("input[name='reservationStatus']").forEach(r => r.addE
 updateHomepageField();
 updateReservationField();
 
+document.addEventListener('input', handlePotentialDirty, true);
+document.addEventListener('change', handlePotentialDirty, true);
+document.addEventListener('click', handleNavigationAttempt, true);
+
+window.addEventListener('beforeunload', event => {
+  if (!isDirty) return;
+  event.preventDefault();
+  event.returnValue = UNSAVED_WARNING_MESSAGE;
+});
+
 function initScheduleTable(){
   const tbody = document.getElementById("scheduleBody");
   tbody.innerHTML = "";
@@ -858,6 +944,7 @@ function savePatterns(){
   scheduleState.patterns = sanitizePatterns(readScheduleFormPatterns());
   renderDisplay();
   alert("診療時間パターンを保存しました");
+  markDirty();
 }
 
 function applyAll(type){
@@ -865,11 +952,13 @@ function applyAll(type){
   days.forEach((d,i)=>{
     document.getElementById(type+"_"+i).value = target;
   });
+  markDirty();
 }
 
 function saveSchedule(){
   scheduleState.days = readScheduleFormDays();
   renderDisplay();
+  markDirty();
 }
 
 function renderDisplay(){
@@ -990,6 +1079,7 @@ async function saveClinic() {
     localStorage.setItem("selectedClinic", JSON.stringify(result.clinic));
     alert("診療所データを更新しました");
     await registerDepartmentCandidates(uniqueOtherDept);
+    resetDirtyState();
   } catch (err) {
     alert("保存に失敗しました: " + err.message);
     console.error(err);
@@ -1000,51 +1090,57 @@ async function saveClinic() {
 function loadClinicDetail() {
   const stored = localStorage.getItem("selectedClinic");
   if (!stored) {
-    scheduleState.patterns = createEmptyPatterns();
-    scheduleState.days = {};
-    applyScheduleStateToForm();
-    renderDisplay();
+    withDirtySuppressed(() => {
+      scheduleState.patterns = createEmptyPatterns();
+      scheduleState.days = {};
+      applyScheduleStateToForm();
+      renderDisplay();
+    });
     latestPostalLookup = '';
+    resetDirtyState();
     return;
   }
 
   const clinic = JSON.parse(stored);
-  currentClinicId = clinic.id || "";
-  retainedQualifications = clinic.doctors?.qualifications || "";
-
-  document.getElementById("clinicName").value      = clinic.name || "";
   const loadedPostal = formatPostalCode(clinic.postalCode || '');
-  document.getElementById("clinicPostalCode").value = loadedPostal;
-  document.getElementById("clinicAddress").value   = clinic.address || "";
-  document.getElementById("clinicPhone").value     = clinic.phone || "";
-  document.getElementById("clinicFax").value       = clinic.fax || "";
-  document.getElementById("numFulltime").value     = clinic.doctors?.fulltime || "";
-  document.getElementById("numParttime").value     = clinic.doctors?.parttime || "";
+  withDirtySuppressed(() => {
+    currentClinicId = clinic.id || "";
+    retainedQualifications = clinic.doctors?.qualifications || "";
 
-  const homepageData = clinic.homepage || {};
-  const homepageAvailable = typeof homepageData.available === "boolean" ? homepageData.available : Boolean(homepageData.url);
-  const homepageTarget = document.querySelector(`input[name='homepageStatus'][value='${homepageAvailable ? "available" : "none"}']`);
-  if (homepageTarget) homepageTarget.checked = true;
-  document.getElementById("homepageUrl").value = homepageData.url || "";
-  updateHomepageField();
+    document.getElementById("clinicName").value      = clinic.name || "";
+    document.getElementById("clinicPostalCode").value = loadedPostal;
+    document.getElementById("clinicAddress").value   = clinic.address || "";
+    document.getElementById("clinicPhone").value     = clinic.phone || "";
+    document.getElementById("clinicFax").value       = clinic.fax || "";
+    document.getElementById("numFulltime").value     = clinic.doctors?.fulltime || "";
+    document.getElementById("numParttime").value     = clinic.doctors?.parttime || "";
 
-  const reservationData = clinic.reservation || {};
-  const reservationAvailable = typeof reservationData.available === "boolean" ? reservationData.available : Boolean(reservationData.url);
-  const reservationTarget = document.querySelector(`input[name='reservationStatus'][value='${reservationAvailable ? "available" : "none"}']`);
-  if (reservationTarget) reservationTarget.checked = true;
-  document.getElementById("reservationUrl").value = reservationData.url || "";
-  updateReservationField();
+    const homepageData = clinic.homepage || {};
+    const homepageAvailable = typeof homepageData.available === "boolean" ? homepageData.available : Boolean(homepageData.url);
+    const homepageTarget = document.querySelector(`input[name='homepageStatus'][value='${homepageAvailable ? "available" : "none"}']`);
+    if (homepageTarget) homepageTarget.checked = true;
+    document.getElementById("homepageUrl").value = homepageData.url || "";
+    updateHomepageField();
+
+    const reservationData = clinic.reservation || {};
+    const reservationAvailable = typeof reservationData.available === "boolean" ? reservationData.available : Boolean(reservationData.url);
+    const reservationTarget = document.querySelector(`input[name='reservationStatus'][value='${reservationAvailable ? "available" : "none"}']`);
+    if (reservationTarget) reservationTarget.checked = true;
+    document.getElementById("reservationUrl").value = reservationData.url || "";
+    updateReservationField();
+
+    const deptState = parseDepartments(clinic.departments);
+    renderDepartmentChecklist(deptState.master);
+    document.getElementById("departmentOthers").value = deptState.others.join("\n");
+
+    scheduleState.patterns = sanitizePatterns(clinic.schedule?.patterns);
+    scheduleState.days = sanitizeScheduleDays(clinic.schedule?.days);
+    applyScheduleStateToForm();
+    renderDisplay();
+  });
 
   latestPostalLookup = normalizePostalCode(loadedPostal);
-
-  const deptState = parseDepartments(clinic.departments);
-  renderDepartmentChecklist(deptState.master);
-  document.getElementById("departmentOthers").value = deptState.others.join("\n");
-
-  scheduleState.patterns = sanitizePatterns(clinic.schedule?.patterns);
-  scheduleState.days = sanitizeScheduleDays(clinic.schedule?.days);
-  applyScheduleStateToForm();
-  renderDisplay();
+  resetDirtyState();
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
