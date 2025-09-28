@@ -85,7 +85,18 @@
     <section class="bg-white rounded shadow p-6">
       <h2 class="text-lg font-semibold text-blue-800 mb-4">標榜診療科</h2>
       <p class="text-sm text-gray-600 mb-4">マスターで承認済みの診療科を複数選択できます。該当がない場合は「その他診療科」に入力してください（1行につき1診療科）。</p>
-      <div id="departmentOptions" class="space-y-6 mb-4"></div>
+      <div class="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div id="departmentSummaryWrap" class="text-sm text-gray-700 hidden">
+          <span id="departmentSummary"></span>
+        </div>
+        <button id="departmentToggleBtn" type="button" class="self-start rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">選択する</button>
+      </div>
+      <div id="departmentSelection" class="space-y-4 mb-4 hidden" aria-hidden="true">
+        <div id="departmentOptions" class="space-y-6"></div>
+        <div class="flex justify-end">
+          <button id="departmentSelectionDone" type="button" class="rounded bg-gray-700 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800">完了</button>
+        </div>
+      </div>
       <div>
         <label for="departmentOthers" class="block text-sm text-gray-700 mb-1">その他診療科</label>
         <textarea id="departmentOthers" rows="3" class="w-full border rounded px-3 py-2" placeholder="例: 睡眠医療センター\n例: 緩和ケア内科"></textarea>
@@ -192,6 +203,8 @@ const DEPARTMENT_CATEGORY = "標榜診療科";
 let currentClinicId = "";
 let retainedQualifications = "";
 let departmentMaster = [];
+let departmentSelectionEl = null;
+let departmentToggleBtnEl = null;
 
 function toggleLoadingOverlay(show) {
   const overlay = document.getElementById("loadingOverlay");
@@ -207,17 +220,103 @@ function equalsIgnoreCase(a, b) {
   return normalizeText(a).toLowerCase() === normalizeText(b).toLowerCase();
 }
 
-function renderDepartmentChecklist(selectedNames = []) {
+function updateDepartmentSummary() {
+  const summaryWrap = document.getElementById("departmentSummaryWrap");
+  const summaryEl = document.getElementById("departmentSummary");
+  if (!summaryWrap || !summaryEl) return;
+
+  const selectedCheckboxes = Array.from(document.querySelectorAll("input[name='deptMaster']:checked"));
+  if (!selectedCheckboxes.length) {
+    summaryEl.textContent = "";
+    summaryWrap.classList.add("hidden");
+    return;
+  }
+
+  const normalizeSet = new Set(selectedCheckboxes.map(cb => normalizeText(cb.value)));
+  const orderedNames = departmentMaster
+    .filter(item => normalizeSet.has(normalizeText(item.name)))
+    .map(item => item.canonical_name || item.name)
+    .filter(Boolean);
+
+  const leftovers = selectedCheckboxes
+    .map(cb => cb.value)
+    .filter(val => !departmentMaster.some(item => normalizeText(item.name) === normalizeText(val)));
+
+  const displayNames = orderedNames.concat(leftovers);
+  summaryEl.textContent = displayNames.join("、");
+  summaryWrap.classList.remove("hidden");
+}
+
+function showDepartmentSelection() {
+  if (!departmentSelectionEl) return;
+  departmentSelectionEl.classList.remove("hidden");
+  departmentSelectionEl.setAttribute("aria-hidden", "false");
+  if (departmentToggleBtnEl) {
+    departmentToggleBtnEl.setAttribute("aria-expanded", "true");
+  }
+  const firstInput = departmentSelectionEl.querySelector("input[name='deptMaster']");
+  if (firstInput) {
+    firstInput.focus();
+  }
+}
+
+function hideDepartmentSelection() {
+  if (!departmentSelectionEl) return;
+  departmentSelectionEl.classList.add("hidden");
+  departmentSelectionEl.setAttribute("aria-hidden", "true");
+  if (departmentToggleBtnEl) {
+    departmentToggleBtnEl.setAttribute("aria-expanded", "false");
+  }
+  updateDepartmentSummary();
+}
+
+function initDepartmentSelectionUI() {
+  departmentSelectionEl = document.getElementById("departmentSelection");
+  departmentToggleBtnEl = document.getElementById("departmentToggleBtn");
+  const doneBtn = document.getElementById("departmentSelectionDone");
+
+  if (departmentSelectionEl) {
+    departmentSelectionEl.setAttribute("aria-hidden", "true");
+  }
+
+  if (departmentToggleBtnEl) {
+    departmentToggleBtnEl.setAttribute("aria-expanded", "false");
+    departmentToggleBtnEl.addEventListener("click", () => {
+      showDepartmentSelection();
+      departmentSelectionEl?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  if (doneBtn) {
+    doneBtn.addEventListener("click", () => {
+      hideDepartmentSelection();
+      departmentToggleBtnEl?.focus();
+    });
+  }
+}
+
+function renderDepartmentChecklist(selectedNames) {
   const container = document.getElementById("departmentOptions");
   if (!container) return;
+  const existingChecked = Array.from(container.querySelectorAll("input[name='deptMaster']:checked")).map(el => el.value);
+  let namesToUse;
+  if (Array.isArray(selectedNames)) {
+    namesToUse = selectedNames;
+  } else if (typeof selectedNames === 'string' && selectedNames) {
+    namesToUse = [selectedNames];
+  }
+  if (!Array.isArray(namesToUse)) {
+    namesToUse = existingChecked;
+  }
   container.innerHTML = "";
 
   if (!departmentMaster.length) {
     container.innerHTML = '<p class="text-sm text-gray-500">承認済みの標榜診療科がまだ登録されていません。</p>';
+    updateDepartmentSummary();
     return;
   }
 
-  const selectedSet = new Set((selectedNames || []).map(s => normalizeText(s)));
+  const selectedSet = new Set((namesToUse || []).map(s => normalizeText(s)));
   let currentGroup = null;
   let groupBlock = null;
   let listWrap = null;
@@ -265,6 +364,10 @@ function renderDepartmentChecklist(selectedNames = []) {
   });
 
   // container uses space-y to manage separation, so no divider needed
+  Array.from(container.querySelectorAll("input[name='deptMaster']")).forEach(cb => {
+    cb.addEventListener("change", updateDepartmentSummary);
+  });
+  updateDepartmentSummary();
 }
 
 async function loadDepartmentMaster() {
@@ -552,6 +655,7 @@ function loadClinicDetail() {
 window.addEventListener("DOMContentLoaded", async () => {
   toggleLoadingOverlay(true);
   try {
+    initDepartmentSelectionUI();
     await loadDepartmentMaster();
     loadClinicDetail();
   } finally {
