@@ -224,6 +224,7 @@ const TIME_DEFAULTS = {
   am: { start: '09:00', end: '12:00' },
   pm: { start: '14:00', end: '18:00' }
 };
+const TIME_STEP_MINUTES = 5;
 let scheduleState = {
   patterns: createEmptyPatterns(),
   days: {}
@@ -531,9 +532,45 @@ function initScheduleEditorUI() {
 }
 
 function initTimeInputDefaults() {
+  const ensureTimeDatalist = () => {
+    const existing = document.getElementById('time-choices-5m');
+    if (existing) return existing.id;
+    const list = document.createElement('datalist');
+    list.id = 'time-choices-5m';
+    for (let total = 0; total < 24 * 60; total += TIME_STEP_MINUTES) {
+      const hours = String(Math.floor(total / 60)).padStart(2, '0');
+      const minutes = String(total % 60).padStart(2, '0');
+      const option = document.createElement('option');
+      option.value = `${hours}:${minutes}`;
+      list.appendChild(option);
+    }
+    document.body.appendChild(list);
+    return list.id;
+  };
+
+  const datalistId = ensureTimeDatalist();
+
+  const snapToStep = value => {
+    if (!value) return value;
+    const parts = value.split(':');
+    if (parts.length < 2) return value;
+    const hours = Number.parseInt(parts[0], 10);
+    const minutes = Number.parseInt(parts[1], 10);
+    if (Number.isNaN(hours) || Number.isNaN(minutes)) return value;
+    const total = hours * 60 + minutes;
+    const snapped = Math.min(
+      Math.round(total / TIME_STEP_MINUTES) * TIME_STEP_MINUTES,
+      24 * 60 - TIME_STEP_MINUTES
+    );
+    const snappedHours = Math.floor(snapped / 60);
+    const snappedMinutes = snapped % 60;
+    return `${String(snappedHours).padStart(2, '0')}:${String(snappedMinutes).padStart(2, '0')}`;
+  };
+
   const inputs = Array.from(document.querySelectorAll("input[type='time']"));
   inputs.forEach(input => {
-    input.step = 300;
+    input.step = TIME_STEP_MINUTES * 60;
+    input.setAttribute('list', datalistId);
     const id = input.id || '';
     const isAm = id.startsWith('am');
     const isPm = id.startsWith('pm');
@@ -554,6 +591,17 @@ function initTimeInputDefaults() {
         }
       }
     });
+
+    const handleSnap = () => {
+      const snapped = snapToStep(input.value);
+      if (snapped && snapped !== input.value) {
+        input.value = snapped;
+      }
+    };
+
+    input.addEventListener('change', handleSnap);
+    input.addEventListener('blur', handleSnap);
+    handleSnap();
   });
 }
 
