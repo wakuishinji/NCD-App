@@ -76,6 +76,7 @@ let categories = [];
 let qualificationMaster = [];
 let currentQualifications = [];
 let editingIndex = null;
+const collator = new Intl.Collator('ja');
 
 const els = {
   selectedClinicName: document.getElementById("selectedClinicName"),
@@ -260,7 +261,15 @@ function renderQualificationList() {
     return;
   }
 
-  currentQualifications.forEach((q, index) => {
+  const sorted = currentQualifications
+    .map((item, idx) => ({ item, idx }))
+    .sort((a, b) => {
+      const categoryCompare = collator.compare(a.item.category || "", b.item.category || "");
+      if (categoryCompare !== 0) return categoryCompare;
+      return collator.compare(a.item.name || "", b.item.name || "");
+    });
+
+  sorted.forEach(({ item: q, idx: originalIndex }) => {
     const row = document.createElement("div");
     row.className = "flex flex-col gap-2 rounded border bg-white px-4 py-3 shadow-sm md:flex-row md:items-center";
 
@@ -268,7 +277,7 @@ function renderQualificationList() {
     info.className = "flex flex-col gap-2 md:flex-row md:items-center md:gap-3 flex-1";
 
     const categoryTag = document.createElement("span");
-    categoryTag.className = "inline-flex justify-center items-center rounded border border-blue-200 bg-blue-50 text-blue-800 font-semibold px-3 py-1 text-sm w-32";
+    categoryTag.className = "inline-flex items-center justify-center rounded border border-blue-200 bg-blue-50 text-blue-800 font-semibold px-3 py-1 text-sm min-w-[12rem] max-w-[12rem] whitespace-nowrap";
     categoryTag.textContent = q.category || "（未分類）";
 
     const nameTag = document.createElement("span");
@@ -283,12 +292,12 @@ function renderQualificationList() {
     const editBtn = document.createElement("button");
     editBtn.className = "text-blue-600 hover:text-blue-800";
     editBtn.textContent = "編集";
-    editBtn.addEventListener("click", () => startEditing(index));
+    editBtn.addEventListener("click", () => startEditing(originalIndex));
 
     const deleteBtn = document.createElement("button");
     deleteBtn.className = "text-red-600 hover:text-red-800";
     deleteBtn.textContent = "削除";
-    deleteBtn.addEventListener("click", () => removeQualification(index));
+    deleteBtn.addEventListener("click", () => removeQualification(originalIndex));
 
     actions.append(editBtn, deleteBtn);
     row.append(info, actions);
