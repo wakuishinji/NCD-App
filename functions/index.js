@@ -328,6 +328,40 @@ if (routeMatch(url, "GET", "listClinics")) {
 }
 // <<< END: CLINIC_LIST >>>
 
+    // ============================================================
+    // <<< START: CLINIC_DETAIL >>>
+    // ============================================================
+    if (routeMatch(url, "GET", "clinicDetail")) {
+      const idParam = (url.searchParams.get("id") || "").trim();
+      const nameParam = nk(url.searchParams.get("name"));
+      if (!idParam && !nameParam) {
+        return new Response(JSON.stringify({ error: "id または name が必要です" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      let clinic = null;
+      if (idParam) {
+        clinic = await getClinicById(env, idParam);
+      }
+      if (!clinic && nameParam) {
+        clinic = await getClinicByName(env, nameParam);
+      }
+      if (clinic && !clinic.id && clinic.name) {
+        clinic = await saveClinic(env, { ...clinic, name: clinic.name });
+      }
+
+      if (!clinic) {
+        return new Response(JSON.stringify({ ok: false, error: "clinic not found" }), {
+          status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true, clinic }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    // <<< END: CLINIC_DETAIL >>>
+
     // <<< START: CLINIC_UPDATE >>>
     if (routeMatch(url, "POST", "updateClinic")) {
       try {

@@ -143,16 +143,43 @@ async function loadServiceMaster() {
 
 async function loadClinicData() {
   if (!selectedClinic) return;
+
+  clinicData = { ...(selectedClinic || {}) };
+  currentServices = Array.isArray(clinicData?.services) ? [...clinicData.services] : [];
+
+  const params = new URLSearchParams();
+  if (selectedClinic?.id) {
+    params.set("id", selectedClinic.id);
+  } else if (selectedClinic?.name) {
+    params.set("name", selectedClinic.name);
+  } else {
+    return;
+  }
+
   try {
-    const res = await fetch(`${BASE}/api/listClinics`);
+    const res = await fetch(`${BASE}/api/clinicDetail?${params.toString()}`);
+    if (!res.ok) throw new Error(`status ${res.status}`);
     const data = await res.json();
-    const clinics = Array.isArray(data?.clinics) ? data.clinics : [];
-    clinicData = clinics.find(c => (selectedClinic.id && c.id === selectedClinic.id) || c.name === selectedClinic.name) || { id: selectedClinic?.id, name: selectedClinic?.name };
-    currentServices = Array.isArray(clinicData?.services) ? [...clinicData.services] : [];
+    const clinic = data?.clinic;
+    if (!clinic) throw new Error("missing clinic");
+    clinicData = clinic;
+    currentServices = Array.isArray(clinic.services) ? [...clinic.services] : [];
+    localStorage.setItem("selectedClinic", JSON.stringify(clinic));
+    selectedClinic = clinic;
+    els.selectedClinicName.textContent = selectedClinic.name || "（名称未設定）";
   } catch (err) {
-    console.error("failed to load clinic data", err);
-    clinicData = { id: selectedClinic?.id, name: selectedClinic?.name };
-    currentServices = [];
+    console.warn("failed to load clinic detail", err);
+    try {
+      const res = await fetch(`${BASE}/api/listClinics`);
+      const data = await res.json();
+      const clinics = Array.isArray(data?.clinics) ? data.clinics : [];
+      clinicData = clinics.find(c => (selectedClinic.id && c.id === selectedClinic.id) || c.name === selectedClinic.name) || { id: selectedClinic?.id, name: selectedClinic?.name };
+      currentServices = Array.isArray(clinicData?.services) ? [...clinicData.services] : [];
+    } catch (fallbackErr) {
+      console.error("failed to load clinic data", fallbackErr);
+      clinicData = { id: selectedClinic?.id, name: selectedClinic?.name };
+      currentServices = Array.isArray(selectedClinic?.services) ? [...selectedClinic.services] : [];
+    }
   }
 }
 
@@ -287,18 +314,12 @@ function renderServiceList() {
     info.className = "flex flex-col gap-2 md:flex-row md:items-center md:gap-3 flex-1";
 
     const categoryTag = document.createElement("span");
-    categoryTag.className = "inline-flex justify-center items-center rounded border border-blue-200 bg-blue-50 text-blue-800 font-semibold px-3 py-1 text-sm w-32";
+    categoryTag.className = "inline-flex items-center justify-center rounded border border-blue-200 bg-blue-50 text-blue-800 font-semibold px-3 py-1 text-sm min-w-[12rem] max-w-[12rem] whitespace-nowrap";
     categoryTag.textContent = svc.category || "（未分類）";
 
     const content = document.createElement("div");
-    content.className = "flex flex-col gap-1";
-    const nameLine = document.createElement("span");
-    nameLine.className = "text-blue-900 font-semibold text-sm";
-    nameLine.textContent = svc.name || "";
-    const descLine = document.createElement("span");
-    descLine.className = "text-sm text-gray-600 whitespace-pre-wrap";
-    descLine.textContent = svc.desc || "";
-    content.append(nameLine, descLine);
+    content.className = "text-blue-900 font-semibold text-sm";
+    content.textContent = svc.name || "";
 
     info.append(categoryTag, content);
 
