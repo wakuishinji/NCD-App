@@ -283,6 +283,33 @@ const MASTER_CATEGORY_OPTIONS = {
   qual: [],
   department: []
 };
+const MASTER_CACHE_TTL = 60 * 1000;
+const MASTER_CACHE = {
+  qual: {},
+  test: {},
+  service: {},
+  department: {}
+};
+const MASTER_IN_FLIGHT = {
+  qual: null,
+  test: null,
+  service: null,
+  department: null
+};
+
+function masterCacheKey(status) {
+  return status || '__all__';
+}
+
+function invalidateMasterCache(type) {
+  if (!MASTER_CACHE[type]) {
+    return;
+  }
+  MASTER_CACHE[type] = {};
+  if (type === 'test' || type === 'service') {
+    MASTER_CATEGORY_OPTIONS[type] = [];
+  }
+}
 
 function escapeAttr(val) {
   return String(val ?? '')
@@ -298,6 +325,15 @@ function escapeHtml(val) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function debounce(fn, delay = 250) {
+  let timerId;
+  return function debounced(...args) {
+    const context = this;
+    clearTimeout(timerId);
+    timerId = setTimeout(() => fn.apply(context, args), delay);
+  };
 }
 
 // -------------------- タブ --------------------
@@ -600,7 +636,8 @@ async function handleMasterCsvImport(type, file) {
         failures.push({ row, error: err.message });
       }
     }
-    await loadMaster(type, listId, statusId, queryId, categoryId);
+    invalidateMasterCache(type);
+    await loadMaster(type, listId, statusId, queryId, categoryId, { force: true });
   });
 
   let messageText = `CSV取込が完了しました。成功: ${success}`;
@@ -670,239 +707,283 @@ function populateCategoryFilter(type, selectId) {
   }
 }
 
-async function loadMaster(type, listElId, statusSelId, qId, categorySelId){
-  try {
-    const status = document.getElementById(statusSelId)?.value || '';
-    const q = qId ? (document.getElementById(qId)?.value || '').trim().toLowerCase() : '';
-    const categoryFilter = categorySelId ? (document.getElementById(categorySelId)?.value || '') : '';
-    const url = new URL(`${BASE}/api/listMaster`);
-    url.searchParams.set("type", type);
-    if (status) url.searchParams.set("status", status);
-    url.searchParams.set("includeSimilar", "true");
-    const r = await fetch(url.toString());
-    const d = await r.json();
-    const items = (d.ok ? d.items : []) || [];
-    const box = document.getElementById(listElId);
-    box.innerHTML = "";
+async function loadMaster(type, listElId, statusSelId, qId, categorySelId, options = {}) {
+  const status = document.getElementById(statusSelId)?.value || '';
+  const q = qId ? (document.getElementById(qId)?.value || '').trim().toLowerCase() : '';
+  const categoryFilter = categorySelId ? (document.getElementById(categorySelId)?.value || '') : '';
+  const bucket = MASTER_CACHE[type] || (MASTER_CACHE[type] = {});
+  const cacheKey = masterCacheKey(status);
+  let cacheEntry = bucket[cacheKey];
+  const hasCache = cacheEntry && Array.isArray(cacheEntry.items);
+  const isExpired = cacheEntry ? (Date.now() - cacheEntry.fetchedAt > MASTER_CACHE_TTL) : true;
 
-    if ((type === 'test' || type === 'service') && categorySelId) {
-      const categories = Array.from(new Set(items.map(it => it.category).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ja'));
-      if (categories.length && categories.join('\u0000') !== (MASTER_CATEGORY_OPTIONS[type] || []).join('\u0000')) {
-        MASTER_CATEGORY_OPTIONS[type] = categories;
+  if (options.force) {
+    delete bucket[cacheKey];
+    cacheEntry = undefined;
+  }
+
+  let items = cacheEntry?.items || [];
+  const shouldFetch = !hasCache || options.force || (!options.skipFetch && isExpired);
+
+  if (shouldFetch) {
+    const controller = new AbortController();
+    try {
+      if (MASTER_IN_FLIGHT[type]) {
+        MASTER_IN_FLIGHT[type].abort();
       }
-      populateCategoryFilter(type, categorySelId);
+      MASTER_IN_FLIGHT[type] = controller;
+
+      const url = new URL(`${BASE}/api/listMaster`);
+      url.searchParams.set('type', type);
+      if (status) url.searchParams.set('status', status);
+      url.searchParams.set('includeSimilar', 'true');
+      const res = await fetch(url.toString(), { signal: controller.signal });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      items = ((data.ok ? data.items : []) || []);
+      bucket[cacheKey] = { items, fetchedAt: Date.now() };
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        return;
+      }
+      console.error(`マスター読み込みエラー (${type}):`, error);
+      const boxError = document.getElementById(listElId);
+      if (boxError) {
+        boxError.innerHTML = '<div class="text-gray-500 p-4">データの読み込みに失敗しました</div>';
+      }
+      return;
+    } finally {
+      if (MASTER_IN_FLIGHT[type] === controller) {
+        MASTER_IN_FLIGHT[type] = null;
+      }
     }
+  } else if (hasCache) {
+    items = cacheEntry.items;
+  }
 
-    // 資格分類の自動設定とフィルタリング
-    const filtered = items.filter(it=>{
-      if (categoryFilter && (it.category || '') !== categoryFilter) return false;
-      if (q) {
-        const s = `${it.category} ${it.name} ${it.canonical_name||''}`.toLowerCase();
-        if (!s.includes(q)) return false;
+  const box = document.getElementById(listElId);
+  if (!box) {
+    return;
+  }
+  box.innerHTML = '';
+
+  if ((type === 'test' || type === 'service') && categorySelId) {
+    const categories = Array.from(new Set(items.map(it => it.category).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ja'));
+    if (categories.length && categories.join('\u0000') !== (MASTER_CATEGORY_OPTIONS[type] || []).join('\u0000')) {
+      MASTER_CATEGORY_OPTIONS[type] = categories;
+    }
+    populateCategoryFilter(type, categorySelId);
+    if (categoryFilter && !categories.includes(categoryFilter)) {
+      const selectEl = document.getElementById(categorySelId);
+      if (selectEl) {
+        selectEl.value = '';
       }
-      return true;
-    }).map(it => {
-      // sortGroupが空の場合、適当な値を設定
-      if (!it.sortGroup && type === 'qual') {
-        if (it.name.includes('医師') || it.name.includes('医学')) {
-          it.sortGroup = '医師・医学系';
-        } else if (it.name.includes('看護') || it.name.includes('保健')) {
-          it.sortGroup = '看護・保健系';
-        } else if (it.name.includes('薬剤') || it.name.includes('薬学')) {
-          it.sortGroup = '薬剤・薬学系';
-        } else if (it.name.includes('技師') || it.name.includes('技術')) {
-          it.sortGroup = '技師・技術系';
-        } else if (it.name.includes('療法') || it.name.includes('リハビリ')) {
-          it.sortGroup = 'リハビリ・療法系';
-        } else {
-          it.sortGroup = 'その他専門職';
-        }
-      }
-      return it;
-    });
-
-    const categoryOrder = (type === 'test' || type === 'service') ? (MASTER_CATEGORY_OPTIONS[type] || []) : [];
-    filtered.sort((a, b) => {
-      if (type === 'test' || type === 'service') {
-        const idxA = categoryOrder.indexOf(a.category);
-        const idxB = categoryOrder.indexOf(b.category);
-        if (idxA !== idxB) {
-          return (idxA === -1 ? Number.MAX_SAFE_INTEGER : idxA) - (idxB === -1 ? Number.MAX_SAFE_INTEGER : idxB);
-        }
-      }
-      const groupA = (type === 'test' || type === 'service') ? (a.category || 'その他') : (a.sortGroup || 'その他');
-      const groupB = (type === 'test' || type === 'service') ? (b.category || 'その他') : (b.sortGroup || 'その他');
-      const gcmp = groupA.localeCompare(groupB, 'ja');
-      if (gcmp !== 0) return gcmp;
-      return (a.name || '').localeCompare(b.name || '', 'ja');
-    });
-
-    const INITIAL_GROUP = Symbol('initial');
-    let currentGroup = INITIAL_GROUP;
-    filtered.forEach(it=>{
-      const group = (type === 'test' || type === 'service') ? (it.category || 'その他') : (it.sortGroup || 'その他');
-      if (group !== currentGroup) {
-        if (currentGroup !== INITIAL_GROUP) {
-          const divider = document.createElement('hr');
-          divider.className = 'mt-3 border-gray-200';
-          box.appendChild(divider);
-        }
-        currentGroup = group;
-        const headingWrap = document.createElement('div');
-        headingWrap.className = 'mt-4 flex items-center gap-2 first:mt-0';
-        const heading = document.createElement('div');
-        heading.className = "text-sm font-semibold text-gray-600";
-        heading.textContent = group;
-        headingWrap.appendChild(heading);
-        box.appendChild(headingWrap);
-      }
-
-      const div = document.createElement('div');
-      div.className = "mt-1 border rounded p-3 bg-white space-y-3";
-      div.dataset.masterRow = "true";
-      div.dataset.originalCategory = it.category || "";
-      div.dataset.originalName = it.name || "";
-
-      const showDescField = type === 'test' || type === 'service' || (typeof it.desc === 'string' && it.desc);
-      const safeDesc = escapeHtml(it.desc || "");
-
-      div.innerHTML = `
-        <div class="grid md:grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs text-gray-600">分類</label>
-            ${renderCategoryControl(type, it.category)}
-          </div>
-          <div>
-            <label class="block text-xs text-gray-600">名称</label>
-            <input class="w-full border rounded px-2 py-1" value="${escapeAttr(it.name || '')}" data-k="name" placeholder="名称を入力">
-          </div>
-          ${showDescField ? `
-          <div class="md:col-span-2">
-            <label class="block text-xs text-gray-600">説明</label>
-            <textarea class="w-full border rounded px-3 py-2 text-sm" rows="3" data-k="desc" placeholder="説明を入力">${safeDesc}</textarea>
-          </div>` : ''}
-          <div>
-            <label class="block text-xs text-gray-600">canonical_name（統合名）</label>
-            <input class="w-full border rounded px-2 py-1" value="${escapeAttr(it.canonical_name || '')}" data-k="cn" placeholder="例: 正式名称">
-          </div>
-          <div>
-            <label class="block text-xs text-gray-600">status</label>
-            <select class="w-full border rounded px-2 py-1" data-k="st">
-              ${["candidate","approved","archived"].map(s=>`<option ${s===(it.status||'')?'selected':''}>${s}</option>`).join("")}
-            </select>
-          </div>
-        </div>
-        <div class="flex gap-2">
-          <button class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 hidden" data-action="update" disabled>更新</button>
-          <button class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700" data-action="delete">削除</button>
-        </div>
-        <div class="text-xs text-gray-500">count: ${it.count || 0} / sources: ${(it.sources||[]).join(', ')}</div>
-        <div class="similar-matches-container"></div>
-      `;
-
-      const updateBtn = div.querySelector('button[data-action="update"]');
-     const deleteBtn = div.querySelector('button[data-action="delete"]');
-     const categoryInput = div.querySelector('[data-k="category"]');
-      const categoryManual = div.querySelector('[data-k="category-manual"]');
-      const nameInput = div.querySelector('input[data-k="name"]');
-      const descInput = div.querySelector('textarea[data-k="desc"]');
-      const cnInput = div.querySelector('input[data-k="cn"]');
-      const stSelect = div.querySelector('select[data-k="st"]');
-      const groupInput = div.querySelector('[data-k="group"]');
-      const orderInput = div.querySelector('input[data-k="order"]');
-
-      applyStatusAppearance(stSelect);
-
-      updateBtn.addEventListener('click', () => {
-        updateMaster(type, updateBtn);
-      });
-
-      deleteBtn.addEventListener('click', () => {
-        deleteMasterItem(type, div.dataset.originalCategory || '', div.dataset.originalName || '');
-      });
-
-      const similarContainer = div.querySelector('.similar-matches-container');
-      if (Array.isArray(it.similarMatches) && it.similarMatches.length > 0) {
-        const similarDiv = document.createElement('div');
-        similarDiv.className = 'bg-yellow-50 border border-yellow-200 rounded p-2 text-xs text-yellow-900';
-        similarDiv.innerHTML = '<div class="font-semibold mb-1">重複候補 (score ≥ 0.92)</div><ul class="space-y-1"></ul>';
-        const ul = similarDiv.querySelector('ul');
-        it.similarMatches.forEach(m => {
-          const li = document.createElement('li');
-          li.className = 'flex items-center justify-between gap-2';
-          const nameText = m.name + (m.canonical_name && m.canonical_name !== m.name ? ` / ${m.canonical_name}` : '');
-          const span = document.createElement('span');
-          span.innerHTML = `${escapeHtml(nameText)} <span class="text-[11px] text-yellow-700">(status: ${m.status || '-'}, sim: ${m.similarity})</span>`;
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = 'text-blue-700 underline';
-          btn.textContent = '統合名に採用';
-          btn.addEventListener('click', () => {
-            cnInput.value = m.canonical_name || m.name;
-            cnInput.dispatchEvent(new Event('input', { bubbles: true }));
-          });
-          li.append(span, btn);
-          ul.appendChild(li);
-        });
-        similarContainer.appendChild(similarDiv);
-      }
-
-      const initialState = {
-        category: categoryInput ? categoryInput.value : '',
-        name: nameInput ? nameInput.value : '',
-        desc: descInput ? descInput.value : '',
-        cn: cnInput ? cnInput.value : '',
-        status: stSelect ? stSelect.value : '',
-        group: groupInput ? groupInput.value : '',
-        order: orderInput ? orderInput.value : ''
-      };
-
-      function refreshButtonState(){
-        const changed =
-          (categoryInput && categoryInput.value !== initialState.category) ||
-          (nameInput && nameInput.value !== initialState.name) ||
-          (descInput && descInput.value !== initialState.desc) ||
-          (cnInput && cnInput.value !== initialState.cn) ||
-          (stSelect && stSelect.value !== initialState.status) ||
-          (groupInput && groupInput.value !== initialState.group) ||
-          (orderInput && orderInput.value !== initialState.order);
-        updateBtn.disabled = !changed;
-        updateBtn.classList.toggle('hidden', !changed);
-      }
-
-      const changeTargets = [categoryInput, categoryManual, nameInput, descInput, cnInput, groupInput, orderInput];
-      changeTargets.forEach(input => {
-        if (!input) return;
-        const evt = input.tagName === 'SELECT' ? 'change' : 'input';
-        input.addEventListener(evt, refreshButtonState);
-      });
-      if (categoryInput && categoryInput.tagName === 'SELECT' && categoryManual) {
-        categoryInput.addEventListener('change', () => {
-          if (categoryInput.value === '__custom') {
-            categoryManual.classList.remove('hidden');
-            categoryManual.focus();
-          } else {
-            categoryManual.classList.add('hidden');
-            categoryManual.value = '';
-          }
-          refreshButtonState();
-        });
-      }
-      stSelect.addEventListener('change', () => {
-        refreshButtonState();
-        applyStatusAppearance(stSelect);
-      });
-      refreshButtonState();
-
-      box.appendChild(div);
-    });
-  } catch (error) {
-    console.error(`マスター読み込みエラー (${type}):`, error);
-    const box = document.getElementById(listElId);
-    if (box) {
-      box.innerHTML = '<div class="text-gray-500 p-4">データの読み込みに失敗しました</div>';
     }
   }
+
+  const filtered = items.filter(it => {
+    if (categoryFilter && (it.category || '') !== categoryFilter) return false;
+    if (q) {
+      const s = `${it.category} ${it.name} ${it.canonical_name || ''}`.toLowerCase();
+      if (!s.includes(q)) return false;
+    }
+    return true;
+  }).map(it => {
+    if (!it.sortGroup && type === 'qual') {
+      if (it.name.includes('医師') || it.name.includes('医学')) {
+        it.sortGroup = '医師・医学系';
+      } else if (it.name.includes('看護') || it.name.includes('保健')) {
+        it.sortGroup = '看護・保健系';
+      } else if (it.name.includes('薬剤') || it.name.includes('薬学')) {
+        it.sortGroup = '薬剤・薬学系';
+      } else if (it.name.includes('技師') || it.name.includes('技術')) {
+        it.sortGroup = '技師・技術系';
+      } else if (it.name.includes('療法') || it.name.includes('リハビリ')) {
+        it.sortGroup = 'リハビリ・療法系';
+      } else {
+        it.sortGroup = 'その他専門職';
+      }
+    }
+    return it;
+  });
+
+  const categoryOrder = (type === 'test' || type === 'service') ? (MASTER_CATEGORY_OPTIONS[type] || []) : [];
+  filtered.sort((a, b) => {
+    if (type === 'test' || type === 'service') {
+      const idxA = categoryOrder.indexOf(a.category);
+      const idxB = categoryOrder.indexOf(b.category);
+      if (idxA !== idxB) {
+        return (idxA === -1 ? Number.MAX_SAFE_INTEGER : idxA) - (idxB === -1 ? Number.MAX_SAFE_INTEGER : idxB);
+      }
+    }
+    const groupA = (type === 'test' || type === 'service') ? (a.category || 'その他') : (a.sortGroup || 'その他');
+    const groupB = (type === 'test' || type === 'service') ? (b.category || 'その他') : (b.sortGroup || 'その他');
+    const gcmp = groupA.localeCompare(groupB, 'ja');
+    if (gcmp !== 0) return gcmp;
+    return (a.name || '').localeCompare(b.name || '', 'ja');
+  });
+
+  const INITIAL_GROUP = Symbol('initial');
+  let currentGroup = INITIAL_GROUP;
+  filtered.forEach(it => {
+    const group = (type === 'test' || type === 'service') ? (it.category || 'その他') : (it.sortGroup || 'その他');
+    if (group !== currentGroup) {
+      if (currentGroup !== INITIAL_GROUP) {
+        const divider = document.createElement('hr');
+        divider.className = 'mt-3 border-gray-200';
+        box.appendChild(divider);
+      }
+      currentGroup = group;
+      const headingWrap = document.createElement('div');
+      headingWrap.className = 'mt-4 flex items-center gap-2 first:mt-0';
+      const heading = document.createElement('div');
+      heading.className = 'text-sm font-semibold text-gray-600';
+      heading.textContent = group;
+      headingWrap.appendChild(heading);
+      box.appendChild(headingWrap);
+    }
+
+    const div = document.createElement('div');
+    div.className = 'mt-1 border rounded p-3 bg-white space-y-3';
+    div.dataset.masterRow = 'true';
+    div.dataset.originalCategory = it.category || '';
+    div.dataset.originalName = it.name || '';
+
+    const showDescField = type === 'test' || type === 'service' || (typeof it.desc === 'string' && it.desc);
+    const safeDesc = escapeHtml(it.desc || '');
+
+    div.innerHTML = `
+      <div class="grid md:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs text-gray-600">分類</label>
+          ${renderCategoryControl(type, it.category)}
+        </div>
+        <div>
+          <label class="block text-xs text-gray-600">名称</label>
+          <input class="w-full border rounded px-2 py-1" value="${escapeAttr(it.name || '')}" data-k="name" placeholder="名称を入力">
+        </div>
+        ${showDescField ? `
+        <div class="md:col-span-2">
+          <label class="block text-xs text-gray-600">説明</label>
+          <textarea class="w-full border rounded px-3 py-2 text-sm" rows="3" data-k="desc" placeholder="説明を入力">${safeDesc}</textarea>
+        </div>` : ''}
+        <div>
+          <label class="block text-xs text-gray-600">canonical_name（統合名）</label>
+          <input class="w-full border rounded px-2 py-1" value="${escapeAttr(it.canonical_name || '')}" data-k="cn" placeholder="例: 正式名称">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-600">status</label>
+          <select class="w-full border rounded px-2 py-1" data-k="st">
+            ${['candidate','approved','archived'].map(s=>`<option ${s===(it.status||'')?'selected':''}>${s}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="flex gap-2">
+        <button class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 hidden" data-action="update" disabled>更新</button>
+        <button class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700" data-action="delete">削除</button>
+      </div>
+      <div class="text-xs text-gray-500">count: ${it.count || 0} / sources: ${(it.sources || []).join(', ')}</div>
+      <div class="similar-matches-container"></div>
+    `;
+
+    const updateBtn = div.querySelector('button[data-action="update"]');
+    const deleteBtn = div.querySelector('button[data-action="delete"]');
+    const categoryInput = div.querySelector('[data-k="category"]');
+    const categoryManual = div.querySelector('[data-k="category-manual"]');
+    const nameInput = div.querySelector('input[data-k="name"]');
+    const descInput = div.querySelector('textarea[data-k="desc"]');
+    const cnInput = div.querySelector('input[data-k="cn"]');
+    const stSelect = div.querySelector('select[data-k="st"]');
+    const groupInput = div.querySelector('[data-k="group"]');
+    const orderInput = div.querySelector('input[data-k="order"]');
+
+    applyStatusAppearance(stSelect);
+
+    updateBtn.addEventListener('click', () => {
+      updateMaster(type, updateBtn);
+    });
+
+    deleteBtn.addEventListener('click', () => {
+      deleteMasterItem(type, div.dataset.originalCategory || '', div.dataset.originalName || '');
+    });
+
+    const similarContainer = div.querySelector('.similar-matches-container');
+    if (Array.isArray(it.similarMatches) && it.similarMatches.length > 0) {
+      const similarDiv = document.createElement('div');
+      similarDiv.className = 'bg-yellow-50 border border-yellow-200 rounded p-2 text-xs text-yellow-900';
+      similarDiv.innerHTML = '<div class="font-semibold mb-1">重複候補 (score ≥ 0.92)</div><ul class="space-y-1"></ul>';
+      const ul = similarDiv.querySelector('ul');
+      it.similarMatches.forEach(m => {
+        const li = document.createElement('li');
+        li.className = 'flex items-center justify-between gap-2';
+        const nameText = m.name + (m.canonical_name && m.canonical_name !== m.name ? ` / ${m.canonical_name}` : '');
+        const span = document.createElement('span');
+        span.innerHTML = `${escapeHtml(nameText)} <span class="text-[11px] text-yellow-700">(status: ${m.status || '-'}, sim: ${m.similarity})</span>`;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'text-blue-700 underline';
+        btn.textContent = '統合名に採用';
+        btn.addEventListener('click', () => {
+          cnInput.value = m.canonical_name || m.name;
+          cnInput.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        li.append(span, btn);
+        ul.appendChild(li);
+      });
+      similarContainer.appendChild(similarDiv);
+    }
+
+    const initialState = {
+      category: categoryInput ? categoryInput.value : '',
+      name: nameInput ? nameInput.value : '',
+      desc: descInput ? descInput.value : '',
+      cn: cnInput ? cnInput.value : '',
+      status: stSelect ? stSelect.value : '',
+      group: groupInput ? groupInput.value : '',
+      order: orderInput ? orderInput.value : ''
+    };
+
+    function refreshButtonState() {
+      const changed =
+        (categoryInput && categoryInput.value !== initialState.category) ||
+        (nameInput && nameInput.value !== initialState.name) ||
+        (descInput && descInput.value !== initialState.desc) ||
+        (cnInput && cnInput.value !== initialState.cn) ||
+        (stSelect && stSelect.value !== initialState.status) ||
+        (groupInput && groupInput.value !== initialState.group) ||
+        (orderInput && orderInput.value !== initialState.order);
+      updateBtn.disabled = !changed;
+      updateBtn.classList.toggle('hidden', !changed);
+    }
+
+    const changeTargets = [categoryInput, categoryManual, nameInput, descInput, cnInput, groupInput, orderInput];
+    changeTargets.forEach(input => {
+      if (!input) return;
+      const evt = input.tagName === 'SELECT' ? 'change' : 'input';
+      input.addEventListener(evt, refreshButtonState);
+    });
+    if (categoryInput && categoryInput.tagName === 'SELECT' && categoryManual) {
+      categoryInput.addEventListener('change', () => {
+        if (categoryInput.value === '__custom') {
+          categoryManual.classList.remove('hidden');
+          categoryManual.focus();
+        } else {
+          categoryManual.classList.add('hidden');
+          categoryManual.value = '';
+        }
+        refreshButtonState();
+      });
+    }
+    stSelect.addEventListener('change', () => {
+      refreshButtonState();
+      applyStatusAppearance(stSelect);
+    });
+    refreshButtonState();
+
+    box.appendChild(div);
+  });
 }
 async function updateMaster(type, btn){
   const row = btn.closest('[data-master-row]');
@@ -980,7 +1061,8 @@ async function updateMaster(type, btn){
         throw new Error(`HTTP ${res.status}`);
       }
 
-      await loadMaster(type, listId, statusId, queryId, categoryId);
+      invalidateMasterCache(type);
+      await loadMaster(type, listId, statusId, queryId, categoryId, { force: true });
     });
     alert("更新しました");
   } catch (error) {
@@ -1008,7 +1090,8 @@ async function deleteMasterItem(type, category, name) {
           throw new Error(`HTTP ${response.status}`);
         }
 
-        await loadMaster(type, listId, statusId, queryId, categoryId);
+        invalidateMasterCache(type);
+        await loadMaster(type, listId, statusId, queryId, categoryId, { force: true });
       });
       alert(`${typeLabel[type] || '項目'}を削除しました`);
     }
@@ -1069,7 +1152,8 @@ async function addDepartmentMaster(){
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       input.value = '';
-      await loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ');
+      invalidateMasterCache('department');
+      await loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ', undefined, { force: true });
     });
     alert('候補として追加しました。ステータスを承認に変更すると施設詳細で選択できます。');
   } catch (err) {
@@ -1078,10 +1162,12 @@ async function addDepartmentMaster(){
 }
 
 document.getElementById('mstTestReload').addEventListener('click', async () => {
-  await withPanelLoading(MASTER_PANEL_MAP.test, MASTER_MESSAGE_MAP.test, () => loadMaster('test','mstTestList','mstTestStatus','mstTestQ','mstTestCategory'));
+  invalidateMasterCache('test');
+  await withPanelLoading(MASTER_PANEL_MAP.test, MASTER_MESSAGE_MAP.test, () => loadMaster('test','mstTestList','mstTestStatus','mstTestQ','mstTestCategory', { force: true }));
 });
 document.getElementById('mstSvcReload').addEventListener('click', async () => {
-  await withPanelLoading(MASTER_PANEL_MAP.service, MASTER_MESSAGE_MAP.service, () => loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ','mstSvcCategory'));
+  invalidateMasterCache('service');
+  await withPanelLoading(MASTER_PANEL_MAP.service, MASTER_MESSAGE_MAP.service, () => loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ','mstSvcCategory', { force: true }));
 });
 document.getElementById('mstTestStatus').addEventListener('change', async () => {
   await withPanelLoading(MASTER_PANEL_MAP.test, MASTER_MESSAGE_MAP.test, () => loadMaster('test','mstTestList','mstTestStatus','mstTestQ','mstTestCategory'));
@@ -1089,41 +1175,39 @@ document.getElementById('mstTestStatus').addEventListener('change', async () => 
 document.getElementById('mstSvcStatus').addEventListener('change', async () => {
   await withPanelLoading(MASTER_PANEL_MAP.service, MASTER_MESSAGE_MAP.service, () => loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ','mstSvcCategory'));
 });
-document.getElementById('mstTestCategory').addEventListener('change', async () => {
-  await withPanelLoading(MASTER_PANEL_MAP.test, MASTER_MESSAGE_MAP.test, () => loadMaster('test','mstTestList','mstTestStatus','mstTestQ','mstTestCategory'));
+document.getElementById('mstTestCategory').addEventListener('change', () => {
+  loadMaster('test','mstTestList','mstTestStatus','mstTestQ','mstTestCategory', { skipFetch: true });
 });
-document.getElementById('mstSvcCategory').addEventListener('change', async () => {
-  await withPanelLoading(MASTER_PANEL_MAP.service, MASTER_MESSAGE_MAP.service, () => loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ','mstSvcCategory'));
+document.getElementById('mstSvcCategory').addEventListener('change', () => {
+  loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ','mstSvcCategory', { skipFetch: true });
 });
-document.getElementById('mstTestQ').addEventListener('input', () => {
-  loadMaster('test','mstTestList','mstTestStatus','mstTestQ','mstTestCategory');
-});
-document.getElementById('mstSvcQ').addEventListener('input', () => {
-  loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ','mstSvcCategory');
-});
+const handleTestSearch = debounce(() => loadMaster('test','mstTestList','mstTestStatus','mstTestQ','mstTestCategory', { skipFetch: true }), 300);
+document.getElementById('mstTestQ').addEventListener('input', handleTestSearch);
+const handleSvcSearch = debounce(() => loadMaster('service','mstSvcList','mstSvcStatus','mstSvcQ','mstSvcCategory', { skipFetch: true }), 300);
+document.getElementById('mstSvcQ').addEventListener('input', handleSvcSearch);
 document.getElementById('mstDeptAdd').addEventListener('click', addDepartmentMaster);
 document.getElementById('mstDeptReload').addEventListener('click', async () => {
-  await withPanelLoading(MASTER_PANEL_MAP.department, MASTER_MESSAGE_MAP.department, () => loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ'));
+  invalidateMasterCache('department');
+  await withPanelLoading(MASTER_PANEL_MAP.department, MASTER_MESSAGE_MAP.department, () => loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ', undefined, { force: true }));
 });
 document.getElementById('mstDeptStatus').addEventListener('change', async () => {
   await withPanelLoading(MASTER_PANEL_MAP.department, MASTER_MESSAGE_MAP.department, () => loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ'));
 });
-document.getElementById('mstDeptQ').addEventListener('input', () => {
-  loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ');
-});
+const handleDeptSearch = debounce(() => loadMaster('department','mstDeptList','mstDeptStatus','mstDeptQ', undefined, { skipFetch: true }), 300);
+document.getElementById('mstDeptQ').addEventListener('input', handleDeptSearch);
 bindStatusFilterAppearance('mstTestStatus');
 bindStatusFilterAppearance('mstSvcStatus');
 bindStatusFilterAppearance('mstDeptStatus');
 bindStatusFilterAppearance('mstQualStatus');
 document.getElementById('mstQualReload').addEventListener('click', async () => {
-  await withPanelLoading(MASTER_PANEL_MAP.qual, MASTER_MESSAGE_MAP.qual, () => loadMaster('qual','mstQualList','mstQualStatus','mstQualQ'));
+  invalidateMasterCache('qual');
+  await withPanelLoading(MASTER_PANEL_MAP.qual, MASTER_MESSAGE_MAP.qual, () => loadMaster('qual','mstQualList','mstQualStatus','mstQualQ', undefined, { force: true }));
 });
 document.getElementById('mstQualStatus').addEventListener('change', async () => {
   await withPanelLoading(MASTER_PANEL_MAP.qual, MASTER_MESSAGE_MAP.qual, () => loadMaster('qual','mstQualList','mstQualStatus','mstQualQ'));
 });
-document.getElementById('mstQualQ').addEventListener('input', () => {
-  loadMaster('qual','mstQualList','mstQualStatus','mstQualQ');
-});
+const handleQualSearch = debounce(() => loadMaster('qual','mstQualList','mstQualStatus','mstQualQ', undefined, { skipFetch: true }), 300);
+document.getElementById('mstQualQ').addEventListener('input', handleQualSearch);
 
 setupCsvImport('test', 'mstTestImport', 'mstTestCsvInput');
 setupCsvImport('service', 'mstSvcImport', 'mstSvcCsvInput');
