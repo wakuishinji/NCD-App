@@ -130,6 +130,8 @@ export default {
     const TODO_KEY = "todo:list";
     const MASTER_CACHE_PREFIX = 'mastercache:';
     const MASTER_CACHE_TTL_SECONDS = 60;
+    const PERSONAL_QUAL_CLASSIFICATIONS = ["医師", "看護", "コメディカル", "事務", "その他"];
+    const FACILITY_ACCREDITATION_TYPES = ["学会認定", "行政・公費", "地域・在宅"];
 
     function masterCacheKey(type, status) {
       const normalizedType = type || '__all__';
@@ -512,8 +514,8 @@ if (routeMatch(url, "GET", "listClinics")) {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        if (!["test", "service", "qual", "department"].includes(type)) {
-          return new Response(JSON.stringify({ error: "type は test / service / qual / department" }), {
+        if (!["test", "service", "qual", "department", "facility"].includes(type)) {
+          return new Response(JSON.stringify({ error: "type は test / service / qual / department / facility" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
@@ -535,8 +537,25 @@ if (routeMatch(url, "GET", "listClinics")) {
               updated_at: now,
             };
 
+        if (item && item.issuer && !item.notes) {
+          item.notes = item.issuer;
+        }
+        if (item && item.notes && !item.desc) {
+          item.desc = item.notes;
+        }
+
+        const classification = nk(body?.classification);
+        const notes = nk(body?.notes);
+
         item.count += 1;
         item.updated_at = now;
+
+        if (type === "qual") {
+          const fallback = item.classification || classification || PERSONAL_QUAL_CLASSIFICATIONS[0];
+          item.classification = classification || fallback;
+        } else if (classification) {
+          item.classification = classification;
+        }
 
         if (desc) {
           item.desc_samples = Array.from(new Set([desc, ...(item.desc_samples || [])])).slice(0, 5);
@@ -547,6 +566,13 @@ if (routeMatch(url, "GET", "listClinics")) {
         }
         if (status && ["candidate","approved","archived"].includes(status)) {
           item.status = status;
+        }
+
+        if (notes) {
+          item.notes = notes;
+          item.desc = notes; // maintain legacy desc compatibility
+        } else if (item.desc && !item.notes) {
+          item.notes = item.desc;
         }
 
         await env.SETTINGS.put(key, JSON.stringify(item));
@@ -582,6 +608,12 @@ if (routeMatch(url, "GET", "listClinics")) {
             const obj = JSON.parse(raw);
             if (typeof obj.desc !== 'string' && Array.isArray(obj.desc_samples) && obj.desc_samples.length) {
               obj.desc = obj.desc_samples[0];
+            }
+            if (obj.type === "qual" && !obj.classification) {
+              obj.classification = PERSONAL_QUAL_CLASSIFICATIONS[0];
+            }
+            if (obj.notes == null && typeof obj.desc === 'string') {
+              obj.notes = obj.desc;
             }
             if (status && obj.status !== status) continue;
             obj._key = keyNames[i];
@@ -729,8 +761,8 @@ if (routeMatch(url, "GET", "listClinics")) {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        if (!["test", "service", "qual", "department"].includes(type)) {
-          return new Response(JSON.stringify({ error: "type は test / service / qual / department" }), {
+        if (!["test", "service", "qual", "department", "facility"].includes(type)) {
+          return new Response(JSON.stringify({ error: "type は test / service / qual / department / facility" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }

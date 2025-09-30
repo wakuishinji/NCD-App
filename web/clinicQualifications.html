@@ -3,552 +3,1091 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>資格入力 - NCD</title>
+  <title>個人資格・施設認定 - NCD</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col">
-  <!-- ヘッダー -->
   <header class="bg-gradient-to-r from-blue-950 via-slate-900 to-blue-950 text-white shadow">
-    <div class="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
+    <div class="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
       <div class="flex items-center gap-2">
         <a href="/index.html" class="inline-flex items-center rounded bg-white/20 px-3 py-1 text-sm font-semibold text-white transition hover:bg-white/30">Top</a>
         <a href="clinicHome.html" class="inline-flex items-center rounded bg-white/20 px-3 py-1 text-sm font-semibold text-white transition hover:bg-white/30">施設ホームへ</a>
       </div>
-      <h1 class="text-lg font-bold">資格入力</h1>
+      <h1 class="text-lg font-bold">個人資格・施設認定</h1>
       <div class="w-[120px]"></div>
     </div>
   </header>
 
-  <!-- メイン -->
-  <main class="flex-1 max-w-4xl mx-auto p-4 md:p-6 w-full">
-    <div class="bg-white rounded shadow p-6 space-y-8">
+  <main class="flex-1 max-w-5xl mx-auto p-4 md:p-6 w-full">
+    <div class="bg-white rounded shadow p-6 space-y-10">
       <div class="text-sm text-gray-500">選択中の施設: <span id="selectedClinicName" class="font-medium text-blue-800">（未選択）</span></div>
 
-      <section class="space-y-5">
-        <h2 class="text-blue-800 font-semibold text-lg">資格の追加</h2>
-
-        <div class="grid gap-4 md:grid-cols-2">
+      <section class="space-y-4">
+        <div class="flex items-center gap-3 text-blue-900">
+          <h2 class="text-xl font-semibold">個人資格の追加</h2>
+          <span class="text-xs text-gray-500">在籍スタッフの専門資格を整理します</span>
+        </div>
+        <div class="grid gap-4 lg:grid-cols-4">
           <div class="space-y-2">
-            <label for="qualCategory" class="block text-sm text-gray-700">分類</label>
-            <select id="qualCategory" class="w-full border rounded px-3 py-2"></select>
+            <label for="personalClassification" class="block text-sm text-gray-700">分類</label>
+            <select id="personalClassification" class="w-full border rounded px-3 py-2"></select>
           </div>
-
-          <div class="space-y-2">
-            <label for="qualName" class="block text-sm text-gray-700">専門資格</label>
-            <select id="qualName" class="w-full border rounded px-3 py-2" disabled></select>
-            <div id="manualInputWrapper" class="hidden">
-              <input id="manualInput" type="text" class="mt-2 w-full border rounded px-3 py-2" placeholder="直接入力する資格名を入力" />
-              <p class="text-xs text-gray-500 mt-1">入力した資格はマスター候補として自動登録されます。</p>
+          <div class="space-y-2 lg:col-span-1">
+            <label for="personalField" class="block text-sm text-gray-700">医療分野</label>
+            <select id="personalField" class="w-full border rounded px-3 py-2"></select>
+            <p class="text-xs text-gray-500">医療分野マスターを利用します</p>
+          </div>
+          <div class="space-y-2 lg:col-span-2">
+            <label for="personalName" class="block text-sm text-gray-700">名称</label>
+            <select id="personalName" class="w-full border rounded px-3 py-2" disabled></select>
+            <div id="personalManualWrapper" class="hidden space-y-2 mt-2">
+              <input id="personalManualName" type="text" class="w-full border rounded px-3 py-2" placeholder="資格名称を入力" />
+              <p class="text-xs text-gray-500">入力した名称はマスター候補として保存されます。</p>
             </div>
           </div>
+          <div class="lg:col-span-4 space-y-2">
+            <label for="personalNotes" class="block text-sm text-gray-700">備考（学会名・発行団体など）</label>
+            <input id="personalNotes" type="text" class="w-full border rounded px-3 py-2" placeholder="例: 日本循環器学会" />
+          </div>
         </div>
-
-        <p class="text-xs text-gray-500">分類を選択すると、対応する資格がプルダウンに表示されます。該当がない場合は「（直接入力）」を選び、資格名を手入力してください。</p>
-
         <div class="flex flex-wrap gap-3">
-          <button id="btnClear" class="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">クリア</button>
-          <button id="btnSubmit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed" disabled>登録</button>
+          <button id="personalClear" class="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">クリア</button>
+          <button id="personalSubmit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed" disabled>登録</button>
         </div>
       </section>
 
       <section class="space-y-3">
-        <h2 class="text-blue-800 font-semibold text-lg">登録済 資格一覧</h2>
-        <div id="qualificationList" class="space-y-2"></div>
+        <div class="flex items-center gap-3 text-blue-900">
+          <h2 class="text-xl font-semibold">登録済 個人資格一覧</h2>
+          <span class="text-xs text-gray-500">分類・医療分野順で表示します</span>
+        </div>
+        <div id="personalList" class="space-y-2"></div>
+      </section>
+
+      <hr class="border-dashed" />
+
+      <section class="space-y-4">
+        <div class="flex items-center gap-3 text-emerald-900">
+          <h2 class="text-xl font-semibold">施設認定の追加</h2>
+          <span class="text-xs text-gray-500">医療機関として受けている認定・指定を整理します</span>
+        </div>
+        <div class="grid gap-4 lg:grid-cols-3">
+          <div class="space-y-2">
+            <label for="facilityType" class="block text-sm text-gray-700">種類</label>
+            <select id="facilityType" class="w-full border rounded px-3 py-2"></select>
+          </div>
+          <div class="space-y-2 lg:col-span-2">
+            <label for="facilityName" class="block text-sm text-gray-700">名称</label>
+            <select id="facilityName" class="w-full border rounded px-3 py-2" disabled></select>
+            <div id="facilityManualWrapper" class="hidden space-y-2 mt-2">
+              <input id="facilityManualName" type="text" class="w-full border rounded px-3 py-2" placeholder="施設認定名称を入力" />
+              <p class="text-xs text-gray-500">入力した名称はマスター候補として保存されます。</p>
+            </div>
+          </div>
+          <div class="lg:col-span-3 space-y-2">
+            <label for="facilityNotes" class="block text-sm text-gray-700">備考（学会名・指定元など）</label>
+            <input id="facilityNotes" type="text" class="w-full border rounded px-3 py-2" placeholder="例: 東京都 / 日本消化器病学会" />
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-3">
+          <button id="facilityClear" class="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">クリア</button>
+          <button id="facilitySubmit" class="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed" disabled>登録</button>
+        </div>
+      </section>
+
+      <section class="space-y-3">
+        <div class="flex items-center gap-3 text-emerald-900">
+          <h2 class="text-xl font-semibold">登録済 施設認定一覧</h2>
+          <span class="text-xs text-gray-500">種類順で表示します</span>
+        </div>
+        <div id="facilityList" class="space-y-2"></div>
       </section>
     </div>
   </main>
 
-  <!-- フッター -->
   <footer class="bg-gray-200 text-gray-700 text-center py-4">
     <p class="text-xs">© 2025 中野区医師会 - Nakano Clinic Database</p>
   </footer>
 
-  <!-- ローディングオーバーレイ -->
   <div id="loadingOverlay" class="hidden fixed inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-50">
     <div class="bg-white px-6 py-4 rounded shadow text-gray-700 text-base font-semibold">データ読み込み中...</div>
   </div>
 
-<script>
-const BASE = "https://ncd-app.altry.workers.dev";
-let selectedClinic = null;
-let clinicData = null;
-let categories = [];
-let qualificationMaster = [];
-let currentQualifications = [];
-let editingIndex = null;
-const collator = new Intl.Collator('ja');
+  <script>
+  "use strict";
+  const BASE = "https://ncd-app.altry.workers.dev";
+  const PERSONAL_CLASSIFICATIONS = ["医師", "看護", "コメディカル", "事務", "その他"];
+  const FACILITY_TYPES = ["学会認定", "行政・公費", "地域・在宅"];
+  const DEFAULT_PERSONAL_CLASSIFICATION = PERSONAL_CLASSIFICATIONS[0];
+  const DEFAULT_FACILITY_TYPE = FACILITY_TYPES[0];
+  const collator = new Intl.Collator('ja');
 
-const els = {
-  selectedClinicName: document.getElementById("selectedClinicName"),
-  category: document.getElementById("qualCategory"),
-  qualification: document.getElementById("qualName"),
-  manualWrapper: document.getElementById("manualInputWrapper"),
-  manualInput: document.getElementById("manualInput"),
-  submit: document.getElementById("btnSubmit"),
-  clear: document.getElementById("btnClear"),
-  list: document.getElementById("qualificationList"),
-  overlay: document.getElementById("loadingOverlay")
-};
-
-function setLoading(show) {
-  els.overlay.classList.toggle("hidden", !show);
-}
-
-function loadSelectedClinic() {
-  try {
-    const stored = localStorage.getItem("selectedClinic");
-    if (!stored) {
-      selectedClinic = null;
-      els.selectedClinicName.textContent = "（選択されていません）";
-      alert("施設を選択後に操作してください。");
-      return;
-    }
-    selectedClinic = JSON.parse(stored);
-    els.selectedClinicName.textContent = selectedClinic.name || "（名称未設定）";
-  } catch (err) {
-    console.error("failed to load selected clinic", err);
-    selectedClinic = null;
-    els.selectedClinicName.textContent = "（選択されていません）";
-  }
-}
-
-async function loadCategories() {
-  try {
-    const res = await fetch(`${BASE}/api/listCategories?type=qual`);
-    const data = await res.json();
-    categories = Array.isArray(data?.categories) ? data.categories.filter(Boolean) : [];
-    categories.sort((a, b) => a.localeCompare(b, "ja"));
-  } catch (err) {
-    console.error("failed to load categories", err);
-    categories = [];
-  }
-}
-
-async function loadQualificationMaster() {
-  try {
-    const url = new URL(`${BASE}/api/listMaster`);
-    url.searchParams.set("type", "qual");
-    url.searchParams.set("status", "approved");
-    const res = await fetch(url.toString());
-    const data = await res.json();
-    qualificationMaster = Array.isArray(data?.items) ? data.items : [];
-  } catch (err) {
-    console.error("failed to load qualification master", err);
-    qualificationMaster = [];
-  }
-}
-
-async function loadClinicData() {
-  if (!selectedClinic) return;
-
-  clinicData = { ...(selectedClinic || {}) };
-  currentQualifications = Array.isArray(clinicData?.qualifications) ? [...clinicData.qualifications] : [];
-
-  const params = new URLSearchParams();
-  if (selectedClinic?.id) {
-    params.set("id", selectedClinic.id);
-  } else if (selectedClinic?.name) {
-    params.set("name", selectedClinic.name);
-  } else {
-    return;
-  }
-
-  try {
-    const res = await fetch(`${BASE}/api/clinicDetail?${params.toString()}`);
-    if (!res.ok) throw new Error(`status ${res.status}`);
-    const data = await res.json();
-    const clinic = data?.clinic;
-    if (!clinic) throw new Error("missing clinic");
-    clinicData = clinic;
-    currentQualifications = Array.isArray(clinic.qualifications) ? [...clinic.qualifications] : [];
-    localStorage.setItem("selectedClinic", JSON.stringify(clinic));
-    selectedClinic = clinic;
-    els.selectedClinicName.textContent = selectedClinic.name || "（名称未設定）";
-  } catch (err) {
-    console.warn("failed to load clinic detail", err);
-    try {
-      const res = await fetch(`${BASE}/api/listClinics`);
-      const data = await res.json();
-      const clinics = Array.isArray(data?.clinics) ? data.clinics : [];
-      clinicData = clinics.find(c => (selectedClinic.id && c.id === selectedClinic.id) || c.name === selectedClinic.name) || { id: selectedClinic?.id, name: selectedClinic?.name };
-      currentQualifications = Array.isArray(clinicData?.qualifications) ? [...clinicData.qualifications] : [];
-      if (clinicData?.name) {
-        els.selectedClinicName.textContent = clinicData.name;
-      }
-      if (clinicData?.id || clinicData?.name) {
-        localStorage.setItem("selectedClinic", JSON.stringify(clinicData));
-        selectedClinic = clinicData;
-      }
-    } catch (fallbackErr) {
-      console.error("failed to load clinic data", fallbackErr);
-      clinicData = { id: selectedClinic?.id, name: selectedClinic?.name };
-      currentQualifications = Array.isArray(selectedClinic?.qualifications) ? [...selectedClinic.qualifications] : [];
-    }
-  }
-}
-
-function populateCategoryOptions() {
-  const select = els.category;
-  select.innerHTML = "";
-  const placeholder = document.createElement("option");
-  placeholder.value = "";
-  placeholder.textContent = "分類を選択してください";
-  select.appendChild(placeholder);
-
-  if (!categories.length) {
-    const opt = document.createElement("option");
-    opt.value = "";
-    opt.textContent = "（分類が登録されていません）";
-    select.appendChild(opt);
-    select.disabled = true;
-    return;
-  }
-
-  categories.forEach(cat => {
-    const option = document.createElement("option");
-    option.value = cat;
-    option.textContent = cat;
-    select.appendChild(option);
-  });
-  select.disabled = false;
-}
-
-function serializeMasterItem(item) {
-  return JSON.stringify({
-    category: item.category || "",
-    name: item.name || "",
-    issuer: item.issuer || ""
-  });
-}
-
-function formatQualificationLabel(item) {
-  return item.issuer ? `${item.name}（${item.issuer}）` : item.name;
-}
-
-function updateQualificationSelect(selectedValue = "") {
-  const select = els.qualification;
-  const category = els.category.value;
-
-  select.innerHTML = "";
-  const placeholder = document.createElement("option");
-  placeholder.value = "";
-  placeholder.textContent = "専門資格を選択してください";
-  select.appendChild(placeholder);
-
-  if (!category) {
-    select.disabled = true;
-    toggleManualInput(false);
-    return;
-  }
-
-  const filtered = qualificationMaster.filter(item => item.category === category);
-  filtered.forEach(item => {
-    const option = document.createElement("option");
-    option.value = serializeMasterItem(item);
-    option.textContent = formatQualificationLabel(item);
-    if (selectedValue && option.value === selectedValue) {
-      option.selected = true;
-    }
-    select.appendChild(option);
-  });
-
-  const directOption = document.createElement("option");
-  directOption.value = "__direct";
-  directOption.textContent = "（直接入力）";
-  if (selectedValue === "__direct") {
-    directOption.selected = true;
-  }
-  select.appendChild(directOption);
-
-  select.disabled = false;
-  toggleManualInput(select.value === "__direct");
-}
-
-function toggleManualInput(show) {
-  els.manualWrapper.classList.toggle("hidden", !show);
-  if (!show) {
-    els.manualInput.value = "";
-  }
-}
-
-function updateFormState() {
-  const category = els.category.value;
-  const selected = els.qualification.value;
-  const isManual = selected === "__direct";
-  const manualValue = els.manualInput.value.trim();
-
-  els.submit.disabled = !category || !selected || (isManual && !manualValue);
-}
-
-function qualificationLabel(q) {
-  const issuer = q.issuer ? `（${q.issuer}）` : "";
-  return `${q.name}${issuer}`;
-}
-
-function renderQualificationList() {
-  els.list.innerHTML = "";
-  if (!currentQualifications.length) {
-    const empty = document.createElement("div");
-    empty.className = "px-4 py-6 text-sm text-gray-500 bg-gray-50 border border-dashed rounded";
-    empty.textContent = "登録された資格はありません。";
-    els.list.appendChild(empty);
-    return;
-  }
-
-  const sorted = currentQualifications
-    .map((item, idx) => ({ item, idx }))
-    .sort((a, b) => {
-      const categoryCompare = collator.compare(a.item.category || "", b.item.category || "");
-      if (categoryCompare !== 0) return categoryCompare;
-      return collator.compare(a.item.name || "", b.item.name || "");
-    });
-
-  sorted.forEach(({ item: q, idx: originalIndex }) => {
-    const row = document.createElement("div");
-    row.className = "flex flex-col gap-2 rounded border bg-white px-4 py-3 shadow-sm md:flex-row md:items-center";
-
-    const info = document.createElement("div");
-    info.className = "flex flex-col gap-2 md:flex-row md:items-center md:gap-3 flex-1";
-
-    const categoryTag = document.createElement("span");
-    categoryTag.className = "inline-flex items-center justify-center rounded border border-blue-200 bg-blue-50 text-blue-800 font-semibold px-3 py-1 text-sm min-w-[12rem] max-w-[12rem] whitespace-nowrap";
-    categoryTag.textContent = q.category || "（未分類）";
-
-    const nameTag = document.createElement("span");
-    nameTag.className = "text-blue-900 font-semibold text-sm";
-    nameTag.textContent = qualificationLabel(q);
-
-    info.append(categoryTag, nameTag);
-
-    const actions = document.createElement("div");
-    actions.className = "flex items-center gap-4 text-sm md:ml-auto";
-
-    const editBtn = document.createElement("button");
-    editBtn.className = "text-blue-600 hover:text-blue-800";
-    editBtn.textContent = "編集";
-    editBtn.addEventListener("click", () => startEditing(originalIndex));
-
-    const deleteBtn = document.createElement("button");
-    deleteBtn.className = "text-red-600 hover:text-red-800";
-    deleteBtn.textContent = "削除";
-    deleteBtn.addEventListener("click", () => removeQualification(originalIndex));
-
-    actions.append(editBtn, deleteBtn);
-    row.append(info, actions);
-    els.list.appendChild(row);
-  });
-}
-
-function clearForm() {
-  editingIndex = null;
-  els.submit.textContent = "登録";
-  els.category.value = "";
-  updateQualificationSelect();
-  els.manualInput.value = "";
-  toggleManualInput(false);
-  updateFormState();
-}
-
-function startEditing(index) {
-  const target = currentQualifications[index];
-  if (!target) return;
-  editingIndex = index;
-  els.submit.textContent = "更新";
-  els.category.value = target.category || "";
-  updateQualificationSelect();
-
-  const match = qualificationMaster.find(item => item.category === target.category && item.name === target.name && (item.issuer || "") === (target.issuer || ""));
-  if (match) {
-    const value = serializeMasterItem(match);
-    updateQualificationSelect(value);
-    els.qualification.value = value;
-    toggleManualInput(false);
-  } else {
-    updateQualificationSelect("__direct");
-    els.qualification.value = "__direct";
-    toggleManualInput(true);
-    els.manualInput.value = target.name || "";
-  }
-
-  updateFormState();
-}
-
-async function removeQualification(index) {
-  const target = currentQualifications[index];
-  if (!target) return;
-  if (!confirm("この資格を削除しますか？")) return;
-
-  const backup = [...currentQualifications];
-  currentQualifications.splice(index, 1);
-
-  try {
-    setLoading(true);
-    await persistQualifications();
-    if (editingIndex === index) {
-      clearForm();
-    } else if (editingIndex !== null && index < editingIndex) {
-      editingIndex -= 1;
-    }
-    renderQualificationList();
-    alert("削除しました");
-  } catch (err) {
-    console.error("failed to delete qualification", err);
-    currentQualifications = backup;
-    renderQualificationList();
-    alert("削除に失敗しました: " + err.message);
-  } finally {
-    setLoading(false);
-  }
-}
-
-async function registerQualificationCandidate(category, name) {
-  try {
-    await fetch(`${BASE}/api/addMasterItem`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "qual", category, name, source: "clinicQualifications" })
-    });
-  } catch (err) {
-    console.warn("failed to register qualification candidate", err);
-  }
-}
-
-async function persistQualifications() {
-  if (!selectedClinic) {
-    throw new Error("施設が選択されていません");
-  }
-  const payload = {
-    ...(clinicData || {}),
-    id: clinicData?.id || selectedClinic?.id || selectedClinic?.name,
-    name: clinicData?.name || selectedClinic?.name,
-    qualifications: currentQualifications
+  const state = {
+    selectedClinic: null,
+    clinicData: null,
+    medicalFields: [],
+    personalMaster: [],
+    facilityMaster: [],
+    personal: [],
+    facility: [],
+    personalEditing: null,
+    facilityEditing: null,
   };
 
-  const res = await fetch(`${BASE}/api/updateClinic`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
+  const els = {
+    selectedClinicName: document.getElementById("selectedClinicName"),
+    overlay: document.getElementById("loadingOverlay"),
+    personal: {
+      classification: document.getElementById("personalClassification"),
+      field: document.getElementById("personalField"),
+      name: document.getElementById("personalName"),
+      manualWrapper: document.getElementById("personalManualWrapper"),
+      manualName: document.getElementById("personalManualName"),
+      notes: document.getElementById("personalNotes"),
+      submit: document.getElementById("personalSubmit"),
+      clear: document.getElementById("personalClear"),
+    },
+    facility: {
+      type: document.getElementById("facilityType"),
+      name: document.getElementById("facilityName"),
+      manualWrapper: document.getElementById("facilityManualWrapper"),
+      manualName: document.getElementById("facilityManualName"),
+      notes: document.getElementById("facilityNotes"),
+      submit: document.getElementById("facilitySubmit"),
+      clear: document.getElementById("facilityClear"),
+    },
+    personalList: document.getElementById("personalList"),
+    facilityList: document.getElementById("facilityList"),
+  };
+
+  function nk(value) {
+    return (value ?? "").trim();
+  }
+
+  function setLoading(show) {
+    els.overlay.classList.toggle("hidden", !show);
+  }
+
+  function loadSelectedClinic() {
+    try {
+      const stored = localStorage.getItem("selectedClinic");
+      if (!stored) {
+        state.selectedClinic = null;
+        els.selectedClinicName.textContent = "（選択されていません）";
+        alert("施設を選択後に操作してください。");
+        return;
+      }
+      state.selectedClinic = JSON.parse(stored);
+      els.selectedClinicName.textContent = state.selectedClinic.name || "（名称未設定）";
+    } catch (err) {
+      console.error("failed to parse selected clinic", err);
+      state.selectedClinic = null;
+      els.selectedClinicName.textContent = "（選択されていません）";
+    }
+  }
+
+  async function loadMedicalFields() {
+    try {
+      const res = await fetch(`${BASE}/api/listCategories?type=qual`);
+      const data = await res.json();
+      state.medicalFields = Array.isArray(data?.categories) ? data.categories.filter(Boolean) : [];
+      state.medicalFields.sort((a, b) => collator.compare(a, b));
+    } catch (err) {
+      console.warn("failed to load medical fields", err);
+      state.medicalFields = [];
+    }
+  }
+
+  function normalizeMasterItem(item, fallbackClassification) {
+    if (!item || typeof item !== "object") return null;
+    const normalized = { ...item };
+    normalized.classification = sanitizeClassification(normalized.classification || fallbackClassification);
+    normalized.notes = nk(normalized.notes || normalized.desc || normalized.issuer);
+    normalized.category = nk(normalized.category);
+    normalized.name = nk(normalized.name);
+    return normalized;
+  }
+
+  async function loadPersonalMaster() {
+    try {
+      const url = new URL(`${BASE}/api/listMaster`);
+      url.searchParams.set("type", "qual");
+      url.searchParams.set("status", "approved");
+      const res = await fetch(url.toString());
+      const data = await res.json();
+      const items = Array.isArray(data?.items) ? data.items : [];
+      state.personalMaster = items
+        .map(item => normalizeMasterItem(item, DEFAULT_PERSONAL_CLASSIFICATION))
+        .filter(Boolean);
+    } catch (err) {
+      console.warn("failed to load personal qualification master", err);
+      state.personalMaster = [];
+    }
+  }
+
+  async function loadFacilityMaster() {
+    try {
+      const url = new URL(`${BASE}/api/listMaster`);
+      url.searchParams.set("type", "facility");
+      url.searchParams.set("status", "approved");
+      const res = await fetch(url.toString());
+      const data = await res.json();
+      const items = Array.isArray(data?.items) ? data.items : [];
+      state.facilityMaster = items.map(item => ({
+        type: sanitizeFacilityType(item?.category || item?.type),
+        name: nk(item?.name),
+        notes: nk(item?.notes || item?.desc),
+      })).filter(entry => entry.name);
+    } catch (err) {
+      console.warn("failed to load facility accreditation master", err);
+      state.facilityMaster = [];
+    }
+  }
+
+  function populatePersonalClassificationOptions(selectedValue = DEFAULT_PERSONAL_CLASSIFICATION) {
+    const select = els.personal.classification;
+    select.innerHTML = "";
+    PERSONAL_CLASSIFICATIONS.forEach(value => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = value;
+      if (value === selectedValue) option.selected = true;
+      select.appendChild(option);
+    });
+  }
+
+  function populateMedicalFieldOptions(selectedValue = "") {
+    const select = els.personal.field;
+    select.innerHTML = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "医療分野を選択";
+    select.appendChild(placeholder);
+
+    state.medicalFields.forEach(field => {
+      const option = document.createElement("option");
+      option.value = field;
+      option.textContent = field;
+      if (field === selectedValue) option.selected = true;
+      select.appendChild(option);
+    });
+    select.disabled = state.medicalFields.length === 0;
+  }
+
+  function populateFacilityTypeOptions(selectedValue = DEFAULT_FACILITY_TYPE) {
+    const select = els.facility.type;
+    select.innerHTML = "";
+    FACILITY_TYPES.forEach(value => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = value;
+      if (value === selectedValue) option.selected = true;
+      select.appendChild(option);
+    });
+  }
+
+  function serializePersonalMasterItem(item) {
+    return JSON.stringify({
+      classification: item.classification,
+      medicalField: item.category,
+      name: item.name,
+      notes: item.notes || "",
+    });
+  }
+
+  function updatePersonalNameOptions(selectedValue = "") {
+    const select = els.personal.name;
+    const classification = els.personal.classification.value;
+    const medicalField = els.personal.field.value;
+    select.innerHTML = "";
+
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "名称を選択";
+    select.appendChild(placeholder);
+
+    let filtered = [];
+    if (classification && medicalField) {
+      filtered = state.personalMaster.filter(item =>
+        item.classification === classification && item.category === medicalField
+      );
+    }
+
+    filtered.sort((a, b) => collator.compare(a.name, b.name));
+
+    filtered.forEach(item => {
+      const option = document.createElement("option");
+      option.value = serializePersonalMasterItem(item);
+      option.textContent = item.notes ? `${item.name}（${item.notes}）` : item.name;
+      if (option.value === selectedValue) option.selected = true;
+      select.appendChild(option);
+    });
+
+    const manualOption = document.createElement("option");
+    manualOption.value = "__direct";
+    manualOption.textContent = "（直接入力）";
+    if (selectedValue === "__direct") manualOption.selected = true;
+    select.appendChild(manualOption);
+
+    select.disabled = !classification || !medicalField;
+    togglePersonalManual(select.value === "__direct");
+  }
+
+  function updateFacilityNameOptions(selectedValue = "") {
+    const select = els.facility.name;
+    const facilityType = els.facility.type.value;
+    select.innerHTML = "";
+
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "名称を選択";
+    select.appendChild(placeholder);
+
+    const filtered = state.facilityMaster
+      .filter(item => item.type === facilityType)
+      .sort((a, b) => collator.compare(a.name, b.name));
+
+    filtered.forEach(item => {
+      const option = document.createElement("option");
+      option.value = JSON.stringify(item);
+      option.textContent = item.notes ? `${item.name}（${item.notes}）` : item.name;
+      if (option.value === selectedValue) option.selected = true;
+      select.appendChild(option);
+    });
+
+    const manualOption = document.createElement("option");
+    manualOption.value = "__direct";
+    manualOption.textContent = "（直接入力）";
+    if (selectedValue === "__direct") manualOption.selected = true;
+    select.appendChild(manualOption);
+
+    select.disabled = !facilityType;
+    toggleFacilityManual(select.value === "__direct");
+  }
+
+  function togglePersonalManual(show) {
+    els.personal.manualWrapper.classList.toggle("hidden", !show);
+    if (!show) {
+      els.personal.manualName.value = "";
+    }
+  }
+
+  function toggleFacilityManual(show) {
+    els.facility.manualWrapper.classList.toggle("hidden", !show);
+    if (!show) {
+      els.facility.manualName.value = "";
+    }
+  }
+
+  function syncPersonalNotesFromSelection() {
+    const value = els.personal.name.value;
+    if (!value || value === "__direct") return;
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed.notes === "string") {
+        els.personal.notes.value = parsed.notes;
+      }
+    } catch (err) {
+      console.warn("failed to parse personal master value", err);
+    }
+  }
+
+  function syncFacilityNotesFromSelection() {
+    const value = els.facility.name.value;
+    if (!value || value === "__direct") return;
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed.notes === "string") {
+        els.facility.notes.value = parsed.notes;
+      }
+    } catch (err) {
+      console.warn("failed to parse facility master value", err);
+    }
+  }
+
+  function updatePersonalFormState() {
+    const classification = nk(els.personal.classification.value);
+    const field = nk(els.personal.field.value);
+    const selected = nk(els.personal.name.value);
+    const manualName = nk(els.personal.manualName.value);
+    const isManual = selected === "__direct";
+    const nameOk = !isManual ? !!selected : !!manualName;
+    const ready = classification && field && nameOk;
+    els.personal.submit.disabled = !ready;
+  }
+
+  function updateFacilityFormState() {
+    const type = nk(els.facility.type.value);
+    const selected = nk(els.facility.name.value);
+    const manualName = nk(els.facility.manualName.value);
+    const isManual = selected === "__direct";
+    const nameOk = !isManual ? !!selected : !!manualName;
+    els.facility.submit.disabled = !(type && nameOk);
+  }
+
+  function resetPersonalForm() {
+    state.personalEditing = null;
+    els.personal.submit.textContent = "登録";
+    populatePersonalClassificationOptions(DEFAULT_PERSONAL_CLASSIFICATION);
+    populateMedicalFieldOptions(state.medicalFields[0] || "");
+    updatePersonalNameOptions();
+    els.personal.manualName.value = "";
+    els.personal.notes.value = "";
+    updatePersonalFormState();
+  }
+
+  function resetFacilityForm() {
+    state.facilityEditing = null;
+    els.facility.submit.textContent = "登録";
+    populateFacilityTypeOptions(DEFAULT_FACILITY_TYPE);
+    updateFacilityNameOptions();
+    els.facility.manualName.value = "";
+    els.facility.notes.value = "";
+    updateFacilityFormState();
+  }
+
+  function extractParenthetical(value) {
+    const text = nk(value);
+    if (!text) return { base: "", notes: "" };
+    const match = text.match(/^(.*?)[（(]([^（）()]+)[）)]$/);
+    if (!match) return { base: text, notes: "" };
+    return { base: nk(match[1]), notes: nk(match[2]) };
+  }
+
+  function sanitizeClassification(value) {
+    const normalized = nk(value);
+    return PERSONAL_CLASSIFICATIONS.includes(normalized) ? normalized : DEFAULT_PERSONAL_CLASSIFICATION;
+  }
+
+  function sanitizeFacilityType(value) {
+    const normalized = nk(value);
+    return FACILITY_TYPES.includes(normalized) ? normalized : DEFAULT_FACILITY_TYPE;
+  }
+
+  function normalizePersonalEntry(entry) {
+    if (!entry || typeof entry !== "object") return null;
+    const classification = sanitizeClassification(entry.classification || entry.qualType || entry.type);
+    const medicalField = nk(entry.medicalField || entry.category || "");
+    const { base, notes: extractedNotes } = extractParenthetical(entry.name);
+    const legacyNotes = nk(entry.notes || entry.issuer || extractedNotes);
+    const name = nk(base || entry.name || "");
+    if (!name) return null;
+    return {
+      classification,
+      medicalField,
+      name,
+      notes: legacyNotes,
+      source: entry.source || "legacy",
+    };
+  }
+
+  function normalizePersonalList(list) {
+    if (!Array.isArray(list)) return [];
+    const seen = new Set();
+    const result = [];
+    list.forEach(item => {
+      const normalized = normalizePersonalEntry(item);
+      if (!normalized) return;
+      const key = [normalized.classification, normalized.medicalField, normalized.name, normalized.notes].join("|");
+      if (seen.has(key)) return;
+      seen.add(key);
+      result.push(normalized);
+    });
+    result.sort((a, b) => {
+      const classCompare = collator.compare(a.classification, b.classification);
+      if (classCompare !== 0) return classCompare;
+      const fieldCompare = collator.compare(a.medicalField, b.medicalField);
+      if (fieldCompare !== 0) return fieldCompare;
+      return collator.compare(a.name, b.name);
+    });
+    return result;
+  }
+
+  function normalizeFacilityEntry(entry) {
+    if (!entry || typeof entry !== "object") return null;
+    const type = sanitizeFacilityType(entry.type || entry.category);
+    const name = nk(entry.name);
+    const notes = nk(entry.notes || entry.desc || entry.issuer);
+    if (!name) return null;
+    return {
+      type,
+      name,
+      notes,
+      source: entry.source || "legacy",
+    };
+  }
+
+  function normalizeFacilityList(list) {
+    if (!Array.isArray(list)) return [];
+    const seen = new Set();
+    const result = [];
+    list.forEach(item => {
+      const normalized = normalizeFacilityEntry(item);
+      if (!normalized) return;
+      const key = [normalized.type, normalized.name, normalized.notes].join("|");
+      if (seen.has(key)) return;
+      seen.add(key);
+      result.push(normalized);
+    });
+    result.sort((a, b) => {
+      const typeCompare = collator.compare(a.type, b.type);
+      if (typeCompare !== 0) return typeCompare;
+      return collator.compare(a.name, b.name);
+    });
+    return result;
+  }
+
+  async function loadClinicData() {
+    if (!state.selectedClinic) return;
+    state.clinicData = { ...(state.selectedClinic || {}) };
+    state.personal = normalizePersonalList(state.clinicData.personalQualifications || state.clinicData.qualifications);
+    state.facility = normalizeFacilityList(
+      state.clinicData.facilityAccreditations || state.clinicData.facilityRecognitions || []
+    );
+
+    const params = new URLSearchParams();
+    if (state.selectedClinic?.id) {
+      params.set("id", state.selectedClinic.id);
+    } else if (state.selectedClinic?.name) {
+      params.set("name", state.selectedClinic.name);
+    } else {
+      return;
+    }
+
+    try {
+      const res = await fetch(`${BASE}/api/clinicDetail?${params.toString()}`);
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      const data = await res.json();
+      const clinic = data?.clinic;
+      if (!clinic) throw new Error("missing clinic");
+      state.clinicData = clinic;
+      state.personal = normalizePersonalList(clinic.personalQualifications || clinic.qualifications);
+      state.facility = normalizeFacilityList(clinic.facilityAccreditations || clinic.facilityRecognitions || []);
+      localStorage.setItem("selectedClinic", JSON.stringify(clinic));
+      state.selectedClinic = clinic;
+      els.selectedClinicName.textContent = clinic.name || "（名称未設定）";
+    } catch (err) {
+      console.warn("failed to load clinic detail", err);
+    }
+  }
+
+  function qualificationLabel(entry) {
+    const notes = entry.notes ? `（${entry.notes}）` : "";
+    return `${entry.name}${notes}`;
+  }
+
+  function renderPersonalList() {
+    const container = els.personalList;
+    container.innerHTML = "";
+    if (!state.personal.length) {
+      const empty = document.createElement("div");
+      empty.className = "px-4 py-6 text-sm text-gray-500 bg-gray-50 border border-dashed rounded";
+      empty.textContent = "登録された個人資格はありません。";
+      container.appendChild(empty);
+      return;
+    }
+
+    state.personal.forEach((entry, index) => {
+      const row = document.createElement("div");
+      row.className = "flex flex-col gap-2 rounded border bg-white px-4 py-3 shadow-sm md:flex-row md:items-center";
+
+      const info = document.createElement("div");
+      info.className = "flex flex-col gap-2 md:flex-row md:items-center md:gap-3 flex-1";
+
+      const classTag = document.createElement("span");
+      classTag.className = "inline-flex items-center rounded border border-blue-200 bg-blue-50 text-blue-800 font-semibold px-3 py-1 text-xs";
+      classTag.textContent = entry.classification;
+
+      const fieldTag = document.createElement("span");
+      fieldTag.className = "inline-flex items-center rounded border border-slate-200 bg-slate-50 text-slate-700 font-semibold px-3 py-1 text-xs";
+      fieldTag.textContent = entry.medicalField || "（未設定）";
+
+      const nameText = document.createElement("span");
+      nameText.className = "text-blue-900 font-semibold text-sm";
+      nameText.textContent = qualificationLabel(entry);
+
+      info.append(classTag, fieldTag, nameText);
+
+      const actions = document.createElement("div");
+      actions.className = "flex items-center gap-4 text-sm md:ml-auto";
+
+      const editBtn = document.createElement("button");
+      editBtn.className = "text-blue-600 hover:text-blue-800";
+      editBtn.textContent = "編集";
+      editBtn.addEventListener("click", () => startEditingPersonal(index));
+
+      const deleteBtn = document.createElement("button");
+      deleteBtn.className = "text-red-600 hover:text-red-800";
+      deleteBtn.textContent = "削除";
+      deleteBtn.addEventListener("click", () => deletePersonal(index));
+
+      actions.append(editBtn, deleteBtn);
+      row.append(info, actions);
+      container.appendChild(row);
+    });
+  }
+
+  function renderFacilityList() {
+    const container = els.facilityList;
+    container.innerHTML = "";
+    if (!state.facility.length) {
+      const empty = document.createElement("div");
+      empty.className = "px-4 py-6 text-sm text-gray-500 bg-gray-50 border border-dashed rounded";
+      empty.textContent = "登録された施設認定はありません。";
+      container.appendChild(empty);
+      return;
+    }
+
+    state.facility.forEach((entry, index) => {
+      const row = document.createElement("div");
+      row.className = "flex flex-col gap-2 rounded border bg-white px-4 py-3 shadow-sm md:flex-row md:items-center";
+
+      const info = document.createElement("div");
+      info.className = "flex flex-col gap-2 md:flex-row md:items-center md:gap-3 flex-1";
+
+      const typeTag = document.createElement("span");
+      typeTag.className = "inline-flex items-center rounded border border-emerald-200 bg-emerald-50 text-emerald-800 font-semibold px-3 py-1 text-xs";
+      typeTag.textContent = entry.type;
+
+      const nameText = document.createElement("span");
+      nameText.className = "text-emerald-900 font-semibold text-sm";
+      nameText.textContent = entry.notes ? `${entry.name}（${entry.notes}）` : entry.name;
+
+      info.append(typeTag, nameText);
+
+      const actions = document.createElement("div");
+      actions.className = "flex items-center gap-4 text-sm md:ml-auto";
+
+      const editBtn = document.createElement("button");
+      editBtn.className = "text-emerald-600 hover:text-emerald-800";
+      editBtn.textContent = "編集";
+      editBtn.addEventListener("click", () => startEditingFacility(index));
+
+      const deleteBtn = document.createElement("button");
+      deleteBtn.className = "text-red-600 hover:text-red-800";
+      deleteBtn.textContent = "削除";
+      deleteBtn.addEventListener("click", () => deleteFacility(index));
+
+      actions.append(editBtn, deleteBtn);
+      row.append(info, actions);
+      container.appendChild(row);
+    });
+  }
+
+  function startEditingPersonal(index) {
+    const entry = state.personal[index];
+    if (!entry) return;
+    state.personalEditing = index;
+    els.personal.submit.textContent = "更新";
+    populatePersonalClassificationOptions(entry.classification);
+    populateMedicalFieldOptions(entry.medicalField);
+    const match = state.personalMaster.find(item =>
+      item.classification === entry.classification &&
+      item.category === entry.medicalField &&
+      item.name === entry.name &&
+      nk(item.notes) === nk(entry.notes)
+    );
+    const preset = match ? serializePersonalMasterItem(match) : "__direct";
+    updatePersonalNameOptions(preset);
+    if (preset === "__direct") {
+      togglePersonalManual(true);
+      els.personal.manualName.value = entry.name;
+    }
+    els.personal.notes.value = entry.notes || "";
+    updatePersonalFormState();
+  }
+
+  function startEditingFacility(index) {
+    const entry = state.facility[index];
+    if (!entry) return;
+    state.facilityEditing = index;
+    els.facility.submit.textContent = "更新";
+    populateFacilityTypeOptions(entry.type);
+    const match = state.facilityMaster.find(item =>
+      item.type === entry.type &&
+      item.name === entry.name &&
+      nk(item.notes) === nk(entry.notes)
+    );
+    const preset = match ? JSON.stringify(match) : "__direct";
+    updateFacilityNameOptions(preset);
+    if (preset === "__direct") {
+      toggleFacilityManual(true);
+      els.facility.manualName.value = entry.name;
+    }
+    els.facility.notes.value = entry.notes || "";
+    updateFacilityFormState();
+  }
+
+  async function deletePersonal(index) {
+    const target = state.personal[index];
+    if (!target) return;
+    if (!confirm("この個人資格を削除しますか？")) return;
+    const backup = [...state.personal];
+    state.personal.splice(index, 1);
+    try {
+      setLoading(true);
+      await persistClinicData();
+      if (state.personalEditing === index) {
+        resetPersonalForm();
+      } else if (state.personalEditing !== null && index < state.personalEditing) {
+        state.personalEditing -= 1;
+      }
+      renderPersonalList();
+      alert("削除しました");
+    } catch (err) {
+      console.error("failed to delete personal qualification", err);
+      state.personal = backup;
+      renderPersonalList();
+      alert("削除に失敗しました: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function deleteFacility(index) {
+    const target = state.facility[index];
+    if (!target) return;
+    if (!confirm("この施設認定を削除しますか？")) return;
+    const backup = [...state.facility];
+    state.facility.splice(index, 1);
+    try {
+      setLoading(true);
+      await persistClinicData();
+      if (state.facilityEditing === index) {
+        resetFacilityForm();
+      } else if (state.facilityEditing !== null && index < state.facilityEditing) {
+        state.facilityEditing -= 1;
+      }
+      renderFacilityList();
+      alert("削除しました");
+    } catch (err) {
+      console.error("failed to delete facility accreditation", err);
+      state.facility = backup;
+      renderFacilityList();
+      alert("削除に失敗しました: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function transformPersonalForSave(entry) {
+    return {
+      classification: entry.classification,
+      medicalField: entry.medicalField,
+      name: entry.name,
+      notes: entry.notes || "",
+      source: entry.source,
+      category: entry.medicalField,
+      qualType: entry.classification,
+      issuer: entry.notes || "",
+    };
+  }
+
+  function transformFacilityForSave(entry) {
+    return {
+      type: entry.type,
+      name: entry.name,
+      notes: entry.notes || "",
+      source: entry.source,
+      category: entry.type,
+    };
+  }
+
+  async function persistClinicData() {
+    if (!state.selectedClinic) throw new Error("施設が選択されていません");
+    const payload = {
+      ...(state.clinicData || {}),
+      id: state.clinicData?.id || state.selectedClinic?.id || state.selectedClinic?.name,
+      name: state.clinicData?.name || state.selectedClinic?.name,
+      qualifications: state.personal.map(transformPersonalForSave),
+      personalQualifications: state.personal.map(transformPersonalForSave),
+      facilityAccreditations: state.facility.map(transformFacilityForSave),
+      facilityRecognitions: state.facility.map(transformFacilityForSave),
+    };
+
+    const res = await fetch(`${BASE}/api/updateClinic`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(`API error ${res.status}`);
+    let result = null;
+    try {
+      result = await res.json();
+    } catch (err) {
+      console.warn("failed to parse updateClinic response", err);
+    }
+    if (result?.clinic) {
+      state.clinicData = result.clinic;
+      state.personal = normalizePersonalList(result.clinic.personalQualifications || result.clinic.qualifications);
+      state.facility = normalizeFacilityList(result.clinic.facilityAccreditations || result.clinic.facilityRecognitions || []);
+      localStorage.setItem("selectedClinic", JSON.stringify(result.clinic));
+      state.selectedClinic = result.clinic;
+      els.selectedClinicName.textContent = result.clinic.name || "（名称未設定）";
+    }
+  }
+
+  async function handlePersonalSubmit() {
+    const classification = sanitizeClassification(els.personal.classification.value);
+    const medicalField = nk(els.personal.field.value);
+    const selected = els.personal.name.value;
+    const isManual = selected === "__direct";
+    const manualName = nk(els.personal.manualName.value);
+    const notes = nk(els.personal.notes.value);
+
+    if (!classification) {
+      alert("分類を選択してください");
+      return;
+    }
+    if (!medicalField) {
+      alert("医療分野を選択してください");
+      return;
+    }
+
+    let entry = null;
+    if (isManual) {
+      if (!manualName) {
+        alert("名称を入力してください");
+        return;
+      }
+      entry = { classification, medicalField, name: manualName, notes, source: "manual" };
+    } else {
+      if (!selected) {
+        alert("名称を選択してください");
+        return;
+      }
+      try {
+        const parsed = JSON.parse(selected);
+        entry = {
+          classification,
+          medicalField,
+          name: nk(parsed.name),
+          notes: nk(notes || parsed.notes),
+          source: "master",
+        };
+      } catch (err) {
+        console.error("failed to parse selected personal master", err);
+        alert("名称の取得に失敗しました。再度選択してください。");
+        return;
+      }
+    }
+
+    const duplicateIndex = state.personal.findIndex((item, idx) =>
+      idx !== state.personalEditing &&
+      item.classification === entry.classification &&
+      item.medicalField === entry.medicalField &&
+      item.name === entry.name &&
+      nk(item.notes) === nk(entry.notes)
+    );
+    if (duplicateIndex >= 0) {
+      alert("同じ個人資格が既に登録されています。");
+      return;
+    }
+
+    const wasEditing = state.personalEditing !== null;
+    const backup = [...state.personal];
+    if (wasEditing) {
+      state.personal[state.personalEditing] = entry;
+    } else {
+      state.personal.push(entry);
+    }
+
+    try {
+      setLoading(true);
+      await persistClinicData();
+      state.personal = normalizePersonalList(state.personal);
+      renderPersonalList();
+      resetPersonalForm();
+      alert(wasEditing ? "個人資格を更新しました" : "個人資格を登録しました");
+      if (entry.source === "manual") {
+        registerPersonalMasterCandidate(entry.classification, entry.medicalField, entry.name, entry.notes);
+      }
+    } catch (err) {
+      console.error("failed to save personal qualification", err);
+      state.personal = backup;
+      renderPersonalList();
+      alert("保存に失敗しました: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleFacilitySubmit() {
+    const type = sanitizeFacilityType(els.facility.type.value);
+    const selected = els.facility.name.value;
+    const isManual = selected === "__direct";
+    const manualName = nk(els.facility.manualName.value);
+    const notes = nk(els.facility.notes.value);
+
+    if (!type) {
+      alert("種類を選択してください");
+      return;
+    }
+
+    let entry = null;
+    if (isManual) {
+      if (!manualName) {
+        alert("名称を入力してください");
+        return;
+      }
+      entry = { type, name: manualName, notes, source: "manual" };
+    } else {
+      if (!selected) {
+        alert("名称を選択してください");
+        return;
+      }
+      try {
+        const parsed = JSON.parse(selected);
+        entry = {
+          type,
+          name: nk(parsed.name),
+          notes: nk(notes || parsed.notes),
+          source: "master",
+        };
+      } catch (err) {
+        console.error("failed to parse facility master value", err);
+        alert("名称の取得に失敗しました。再度選択してください。");
+        return;
+      }
+    }
+
+    const duplicateIndex = state.facility.findIndex((item, idx) =>
+      idx !== state.facilityEditing &&
+      item.type === entry.type &&
+      item.name === entry.name &&
+      nk(item.notes) === nk(entry.notes)
+    );
+    if (duplicateIndex >= 0) {
+      alert("同じ施設認定が既に登録されています。");
+      return;
+    }
+
+    const wasEditing = state.facilityEditing !== null;
+    const backup = [...state.facility];
+    if (wasEditing) {
+      state.facility[state.facilityEditing] = entry;
+    } else {
+      state.facility.push(entry);
+    }
+
+    try {
+      setLoading(true);
+      await persistClinicData();
+      state.facility = normalizeFacilityList(state.facility);
+      renderFacilityList();
+      resetFacilityForm();
+      alert(wasEditing ? "施設認定を更新しました" : "施設認定を登録しました");
+      if (entry.source === "manual") {
+        registerFacilityMasterCandidate(entry.type, entry.name, entry.notes);
+      }
+    } catch (err) {
+      console.error("failed to save facility accreditation", err);
+      state.facility = backup;
+      renderFacilityList();
+      alert("保存に失敗しました: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function registerPersonalMasterCandidate(classification, medicalField, name, notes) {
+    try {
+      await fetch(`${BASE}/api/addMasterItem`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "qual",
+          category: medicalField,
+          name,
+          classification,
+          notes,
+          source: "clinicQualifications",
+        }),
+      });
+    } catch (err) {
+      console.warn("failed to register personal qualification candidate", err);
+    }
+  }
+
+  async function registerFacilityMasterCandidate(type, name, notes) {
+    try {
+      await fetch(`${BASE}/api/addMasterItem`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "facility",
+          category: type,
+          name,
+          notes,
+          source: "clinicQualifications",
+        }),
+      });
+    } catch (err) {
+      console.warn("failed to register facility accreditation candidate", err);
+    }
+  }
+
+  els.personal.classification.addEventListener("change", () => {
+    updatePersonalNameOptions();
+    updatePersonalFormState();
+  });
+  els.personal.field.addEventListener("change", () => {
+    updatePersonalNameOptions();
+    updatePersonalFormState();
+  });
+  els.personal.name.addEventListener("change", () => {
+    togglePersonalManual(els.personal.name.value === "__direct");
+    if (els.personal.name.value !== "__direct") {
+      syncPersonalNotesFromSelection();
+    }
+    updatePersonalFormState();
+  });
+  els.personal.manualName.addEventListener("input", updatePersonalFormState);
+  els.personal.notes.addEventListener("input", () => {});
+  els.personal.submit.addEventListener("click", event => {
+    event.preventDefault();
+    handlePersonalSubmit();
+  });
+  els.personal.clear.addEventListener("click", event => {
+    event.preventDefault();
+    resetPersonalForm();
   });
 
-  if (!res.ok) {
-    throw new Error(`API error ${res.status}`);
-  }
-
-  let result = null;
-  try {
-    result = await res.json();
-  } catch (err) {
-    console.warn("failed to parse updateClinic response", err);
-  }
-
-  if (result?.clinic) {
-    clinicData = result.clinic;
-    currentQualifications = Array.isArray(result.clinic.qualifications) ? [...result.clinic.qualifications] : [];
-    localStorage.setItem("selectedClinic", JSON.stringify(result.clinic));
-    selectedClinic = result.clinic;
-    els.selectedClinicName.textContent = selectedClinic.name || "（名称未設定）";
-  } else {
-    clinicData = { ...payload };
-  }
-}
-
-async function handleSubmit() {
-  const category = els.category.value;
-  if (!category) {
-    alert("分類を選択してください");
-    return;
-  }
-
-  const selected = els.qualification.value;
-  if (!selected) {
-    alert("専門資格を選択してください");
-    return;
-  }
-
-  let entry = null;
-  if (selected === "__direct") {
-    const manualName = els.manualInput.value.trim();
-    if (!manualName) {
-      alert("資格名を入力してください");
-      return;
+  els.facility.type.addEventListener("change", () => {
+    updateFacilityNameOptions();
+    updateFacilityFormState();
+  });
+  els.facility.name.addEventListener("change", () => {
+    toggleFacilityManual(els.facility.name.value === "__direct");
+    if (els.facility.name.value !== "__direct") {
+      syncFacilityNotesFromSelection();
     }
-    entry = { category, name: manualName, issuer: "", source: "manual" };
-  } else {
-    try {
-      const parsed = JSON.parse(selected);
-      entry = {
-        category: parsed.category || category,
-        name: parsed.name || "",
-        issuer: parsed.issuer || "",
-        source: "master"
-      };
-    } catch (err) {
-      console.error("failed to parse selected qualification", err);
-      alert("資格の取得に失敗しました。再度選択してください。");
-      return;
-    }
-  }
+    updateFacilityFormState();
+  });
+  els.facility.manualName.addEventListener("input", updateFacilityFormState);
+  els.facility.submit.addEventListener("click", event => {
+    event.preventDefault();
+    handleFacilitySubmit();
+  });
+  els.facility.clear.addEventListener("click", event => {
+    event.preventDefault();
+    resetFacilityForm();
+  });
 
-  const duplicateIndex = currentQualifications.findIndex((q, idx) => q.category === entry.category && q.name === entry.name && (q.issuer || "") === (entry.issuer || "") && idx !== editingIndex);
-  if (duplicateIndex >= 0) {
-    alert("同じ資格が既に登録されています。");
-    return;
-  }
-
-  const wasEditing = editingIndex !== null;
-  if (wasEditing) {
-    currentQualifications[editingIndex] = entry;
-  } else {
-    currentQualifications.push(entry);
-  }
-
-  try {
+  (async function init() {
     setLoading(true);
-    await persistQualifications();
-    if (entry.source === "manual") {
-      await registerQualificationCandidate(entry.category, entry.name);
+    try {
+      loadSelectedClinic();
+      await Promise.all([loadMedicalFields(), loadPersonalMaster(), loadFacilityMaster()]);
+      resetPersonalForm();
+      resetFacilityForm();
+      await loadClinicData();
+      renderPersonalList();
+      renderFacilityList();
+    } finally {
+      setLoading(false);
     }
-    renderQualificationList();
-    clearForm();
-    alert(wasEditing ? "資格を更新しました" : "資格を登録しました");
-  } catch (err) {
-    console.error("failed to save qualification", err);
-    await loadClinicData();
-    renderQualificationList();
-    alert("保存に失敗しました: " + err.message);
-  } finally {
-    setLoading(false);
-  }
-}
-
-els.category.addEventListener("change", () => {
-  updateQualificationSelect();
-  updateFormState();
-});
-els.qualification.addEventListener("change", () => {
-  toggleManualInput(els.qualification.value === "__direct");
-  updateFormState();
-});
-els.manualInput.addEventListener("input", updateFormState);
-els.submit.addEventListener("click", handleSubmit);
-els.clear.addEventListener("click", event => {
-  event.preventDefault();
-  clearForm();
-});
-
-(async function init() {
-  setLoading(true);
-  try {
-    loadSelectedClinic();
-    await Promise.all([loadCategories(), loadQualificationMaster()]);
-    populateCategoryOptions();
-    clearForm();
-    await loadClinicData();
-    renderQualificationList();
-  } finally {
-    setLoading(false);
-  }
-})();
-</script>
+  })();
+  </script>
 </body>
 </html>
