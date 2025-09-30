@@ -140,16 +140,50 @@ async function loadQualificationMaster() {
 
 async function loadClinicData() {
   if (!selectedClinic) return;
+
+  clinicData = { ...(selectedClinic || {}) };
+  currentQualifications = Array.isArray(clinicData?.qualifications) ? [...clinicData.qualifications] : [];
+
+  const params = new URLSearchParams();
+  if (selectedClinic?.id) {
+    params.set("id", selectedClinic.id);
+  } else if (selectedClinic?.name) {
+    params.set("name", selectedClinic.name);
+  } else {
+    return;
+  }
+
   try {
-    const res = await fetch(`${BASE}/api/listClinics`);
+    const res = await fetch(`${BASE}/api/clinicDetail?${params.toString()}`);
+    if (!res.ok) throw new Error(`status ${res.status}`);
     const data = await res.json();
-    const clinics = Array.isArray(data?.clinics) ? data.clinics : [];
-    clinicData = clinics.find(c => (selectedClinic.id && c.id === selectedClinic.id) || c.name === selectedClinic.name) || { id: selectedClinic?.id, name: selectedClinic?.name };
-    currentQualifications = Array.isArray(clinicData?.qualifications) ? [...clinicData.qualifications] : [];
+    const clinic = data?.clinic;
+    if (!clinic) throw new Error("missing clinic");
+    clinicData = clinic;
+    currentQualifications = Array.isArray(clinic.qualifications) ? [...clinic.qualifications] : [];
+    localStorage.setItem("selectedClinic", JSON.stringify(clinic));
+    selectedClinic = clinic;
+    els.selectedClinicName.textContent = selectedClinic.name || "（名称未設定）";
   } catch (err) {
-    console.error("failed to load clinic data", err);
-    clinicData = { id: selectedClinic?.id, name: selectedClinic?.name };
-    currentQualifications = [];
+    console.warn("failed to load clinic detail", err);
+    try {
+      const res = await fetch(`${BASE}/api/listClinics`);
+      const data = await res.json();
+      const clinics = Array.isArray(data?.clinics) ? data.clinics : [];
+      clinicData = clinics.find(c => (selectedClinic.id && c.id === selectedClinic.id) || c.name === selectedClinic.name) || { id: selectedClinic?.id, name: selectedClinic?.name };
+      currentQualifications = Array.isArray(clinicData?.qualifications) ? [...clinicData.qualifications] : [];
+      if (clinicData?.name) {
+        els.selectedClinicName.textContent = clinicData.name;
+      }
+      if (clinicData?.id || clinicData?.name) {
+        localStorage.setItem("selectedClinic", JSON.stringify(clinicData));
+        selectedClinic = clinicData;
+      }
+    } catch (fallbackErr) {
+      console.error("failed to load clinic data", fallbackErr);
+      clinicData = { id: selectedClinic?.id, name: selectedClinic?.name };
+      currentQualifications = Array.isArray(selectedClinic?.qualifications) ? [...selectedClinic.qualifications] : [];
+    }
   }
 }
 
