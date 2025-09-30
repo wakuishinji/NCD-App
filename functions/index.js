@@ -128,6 +128,52 @@ export default {
     // <<< END: UTILS >>>
 
     const TODO_KEY = "todo:list";
+    const MASTER_CACHE_PREFIX = 'mastercache:';
+    const MASTER_CACHE_TTL_SECONDS = 60;
+
+    function masterCacheKey(type, status) {
+      const normalizedType = type || '__all__';
+      const normalizedStatus = status || '__all__';
+      return `${MASTER_CACHE_PREFIX}${normalizedType}:${normalizedStatus}`;
+    }
+
+    async function getMasterCache(env, type, status) {
+      try {
+        const key = masterCacheKey(type, status);
+        const cachedStr = await env.SETTINGS.get(key);
+        if (!cachedStr) return null;
+        const cached = JSON.parse(cachedStr);
+        if (!cached || typeof cached !== 'object') return null;
+        const age = Date.now() - (cached.ts || 0);
+        if (age > MASTER_CACHE_TTL_SECONDS * 1000) {
+          return null;
+        }
+        if (!Array.isArray(cached.items)) {
+          return null;
+        }
+        return cached.items;
+      } catch (err) {
+        console.warn('failed to read master cache', err);
+        return null;
+      }
+    }
+
+    async function setMasterCache(env, type, status, items) {
+      try {
+        const key = masterCacheKey(type, status);
+        await env.SETTINGS.put(key, JSON.stringify({ ts: Date.now(), items }), {
+          expirationTtl: MASTER_CACHE_TTL_SECONDS,
+        });
+      } catch (err) {
+        console.warn('failed to write master cache', err);
+      }
+    }
+
+    async function invalidateMasterCache(env, type) {
+      const prefix = type ? `${MASTER_CACHE_PREFIX}${type}:` : MASTER_CACHE_PREFIX;
+      const list = await env.SETTINGS.list({ prefix });
+      await Promise.all(list.keys.map(k => env.SETTINGS.delete(k.name).catch(() => {})));
+    }
     const DEFAULT_TODOS = [
       {
         category: "フロントエンド",
@@ -504,6 +550,7 @@ if (routeMatch(url, "GET", "listClinics")) {
         }
 
         await env.SETTINGS.put(key, JSON.stringify(item));
+        await invalidateMasterCache(env, type);
         return new Response(JSON.stringify({ ok: true, item }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -515,37 +562,55 @@ if (routeMatch(url, "GET", "listClinics")) {
 
     // <<< START: MASTER_LIST >>>
     if (routeMatch(url, "GET", "listMaster")) {
-      const type = url.searchParams.get("type"); // 任意: "test" | "service"
-      const status = url.searchParams.get("status"); // 任意
-      const prefix = type ? `master:${type}:` : "master:";
-      const keys = await env.SETTINGS.list({ prefix });
-      const items = [];
+      const type = url.searchParams.get("type");
+      const status = url.searchParams.get("status");
       const includeSimilar = url.searchParams.get("includeSimilar") === "true";
-      const collected = [];
-      for (const k of keys.keys) {
-        const val = await env.SETTINGS.get(k.name);
-        if (!val) continue;
-        const obj = JSON.parse(val);
-        if (typeof obj.desc !== 'string' && Array.isArray(obj.desc_samples) && obj.desc_samples.length) {
-          obj.desc = obj.desc_samples[0];
+      let items = await getMasterCache(env, type, status);
+
+      if (!items) {
+        const prefix = type ? `master:${type}:` : "master:";
+        const keys = await env.SETTINGS.list({ prefix });
+        const keyNames = keys.keys.map(k => k.name);
+        const values = await Promise.all(keyNames.map(name => env.SETTINGS.get(name)));
+        const collator = new Intl.Collator('ja');
+
+        items = [];
+        for (let i = 0; i < keyNames.length; i++) {
+          const raw = values[i];
+          if (!raw) continue;
+          try {
+            const obj = JSON.parse(raw);
+            if (typeof obj.desc !== 'string' && Array.isArray(obj.desc_samples) && obj.desc_samples.length) {
+              obj.desc = obj.desc_samples[0];
+            }
+            if (status && obj.status !== status) continue;
+            obj._key = keyNames[i];
+            items.push(obj);
+          } catch (err) {
+            console.warn('failed to parse master item', keyNames[i], err);
+          }
         }
-        if (status && obj.status !== status) continue;
-        obj._key = k.name;
-        items.push(obj);
-        collected.push({ obj, norm: normalizeForSimilarity(obj.canonical_name || obj.name) });
+
+        items.sort((a, b) => {
+          const ao = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER;
+          const bo = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER;
+          if (ao !== bo) return ao - bo;
+          const ag = a.sortGroup || '';
+          const bg = b.sortGroup || '';
+          const gcmp = collator.compare(ag, bg);
+          if (gcmp !== 0) return gcmp;
+          return collator.compare(a.name || '', b.name || '');
+        });
+
+        await setMasterCache(env, type, status, items);
+      } else {
+        // clone to avoid mutating cached array when enriching below
+        items = items.map(item => ({ ...item }));
       }
-      const collator = new Intl.Collator('ja');
-      items.sort((a, b) => {
-        const ao = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER;
-        const bo = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER;
-        if (ao !== bo) return ao - bo;
-        const ag = a.sortGroup || '';
-        const bg = b.sortGroup || '';
-        const gcmp = collator.compare(ag, bg);
-        if (gcmp !== 0) return gcmp;
-        return collator.compare(a.name || '', b.name || '');
-      });
+
+      let collected = [];
       if (includeSimilar && items.length > 1) {
+        collected = items.map(obj => ({ obj, norm: normalizeForSimilarity(obj.canonical_name || obj.name) }));
         for (const entry of collected) {
           if (!entry.norm) continue;
           const matches = [];
@@ -569,6 +634,7 @@ if (routeMatch(url, "GET", "listClinics")) {
           }
         }
       }
+
       items.sort((a,b)=> (b.count||0)-(a.count||0));
       return new Response(JSON.stringify({ ok: true, items }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -643,6 +709,7 @@ if (routeMatch(url, "GET", "listClinics")) {
         } else {
           await env.SETTINGS.put(key, JSON.stringify(obj));
         }
+        await invalidateMasterCache(env, type);
         return new Response(JSON.stringify({ ok: true, item: obj }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -675,6 +742,7 @@ if (routeMatch(url, "GET", "listClinics")) {
           });
         }
         await env.SETTINGS.delete(key);
+        await invalidateMasterCache(env, type);
         return new Response(JSON.stringify({ ok: true }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
