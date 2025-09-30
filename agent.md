@@ -15,13 +15,17 @@
 - `clinicHome.html`: 選択中施設の概要表示と詳細/資格/検査/診療へのハブ。
 - `clinicDetail.html`: 基本情報（名称・住所・医師数・診療時間）を入力し保存。
 - `clinicQualifications.html` / `clinicServices.html` / `clinicTests.html`: 個人資格・施設認定／診療／検査の入力・閲覧。承認済みマスター参照、簡易エクスポート、AI説明生成をサポート。
-- `admin/admin.html`: タブ式の管理ダッシュボード（ヘッダーのTopリンクは `/index.html`）。
+- `admin/admin.html`: カード型の管理ハブ。診療所リスト／標榜診療科／個人資格／検査／診療／施設認定／運用補助の各カードから専用画面へ遷移。
+- `admin/clinicList.html`: 管理者向けの診療所一覧（検索・並べ替え・エクスポート・削除）。
+- `admin/personalQualifications.html`, `admin/testsMaster.html`, `admin/servicesMaster.html`, `admin/facilityAccreditations.html`: 各マスターの専用管理画面。分類フィルタ・CSV取込・ステータス変更・備考編集を共通UIで提供。
+- `admin/departmentMaster.html`: 標榜診療科マスター管理（1行カード表示）。
+- `admin/settings.html`: AIモデル・プロンプト等の共通設定を編集。
 - `admin/todo.html`: 運用ToDoの閲覧/保存（Workersの `/api/todo/*` と連携）。
 
 個人資格・施設認定の入力仕様
 - 個人資格は「分類（医師/看護/コメディカル/事務/その他）」「医療分野」「名称」「備考（学会名・発行団体など）」で構成し、旧データは自動的に分類=医師・医療分野=旧分類・備考=括弧書き/issuerに正規化。
 - 医療分野マスターは既存の「資格分類」カテゴリを改名し、`/api/listCategories?type=qual` で提供。
-- 施設認定は「種類（学会認定/行政・公費/地域・在宅）」「名称」「備考（指定元等）」で管理し、クリニックデータには `facilityAccreditations`（互換のため `facilityRecognitions` も併記）として保存。
+- 施設認定は「種類（学会認定/行政・公費/地域・在宅）」「名称」「備考（指定元等）」で管理し、クリニックデータには `facilityAccreditations`（互換のため `facilityRecognitions` も併記）として保存。初期マスターには代表的な6件（医療機能評価機構認定、地域医療支援病院 など）を投入済み。
 
 共通UI方針
 - 全ページで青系グラデの共通ヘッダーを適用（Topリンクは絶対 `/index.html`）。
@@ -74,6 +78,7 @@
 - 本ファイルは日本語で記述し、合意事項を確定版として反映する。
 - 重要な設定変更・運用上の方針は本ファイルに追記していく。
 - 本番で作業しているとき以外にコードを変更した場合は毎回プッシュし、本番側が自動でプルしている状態でブラウザ確認を行う。
+- ローカルで実行できる作業（ビルド・デプロイ・移行スクリプトなど）は原則 Codex が担当し、結果を共有する。
 
 ## 本日確認・決定事項（2025-09-25）
 
