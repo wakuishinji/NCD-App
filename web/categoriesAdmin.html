@@ -4,12 +4,13 @@
   <meta charset="UTF-8">
   <title>分類マスター管理 - NCD</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="js/loading.js" defer></script>
 </head>
 <body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col">
   <header class="bg-blue-600 text-white shadow">
     <div class="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
       <h1 class="text-xl font-bold">分類マスター管理</h1>
-      <a href="index.html" class="underline">Home</a>
+      <a href="admin/admin.html" class="underline">管理トップへ戻る</a>
     </div>
   </header>
 
@@ -17,10 +18,7 @@
     <div class="bg-white rounded shadow p-4">
       <div class="flex items-center gap-4 mb-4">
         <label class="font-medium">対象</label>
-        <select id="typeSel" class="border rounded px-2 py-1">
-          <option value="test">検査（〜検査）</option>
-          <option value="service">診療</option>
-        </select>
+        <select id="typeSel" class="border rounded px-2 py-1"></select>
         <button id="reloadBtn" class="bg-gray-200 px-3 py-1 rounded">再読み込み</button>
       </div>
 
@@ -44,80 +42,139 @@
 
   <script>
     const BASE = "https://ncd-app.altry.workers.dev";
+    const TYPE_OPTIONS = [
+      { value: "test", label: "検査分類" },
+      { value: "service", label: "診療分類" },
+      { value: "qual", label: "個人資格分野" },
+      { value: "facility", label: "施設認定の種類" }
+    ];
 
-    // クエリ ?type=test|service で初期選択
+    function populateTypeOptions(initial) {
+      const sel = document.getElementById('typeSel');
+      sel.innerHTML = TYPE_OPTIONS.map(opt => `<option value="${opt.value}">${opt.label}</option>`).join('');
+      if (TYPE_OPTIONS.some(opt => opt.value === initial)) {
+        sel.value = initial;
+      }
+    }
+
     const params = new URLSearchParams(location.search);
-    const initialType = params.get("type");
-    if (initialType === "test" || initialType === "service") {
-      window.addEventListener('DOMContentLoaded', () => {
-        document.getElementById('typeSel').value = initialType;
-      });
+    const requestedType = params.get("type");
+    if (requestedType === 'department') {
+      window.location.href = 'admin/departmentMaster.html';
+    }
+    const validTypes = TYPE_OPTIONS.map(opt => opt.value);
+    const initialType = validTypes.includes(requestedType) ? requestedType : validTypes[0];
+    window.addEventListener('DOMContentLoaded', () => {
+      populateTypeOptions(initialType);
+      loadCats(true);
+    });
+
+    async function loadCats(withOverlay = false) {
+      const executor = async () => {
+        try {
+          const type = document.getElementById('typeSel').value;
+          const r = await fetch(`${BASE}/api/listCategories?type=${type}`);
+          if (!r.ok) {
+            throw new Error(`HTTP ${r.status}`);
+          }
+          const d = await r.json();
+          const tbody = document.getElementById('catTbody');
+          tbody.innerHTML = "";
+          (d.categories || []).forEach((c,i) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td class="border px-2 py-1 text-center">${i+1}</td>
+              <td class="border px-2 py-1"><input value="${c}" class="border rounded px-2 py-1 w-full" data-old="${c}"></td>
+              <td class="border px-2 py-1">
+                <button class="bg-blue-600 text-white px-2 py-1 rounded mr-2 renameBtn">改名</button>
+                <button class="bg-red-600 text-white px-2 py-1 rounded delBtn">削除</button>
+              </td>`;
+            tbody.appendChild(tr);
+          });
+
+          tbody.querySelectorAll('.renameBtn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+              const row = e.target.closest('tr');
+              const input = row.querySelector('input');
+              const oldName = input.getAttribute('data-old');
+              const newName = input.value.trim();
+              if (!newName) return alert("分類名を入力してください");
+              try {
+                const res = await fetch(`${BASE}/api/renameCategory`, {
+                  method: "POST", headers: { "Content-Type":"application/json" },
+                  body: JSON.stringify({ type: document.getElementById('typeSel').value, oldName, newName })
+                });
+                if (!res.ok) throw new Error();
+                await loadCats(true);
+              } catch (err) {
+                console.error('rename failed', err);
+                alert("改名に失敗しました");
+              }
+            });
+          });
+          tbody.querySelectorAll('.delBtn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+              const row = e.target.closest('tr');
+              const name = row.querySelector('input').value.trim();
+              if (!confirm(`「${name}」を削除しますか？`)) return;
+              try {
+                const res = await fetch(`${BASE}/api/deleteCategory`, {
+                  method: "POST", headers: { "Content-Type":"application/json" },
+                  body: JSON.stringify({ type: document.getElementById('typeSel').value, name })
+                });
+                if (!res.ok) throw new Error();
+                await loadCats(true);
+              } catch (err) {
+                console.error('delete failed', err);
+                alert("削除に失敗しました");
+              }
+            });
+          });
+        } catch (error) {
+          console.error('failed to load categories', error);
+          alert('分類の取得に失敗しました');
+          throw error;
+        }
+      };
+
+      if (withOverlay && typeof wrapWithLoading === 'function') {
+        await wrapWithLoading(executor, '分類を読み込み中...', document.querySelector('main'));
+      } else {
+        try {
+          await executor();
+        } catch (error) {
+          console.error(error);
+        }
+      }
     }
 
-    async function loadCats() {
-      const type = document.getElementById('typeSel').value;
-      const r = await fetch(`${BASE}/api/listCategories?type=${type}`);
-      const d = await r.json();
-      const tbody = document.getElementById('catTbody');
-      tbody.innerHTML = "";
-      (d.categories || []).forEach((c,i) => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td class="border px-2 py-1 text-center">${i+1}</td>
-          <td class="border px-2 py-1"><input value="${c}" class="border rounded px-2 py-1 w-full" data-old="${c}"></td>
-          <td class="border px-2 py-1">
-            <button class="bg-blue-600 text-white px-2 py-1 rounded mr-2 renameBtn">改名</button>
-            <button class="bg-red-600 text-white px-2 py-1 rounded delBtn">削除</button>
-          </td>`;
-        tbody.appendChild(tr);
-      });
-
-      // イベント委任：改名/削除
-      tbody.querySelectorAll('.renameBtn').forEach(btn => {
-        btn.addEventListener('click', async (e) => {
-          const row = e.target.closest('tr');
-          const input = row.querySelector('input');
-          const oldName = input.getAttribute('data-old');
-          const newName = input.value.trim();
-          if (!newName) return alert("分類名を入力してください");
-          const r = await fetch(`${BASE}/api/renameCategory`, {
-            method: "POST", headers: { "Content-Type":"application/json" },
-            body: JSON.stringify({ type: document.getElementById('typeSel').value, oldName, newName })
-          });
-          if (!r.ok) return alert("改名に失敗しました");
-          await loadCats();
-        });
-      });
-      tbody.querySelectorAll('.delBtn').forEach(btn => {
-        btn.addEventListener('click', async (e) => {
-          const row = e.target.closest('tr');
-          const name = row.querySelector('input').value.trim();
-          if (!confirm(`「${name}」を削除しますか？`)) return;
-          const r = await fetch(`${BASE}/api/deleteCategory`, {
-            method: "POST", headers: { "Content-Type":"application/json" },
-            body: JSON.stringify({ type: document.getElementById('typeSel').value, name })
-          });
-          if (!r.ok) return alert("削除に失敗しました");
-          await loadCats();
-        });
-      });
-    }
-
-    document.getElementById('reloadBtn').addEventListener('click', loadCats);
-    document.getElementById('typeSel').addEventListener('change', loadCats);
+    document.getElementById('reloadBtn').addEventListener('click', () => loadCats(true));
+    document.getElementById('typeSel').addEventListener('change', () => loadCats(true));
     document.getElementById('addBtn').addEventListener('click', async () => {
       const name = document.getElementById('newCat').value.trim();
       if (!name) return alert("分類名を入力してください");
-      const r = await fetch(`${BASE}/api/addCategory`, {
-        method: "POST", headers: { "Content-Type":"application/json" },
-        body: JSON.stringify({ type: document.getElementById('typeSel').value, name })
-      });
-      if (!r.ok) return alert("追加に失敗しました");
+      if (typeof wrapWithLoading === 'function') {
+        await wrapWithLoading(async () => {
+          const res = await fetch(`${BASE}/api/addCategory`, {
+            method: "POST", headers: { "Content-Type":"application/json" },
+            body: JSON.stringify({ type: document.getElementById('typeSel').value, name })
+          });
+          if (!res.ok) throw new Error('追加に失敗しました');
+        }, '分類を追加しています...', document.querySelector('main'));
+      } else {
+        const res = await fetch(`${BASE}/api/addCategory`, {
+          method: "POST", headers: { "Content-Type":"application/json" },
+          body: JSON.stringify({ type: document.getElementById('typeSel').value, name })
+        });
+        if (!res.ok) {
+          alert("追加に失敗しました");
+          return;
+        }
+      }
       document.getElementById('newCat').value = "";
-      await loadCats();
+      await loadCats(true);
     });
-
-    window.addEventListener('DOMContentLoaded', loadCats);
+    
   </script>
 </body>
 </html>

@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>診療所リスト管理 - NCD</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="../js/loading.js" defer></script>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+  <header class="bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 text-white shadow">
+    <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+      <a href="/admin/admin.html" class="inline-flex items-center gap-2 rounded bg-white/10 px-3 py-2 text-sm font-semibold tracking-wide transition hover:bg-white/20">戻る</a>
+      <h1 class="text-lg font-semibold tracking-wide">診療所リスト管理</h1>
+      <span class="text-sm text-white/80">Nakano Clinic Database</span>
+    </div>
+  </header>
+
+  <main class="flex-1">
+    <div class="max-w-6xl mx-auto px-4 py-8 space-y-6" id="clinicsPanel">
+      <section class="rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
+        <div class="flex flex-col gap-4">
+          <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 class="text-base font-semibold text-blue-900">診療所の一覧・検索・エクスポート</h2>
+              <p class="text-xs text-slate-500">選択すると対象施設が localStorage に保存され、運用画面から編集できます。</p>
+            </div>
+            <div class="flex flex-wrap gap-2 text-sm">
+              <a id="exportClinicsJson" class="rounded bg-slate-700 px-3 py-2 font-semibold text-white transition hover:bg-slate-800" href="#" download>JSON出力</a>
+              <a id="exportClinicsCsv" class="rounded bg-slate-700 px-3 py-2 font-semibold text-white transition hover:bg-slate-800" href="#" download>CSV出力</a>
+            </div>
+          </div>
+
+          <div class="grid gap-3 md:grid-cols-[2fr,1fr,auto]">
+            <input id="clinicQ" class="rounded border px-3 py-2" placeholder="検索（名称・住所）" />
+            <select id="clinicOrder" class="rounded border px-3 py-2">
+              <option value="updated_desc">更新が新しい</option>
+              <option value="updated_asc">更新が古い</option>
+              <option value="name_asc">名称（昇順）</option>
+              <option value="name_desc">名称（降順）</option>
+            </select>
+            <button id="clinicReload" class="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700">再読込</button>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="min-w-full text-sm border">
+              <thead class="bg-slate-100">
+                <tr>
+                  <th class="border px-2 py-1">ID</th>
+                  <th class="border px-2 py-1">名称</th>
+                  <th class="border px-2 py-1">住所</th>
+                  <th class="border px-2 py-1">最終更新</th>
+                  <th class="border px-2 py-1">操作</th>
+                </tr>
+              </thead>
+              <tbody id="clinicsTbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="bg-slate-900/90 text-slate-100">
+    <div class="max-w-6xl mx-auto px-4 py-4 text-xs">© 2025 中野区医師会 Nakano Clinic Database</div>
+  </footer>
+
+  <script>
+    const BASE = "https://ncd-app.altry.workers.dev";
+    let clinicsRaw = [];
+
+    function formatDate(ts) {
+      if (!ts) return '-';
+      try {
+        return new Date(ts * 1000).toLocaleString();
+      } catch (_) {
+        return '-';
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function renderClinics() {
+      const q = (document.getElementById('clinicQ').value || '').trim().toLowerCase();
+      const order = document.getElementById('clinicOrder').value;
+      let list = Array.from(clinicsRaw);
+      if (q) {
+        list = list.filter(c => {
+          const name = (c.name || '').toLowerCase();
+          const address = (c.address || '').toLowerCase();
+          return name.includes(q) || address.includes(q);
+        });
+      }
+      list.sort((a, b) => {
+        if (order === 'updated_desc') return (b.updated_at || 0) - (a.updated_at || 0);
+        if (order === 'updated_asc') return (a.updated_at || 0) - (b.updated_at || 0);
+        if (order === 'name_asc') return (a.name || '').localeCompare(b.name || '');
+        if (order === 'name_desc') return (b.name || '').localeCompare(a.name || '');
+        return 0;
+      });
+
+      const tbody = document.getElementById('clinicsTbody');
+      tbody.innerHTML = '';
+      if (!list.length) {
+        const empty = document.createElement('tr');
+        empty.innerHTML = '<td colspan="5" class="px-3 py-6 text-center text-slate-500">該当する診療所がありません</td>';
+        tbody.appendChild(empty);
+        return;
+      }
+
+      list.forEach(clinic => {
+        const tr = document.createElement('tr');
+        const nameCell = escapeHtml(clinic.name || '');
+        const addressCell = escapeHtml(clinic.address || '');
+        tr.innerHTML = `
+          <td class="border px-2 py-1">${escapeHtml(clinic.id || '')}</td>
+          <td class="border px-2 py-1">${nameCell}</td>
+          <td class="border px-2 py-1">${addressCell}</td>
+          <td class="border px-2 py-1">${escapeHtml(formatDate(clinic.updated_at))}</td>
+          <td class="border px-2 py-1">
+            <button class="mr-2 text-blue-700 underline" data-action="select">選択</button>
+            <button class="text-red-700 underline" data-action="delete">削除</button>
+          </td>
+        `;
+        tr.dataset.clinic = encodeURIComponent(JSON.stringify(clinic));
+        tbody.appendChild(tr);
+      });
+    }
+
+    async function loadClinics(withOverlay = false) {
+      const panel = document.getElementById('clinicsPanel');
+      const executor = async () => {
+        try {
+          const res = await fetch(`${BASE}/api/listClinics`);
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+          }
+          const data = await res.json();
+          clinicsRaw = (data.ok && Array.isArray(data.clinics)) ? data.clinics : [];
+          renderClinics();
+          const jsonLink = document.getElementById('exportClinicsJson');
+          const csvLink = document.getElementById('exportClinicsCsv');
+          jsonLink.href = `${BASE}/api/exportClinics?format=json`;
+          csvLink.href = `${BASE}/api/exportClinics?format=csv`;
+        } catch (error) {
+          console.error('failed to load clinics', error);
+          clinicsRaw = [];
+          renderClinics();
+          throw error;
+        }
+      };
+
+      if (withOverlay && typeof wrapWithLoading === 'function') {
+        try {
+          await wrapWithLoading(executor, '診療所リストを読み込み中...', panel);
+        } catch (error) {
+          alert('診療所リストの取得に失敗しました');
+        }
+      } else {
+        try {
+          await executor();
+        } catch (error) {
+          alert('診療所リストの取得に失敗しました');
+        }
+      }
+    }
+
+    function selectClinic(clinic) {
+      try {
+        localStorage.setItem('selectedClinic', JSON.stringify(clinic));
+        alert(`選択しました: ${clinic.name || clinic.id || '施設'}`);
+      } catch (error) {
+        console.error('failed to select clinic', error);
+        alert('選択に失敗しました');
+      }
+    }
+
+    async function deleteClinic(clinic) {
+      const id = clinic.id || '';
+      const name = clinic.name || '';
+      if (!id && !name) {
+        alert('削除対象が特定できません');
+        return;
+      }
+      if (!confirm(`削除してよろしいですか？\n${name || id}`)) {
+        return;
+      }
+
+      const payload = { id, name };
+      const executor = async () => {
+        const res = await fetch(`${BASE}/api/deleteClinic`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        await loadClinics();
+      };
+
+      try {
+        if (typeof wrapWithLoading === 'function') {
+          await wrapWithLoading(executor, '診療所を削除中...', document.getElementById('clinicsPanel'));
+        } else {
+          await executor();
+        }
+      } catch (error) {
+        console.error('failed to delete clinic', error);
+        alert('削除に失敗しました');
+      }
+    }
+
+    document.getElementById('clinicOrder').addEventListener('change', renderClinics);
+    document.getElementById('clinicQ').addEventListener('input', renderClinics);
+    document.getElementById('clinicReload').addEventListener('click', () => loadClinics(true));
+
+    document.getElementById('clinicsTbody').addEventListener('click', (event) => {
+      const action = event.target.dataset.action;
+      if (!action) return;
+      const tr = event.target.closest('tr');
+      if (!tr) return;
+      try {
+        const data = JSON.parse(decodeURIComponent(tr.dataset.clinic || ''));
+        if (action === 'select') {
+          selectClinic(data);
+        } else if (action === 'delete') {
+          deleteClinic(data);
+        }
+      } catch (error) {
+        console.error('failed to parse clinic data', error);
+        alert('操作に失敗しました');
+      }
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+      loadClinics(true);
+    });
+  </script>
+</body>
+</html>

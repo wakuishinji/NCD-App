@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>検査マスター管理 - NCD</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="../js/loading.js" defer></script>
+  <script src="../js/masterPage.js" defer></script>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+  <header class="bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 text-white shadow">
+    <div class="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
+      <a href="/admin/admin.html" class="inline-flex items-center gap-2 rounded bg-white/10 px-3 py-2 text-sm font-semibold tracking-wide transition hover:bg-white/20">戻る</a>
+      <h1 class="text-lg font-semibold tracking-wide">検査マスター管理</h1>
+      <span class="text-sm text-white/80">Nakano Clinic Database</span>
+    </div>
+  </header>
+
+  <main class="flex-1">
+    <div class="max-w-5xl mx-auto px-4 py-8 space-y-8">
+      <section class="rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm" id="masterPanel">
+        <div class="flex flex-col gap-4">
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 class="text-base font-semibold text-blue-900">検査の分類・名称・説明を整備</h2>
+              <p class="text-xs text-slate-500">CSVは「分類,名称,説明」形式に対応しています。ステータスは承認済みを既定として登録します。</p>
+            </div>
+            <div class="flex flex-wrap gap-2 text-sm">
+              <button id="exportCsv" class="rounded bg-slate-700 px-3 py-2 font-semibold text-white transition hover:bg-slate-800">CSV出力</button>
+              <button id="exportJson" class="rounded bg-slate-700 px-3 py-2 font-semibold text-white transition hover:bg-slate-800">JSON出力</button>
+              <button id="masterImportButton" class="rounded bg-blue-600 px-3 py-2 font-semibold text-white transition hover:bg-blue-700">CSV取込</button>
+              <input type="file" id="masterImportInput" accept=".csv,text/csv" class="hidden" />
+            </div>
+          </div>
+
+          <form id="masterAddForm" class="grid gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+            <div class="grid gap-3 md:grid-cols-[2fr,1fr]">
+              <div>
+                <label class="block text-xs text-slate-600">分類</label>
+                <select id="addCategory" class="w-full rounded border px-2 py-1"></select>
+                <input id="addCategoryManual" class="mt-2 hidden w-full rounded border px-2 py-1" placeholder="直接入力" />
+              </div>
+              <div>
+                <label class="block text-xs text-slate-600">ステータス</label>
+                <select id="addStatus" class="w-full rounded border px-2 py-1">
+                  <option value="approved">approved</option>
+                  <option value="candidate">candidate</option>
+                </select>
+              </div>
+            </div>
+            <div class="grid gap-3 md:grid-cols-2">
+              <div>
+                <label class="block text-xs text-slate-600">検査名称</label>
+                <input id="addName" class="w-full rounded border px-2 py-1" placeholder="例: HbA1c" required />
+              </div>
+              <div>
+                <label class="block text-xs text-slate-600">説明</label>
+                <input id="addDesc" class="w-full rounded border px-2 py-1" placeholder="例: 糖代謝指標" />
+              </div>
+            </div>
+            <div class="flex justify-end">
+              <button class="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700">新規登録</button>
+            </div>
+          </form>
+
+          <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div class="flex flex-wrap gap-2 text-sm">
+              <select id="masterStatus" class="rounded border px-2 py-1">
+                <option value="">全ステータス</option>
+                <option value="approved">approved</option>
+                <option value="candidate">candidate</option>
+                <option value="archived">archived</option>
+              </select>
+              <select id="masterCategory" class="rounded border px-2 py-1">
+                <option value="">全ての分類</option>
+              </select>
+            </div>
+            <div class="flex flex-wrap gap-2 text-sm">
+              <input id="masterSearch" class="w-48 rounded border px-2 py-1" placeholder="キーワード検索" />
+              <button id="masterReload" class="rounded bg-slate-200 px-3 py-1 font-semibold text-slate-700 transition hover:bg-slate-300">再読込</button>
+            </div>
+          </div>
+
+          <div id="masterList" class="space-y-4"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="bg-slate-900/90 text-slate-100">
+    <div class="max-w-5xl mx-auto px-4 py-4 text-xs">© 2025 中野区医師会 Nakano Clinic Database</div>
+  </footer>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      initMasterPage({
+        type: 'test',
+        enableCategoryFilter: true,
+        enableCsvImport: true,
+        showDescription: true,
+        showNotes: false,
+        showClassification: false,
+        enableManualAdd: true,
+        allowFreeCategory: false,
+        loadingMessage: '検査マスターを読み込み中...',
+        elements: {
+          panel: document.getElementById('masterPanel'),
+          list: document.getElementById('masterList'),
+          reloadButton: document.getElementById('masterReload'),
+          statusSelect: document.getElementById('masterStatus'),
+          categorySelect: document.getElementById('masterCategory'),
+          searchInput: document.getElementById('masterSearch'),
+          csvButton: document.getElementById('masterImportButton'),
+          csvInput: document.getElementById('masterImportInput'),
+          addForm: document.getElementById('masterAddForm'),
+          addCategory: document.getElementById('addCategory'),
+          addCategoryManual: document.getElementById('addCategoryManual'),
+          addName: document.getElementById('addName'),
+          addDesc: document.getElementById('addDesc'),
+          addStatus: document.getElementById('addStatus')
+        }
+      });
+      document.getElementById('exportCsv').addEventListener('click', () => {
+        window.open('https://ncd-app.altry.workers.dev/api/exportMaster?type=test&format=csv', '_blank');
+      });
+      document.getElementById('exportJson').addEventListener('click', () => {
+        window.open('https://ncd-app.altry.workers.dev/api/exportMaster?type=test&format=json', '_blank');
+      });
+    });
+  </script>
+</body>
+</html>

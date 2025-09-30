@@ -29,11 +29,57 @@ export default {
       return `master:${type}:${clean(category)}|${clean(name)}`;
     }
 
+    function legacyKey(type, category, name) {
+      return `master:${type}:${nk(category)}:${nk(name)}`;
+    }
+
     function normalizeForSimilarity(s) {
       return (s || "")
         .normalize("NFKC")
         .toLowerCase()
         .replace(/[\s\u3000・･\-ー（）()]/g, "");
+    }
+
+    function extractNameAndNote(name) {
+      const value = nk(name);
+      if (!value) {
+        return { base: "", note: "" };
+      }
+      const match = value.match(/^(.*?)[(（]([^()（）]+)[)）]\s*$/);
+      if (!match) {
+        return { base: value, note: "" };
+      }
+      const base = nk(match[1]);
+      const note = nk(match[2]);
+      return { base: base || value, note };
+    }
+
+    function mergeNotes(...inputs) {
+      const collected = [];
+      for (const input of inputs) {
+        if (!input) continue;
+        if (Array.isArray(input)) {
+          for (const value of input) {
+            const trimmed = nk(value);
+            if (trimmed) collected.push(trimmed);
+          }
+        } else {
+          const trimmed = nk(input);
+          if (trimmed) collected.push(trimmed);
+        }
+      }
+      const unique = Array.from(new Set(collected));
+      return unique.join(' / ');
+    }
+
+    function inferQualClassification(category, current) {
+      const existing = nk(current);
+      if (existing) return existing;
+      const cat = nk(category);
+      if (/看護/.test(cat)) return '看護';
+      if (/療法|リハビリ|技師|技術/.test(cat)) return 'コメディカル';
+      if (/事務|管理/.test(cat)) return '事務';
+      return '医師';
     }
 
     function jaroWinkler(a, b) {
@@ -606,17 +652,76 @@ if (routeMatch(url, "GET", "listClinics")) {
           if (!raw) continue;
           try {
             const obj = JSON.parse(raw);
+            const originalKey = keyNames[i];
+            const isLegacyKey = originalKey.includes(':') && !originalKey.includes('|');
+
+            if (status && obj.status !== status) {
+              continue;
+            }
+
+            const { base: extractedName, note: noteFromName } = extractNameAndNote(obj.name);
+            let targetName = extractedName || nk(obj.name);
+            if (!targetName) {
+              targetName = nk(obj.name);
+            }
+
+            const mergedNotes = mergeNotes(obj.notes, obj.issuer, noteFromName);
+            const normalizedKeyCurrent = normalizeKey(obj.type || type, obj.category, obj.name);
+            let renameRequested = targetName && targetName !== nk(obj.name);
+            let needsRewrite = isLegacyKey;
+
+            if (mergedNotes && mergedNotes !== nk(obj.notes)) {
+              obj.notes = mergedNotes;
+              if (!obj.desc) {
+                obj.desc = mergedNotes;
+              }
+              if (Array.isArray(obj.desc_samples)) {
+                obj.desc_samples = Array.from(new Set([mergedNotes, ...obj.desc_samples])).slice(0, 5);
+              } else {
+                obj.desc_samples = [mergedNotes];
+              }
+              needsRewrite = true;
+            } else if (!obj.notes && typeof obj.desc === 'string') {
+              obj.notes = obj.desc;
+            }
+
+            const inferredClass = inferQualClassification(obj.category, obj.classification);
+            if (inferredClass !== nk(obj.classification)) {
+              obj.classification = inferredClass;
+              needsRewrite = true;
+            }
+
+            let newKeyCandidate = normalizeKey(obj.type || type, obj.category, targetName);
+            if (renameRequested && newKeyCandidate !== normalizedKeyCurrent) {
+              const targetExists = await env.SETTINGS.get(newKeyCandidate);
+              if (targetExists) {
+                renameRequested = false;
+                targetName = nk(obj.name);
+                newKeyCandidate = normalizedKeyCurrent;
+              }
+            }
+
+            if (renameRequested) {
+              obj.name = targetName;
+              needsRewrite = true;
+            }
+
             if (typeof obj.desc !== 'string' && Array.isArray(obj.desc_samples) && obj.desc_samples.length) {
               obj.desc = obj.desc_samples[0];
             }
-            if (obj.type === "qual" && !obj.classification) {
-              obj.classification = PERSONAL_QUAL_CLASSIFICATIONS[0];
+
+            let finalKey = renameRequested ? newKeyCandidate : normalizedKeyCurrent;
+
+            if (needsRewrite) {
+              obj.updated_at = Math.floor(Date.now() / 1000);
+              finalKey = normalizeKey(obj.type || type, obj.category, obj.name);
+              await env.SETTINGS.put(finalKey, JSON.stringify(obj));
+              if (finalKey !== originalKey) {
+                await env.SETTINGS.delete(originalKey);
+              }
             }
-            if (obj.notes == null && typeof obj.desc === 'string') {
-              obj.notes = obj.desc;
-            }
-            if (status && obj.status !== status) continue;
-            obj._key = keyNames[i];
+
+            obj._key = finalKey || originalKey;
             items.push(obj);
           } catch (err) {
             console.warn('failed to parse master item', keyNames[i], err);
@@ -678,14 +783,23 @@ if (routeMatch(url, "GET", "listClinics")) {
     if (routeMatch(url, "POST", "updateMasterItem")) {
       try {
         const body = await request.json();
-        const { type, category, name, status, canonical_name, sortGroup, sortOrder, newCategory, newName, desc } = body || {};
+        const { type, category, name, status, canonical_name, sortGroup, sortOrder, newCategory, newName, desc, notes, classification } = body || {};
         if (!type || !category || !name) {
           return new Response(JSON.stringify({ error: "type, category, name は必須です" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
         const key = normalizeKey(type, category, name);
-        const existing = await env.SETTINGS.get(key);
+        let existing = await env.SETTINGS.get(key);
+        const legacy = legacyKey(type, category, name);
+        let legacyFound = false;
+        if (!existing) {
+          const legacyValue = await env.SETTINGS.get(legacy);
+          if (legacyValue) {
+            existing = legacyValue;
+            legacyFound = true;
+          }
+        }
         if (!existing) {
           return new Response(JSON.stringify({ error: "対象が見つかりません" }), {
             status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -708,6 +822,25 @@ if (routeMatch(url, "GET", "listClinics")) {
           obj.desc = desc;
           if (desc) {
             obj.desc_samples = Array.from(new Set([desc, ...(obj.desc_samples || [])])).slice(0, 5);
+          } else if (Array.isArray(obj.desc_samples) && obj.desc_samples.length && !obj.desc) {
+            obj.desc = obj.desc_samples[0];
+          }
+        }
+        if (typeof notes === "string") {
+          const trimmedNotes = notes.trim();
+          obj.notes = trimmedNotes || null;
+          if (!desc && trimmedNotes) {
+            obj.desc = trimmedNotes;
+          }
+        }
+        if (typeof classification === "string") {
+          const trimmedClass = classification.trim();
+          if (trimmedClass) {
+            obj.classification = trimmedClass;
+          } else if (obj.type === "qual") {
+            obj.classification = PERSONAL_QUAL_CLASSIFICATIONS[0];
+          } else {
+            obj.classification = null;
           }
         }
 
@@ -736,10 +869,17 @@ if (routeMatch(url, "GET", "listClinics")) {
         obj.updated_at = Math.floor(Date.now() / 1000);
 
         if (renaming) {
-          await env.SETTINGS.delete(key);
+          if (legacyFound) {
+            await env.SETTINGS.delete(legacy);
+          } else {
+            await env.SETTINGS.delete(key);
+          }
           await env.SETTINGS.put(newKey, JSON.stringify(obj));
         } else {
-          await env.SETTINGS.put(key, JSON.stringify(obj));
+          await env.SETTINGS.put(newKey, JSON.stringify(obj));
+          if (legacyFound && legacy !== newKey) {
+            await env.SETTINGS.delete(legacy);
+          }
         }
         await invalidateMasterCache(env, type);
         return new Response(JSON.stringify({ ok: true, item: obj }), {
@@ -767,13 +907,20 @@ if (routeMatch(url, "GET", "listClinics")) {
           });
         }
         const key = normalizeKey(type, category, name);
+        const legacy = legacyKey(type, category, name);
         const existing = await env.SETTINGS.get(key);
-        if (!existing) {
+        const legacyExisting = existing ? null : await env.SETTINGS.get(legacy);
+        if (!existing && !legacyExisting) {
           return new Response(JSON.stringify({ error: "対象が見つかりません" }), {
             status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        await env.SETTINGS.delete(key);
+        if (existing) {
+          await env.SETTINGS.delete(key);
+        }
+        if (legacyExisting) {
+          await env.SETTINGS.delete(legacy);
+        }
         await invalidateMasterCache(env, type);
         return new Response(JSON.stringify({ ok: true }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -837,6 +984,7 @@ if (routeMatch(url, "GET", "listClinics")) {
       "放射線科領域","麻酔科領域","病理領域","臨床検査領域","リハビリテーション領域"
     ];
     const DEFAULT_CATEGORIES_DEPARTMENT = ["標榜診療科"];
+    const DEFAULT_CATEGORIES_FACILITY = ["学会認定","行政・公費","地域・在宅"];
 
     async function getCategories(env, type) {
       const key = `categories:${type}`;
@@ -854,6 +1002,7 @@ if (routeMatch(url, "GET", "listClinics")) {
         case "service": return [...DEFAULT_CATEGORIES_SERVICE];
         case "qual": return [...DEFAULT_CATEGORIES_QUAL];
         case "department": return [...DEFAULT_CATEGORIES_DEPARTMENT];
+        case "facility": return [...DEFAULT_CATEGORIES_FACILITY];
         default: return [];
       }
     }
@@ -861,8 +1010,8 @@ if (routeMatch(url, "GET", "listClinics")) {
     // <<< START: CATEGORIES_LIST >>>
       if (routeMatch(url, "GET", "listCategories")) {
     const type = url.searchParams.get("type");
-    if (!type || !["test","service","qual","department"].includes(type)) {
-      return new Response(JSON.stringify({ error: "type は test / service / qual / department" }), {
+    if (!type || !["test","service","qual","department","facility"].includes(type)) {
+      return new Response(JSON.stringify({ error: "type は test / service / qual / department / facility" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
@@ -881,8 +1030,8 @@ if (routeMatch(url, "GET", "listClinics")) {
       const body = await request.json();
       const type = body?.type;
       const name = (body?.name || "").trim();
-      if (!type || !["test","service","qual","department"].includes(type) || !name) {
-        return new Response(JSON.stringify({ error: "type/name 不正（type は test / service / qual / department）" }), {
+      if (!type || !["test","service","qual","department","facility"].includes(type) || !name) {
+        return new Response(JSON.stringify({ error: "type/name 不正（type は test / service / qual / department / facility）" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       }
@@ -901,8 +1050,8 @@ if (routeMatch(url, "GET", "listClinics")) {
       const type = body?.type;
       const oldName = (body?.oldName || "").trim();
       const newName = (body?.newName || "").trim();
-      if (!type || !["test","service","qual","department"].includes(type) || !oldName || !newName) {
-        return new Response(JSON.stringify({ error: "パラメータ不正（type は test / service / qual / department）" }), {
+      if (!type || !["test","service","qual","department","facility"].includes(type) || !oldName || !newName) {
+        return new Response(JSON.stringify({ error: "パラメータ不正（type は test / service / qual / department / facility）" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       }
@@ -920,8 +1069,8 @@ if (routeMatch(url, "GET", "listClinics")) {
       const body = await request.json();
       const type = body?.type;
       const name = (body?.name || "").trim();
-      if (!type || !["test","service","qual","department"].includes(type) || !name) {
-        return new Response(JSON.stringify({ error: "パラメータ不正（type は test / service / qual / department）" }), {
+      if (!type || !["test","service","qual","department","facility"].includes(type) || !name) {
+        return new Response(JSON.stringify({ error: "パラメータ不正（type は test / service / qual / department / facility）" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       }
