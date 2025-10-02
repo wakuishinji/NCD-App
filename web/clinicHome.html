@@ -5,16 +5,28 @@
   <title>施設ホーム - NCD</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="js/header.js" defer></script>
 </head>
 <body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col">
   <!-- ヘッダー -->
   <header class="bg-gradient-to-r from-blue-950 via-slate-900 to-blue-950 text-white shadow">
-    <div class="max-w-5xl mx-auto px-4 py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-      <div class="flex flex-wrap items-center gap-2">
-        <a href="/index.html" class="inline-flex items-center rounded bg-white/20 px-3 py-1 text-sm font-semibold text-white transition hover:bg-white/30">Top</a>
+    <div class="max-w-5xl mx-auto px-4 py-4">
+      <div class="flex items-center justify-between gap-3">
+        <div class="hidden md:flex items-center gap-2">
+          <a href="/index.html" class="inline-flex items-center rounded bg-white/20 px-3 py-1 text-sm font-semibold text-white transition hover:bg-white/30">Top</a>
+        </div>
+        <h1 class="text-lg md:text-xl font-bold text-center md:text-left md:flex-1">施設ホーム</h1>
+        <a href="clinicList.html" class="hidden md:inline-flex items-center rounded bg-white/20 px-3 py-1 text-sm font-semibold text-white transition hover:bg-white/30 whitespace-nowrap">施設選択へ</a>
+        <button type="button" class="inline-flex items-center justify-center rounded bg-white/10 px-3 py-2 text-sm font-semibold transition hover:bg-white/20 md:hidden" data-mobile-menu="#clinic-home-nav" aria-controls="clinic-home-nav" aria-expanded="false" aria-label="メニューを開く">
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 7h16M4 12h16M4 17h16" />
+          </svg>
+        </button>
       </div>
-      <h1 class="text-lg md:text-xl font-bold text-center md:text-left md:flex-1">施設ホーム</h1>
-      <a href="clinicList.html" class="self-start md:self-auto md:ml-auto text-white/90 hover:text-white text-sm underline whitespace-nowrap">施設選択へ</a>
+      <nav id="clinic-home-nav" data-mobile-menu-target class="mt-3 hidden flex-col gap-2 md:hidden">
+        <a href="/index.html" class="inline-flex items-center rounded bg-white/20 px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/30">Top</a>
+        <a href="clinicList.html" class="inline-flex items-center rounded bg-white/20 px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/30">施設選択へ</a>
+      </nav>
     </div>
   </header>
 
