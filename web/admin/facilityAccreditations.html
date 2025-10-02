@@ -42,10 +42,12 @@
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
   <header class="ncd-sticky-header bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 text-white shadow">
-    <div class="ncd-header-condensed max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
-      <a href="/admin/admin.html" class="inline-flex items-center gap-2 rounded bg-white/10 px-3 py-2 text-sm font-semibold tracking-wide transition hover:bg-white/20">戻る</a>
-      <h1 class="text-lg font-semibold tracking-wide">施設認定マスター管理</h1>
-      <span class="text-sm text-white/80">Nakano Clinic Database</span>
+    <div class="ncd-header-condensed max-w-5xl mx-auto px-4 py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div class="flex flex-wrap items-center gap-2">
+        <a href="/admin/admin.html" class="inline-flex items-center gap-2 rounded bg-white/10 px-3 py-2 text-sm font-semibold tracking-wide transition hover:bg-white/20">戻る</a>
+      </div>
+      <h1 class="text-lg md:text-xl font-semibold tracking-wide text-center md:text-left md:flex-1">施設認定マスター管理</h1>
+      <span class="self-start md:self-auto md:ml-auto text-sm text-white/80 whitespace-nowrap">Nakano Clinic Database</span>
     </div>
   </header>
 
