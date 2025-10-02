@@ -6,10 +6,42 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="../js/loading.js" defer></script>
+  <style>
+    :root {
+      --ncd-header-height: 64px;
+      --ncd-toolbar-gap: 8px;
+    }
+    @media (max-width: 640px) {
+      :root {
+        --ncd-header-height: 56px;
+      }
+      .ncd-header-condensed {
+        padding-top: 0.75rem;
+        padding-bottom: 0.75rem;
+      }
+      .ncd-toolbar-condensed {
+        gap: 0.5rem;
+      }
+    }
+    .ncd-sticky-header {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+    .ncd-sticky-toolbar {
+      position: sticky;
+      top: calc(var(--ncd-header-height) + var(--ncd-toolbar-gap));
+      z-index: 40;
+    }
+    .ncd-toolbar-surface {
+      background-color: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(6px);
+    }
+  </style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
-  <header class="bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 text-white shadow">
-    <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+  <header class="ncd-sticky-header bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 text-white shadow">
+    <div class="ncd-header-condensed max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
       <a href="/admin/admin.html" class="inline-flex items-center gap-2 rounded bg-white/10 px-3 py-2 text-sm font-semibold tracking-wide transition hover:bg-white/20">戻る</a>
       <h1 class="text-lg font-semibold tracking-wide">診療所リスト管理</h1>
       <span class="text-sm text-white/80">Nakano Clinic Database</span>
@@ -31,7 +63,7 @@
             </div>
           </div>
 
-          <div class="grid gap-3 md:grid-cols-[2fr,1fr,auto]">
+          <div class="ncd-sticky-toolbar ncd-toolbar-surface rounded-lg border border-slate-200 px-3 py-3 shadow-sm ncd-toolbar-condensed grid gap-2 md:grid-cols-[2fr,1fr,auto]">
             <input id="clinicQ" class="rounded border px-3 py-2" placeholder="検索（名称・住所）" />
             <select id="clinicOrder" class="rounded border px-3 py-2">
               <option value="updated_desc">更新が新しい</option>
