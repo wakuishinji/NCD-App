@@ -35,6 +35,10 @@
       <div class="bg-white shadow rounded p-6">
         <h2 class="text-blue-800 text-lg font-semibold mb-4">診療所一覧</h2>
         <p class="text-sm text-gray-600 mb-4">選択するとローカルに保存され、施設ホーム画面へ移動します。</p>
+        <div class="mb-4">
+          <label for="clinicSearch" class="block text-sm font-medium text-gray-700">名称で検索</label>
+          <input id="clinicSearch" type="search" placeholder="例: のがた" class="mt-1 w-full rounded border px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring focus:ring-blue-200" autocomplete="off" />
+        </div>
         <table class="w-full border border-gray-200 text-sm">
           <thead>
             <tr class="bg-gray-100 text-left text-xs uppercase tracking-wide text-gray-500">
@@ -54,42 +58,81 @@
   </footer>
 
   <script>
+  const clinicTableBody = document.getElementById('clinicTable');
+  const clinicSearchInput = document.getElementById('clinicSearch');
+  let clinicData = [];
+  let currentKeyword = '';
+
+  function renderClinics(list, isFiltered) {
+    if (!Array.isArray(list) || list.length === 0) {
+      const message = isFiltered ? '該当する診療所がありません。' : '登録済みの診療所はありません。';
+      clinicTableBody.innerHTML = `<tr><td colspan='3' class='p-3 text-center text-gray-500'>${message}</td></tr>`;
+      return;
+    }
+
+    clinicTableBody.innerHTML = list
+      .map((c, i) => {
+        const payload = encodeURIComponent(JSON.stringify(c));
+        return `
+          <tr class="hover:bg-blue-50">
+            <td class="p-2 border align-top">${i + 1}</td>
+            <td class="p-2 border">
+              <div class="font-semibold text-blue-800">${c.name || "(名称未設定)"}</div>
+              <div class="text-xs text-gray-500 mt-1">${c.address || "住所未登録"}</div>
+            </td>
+            <td class="p-2 border align-top text-center">
+              <button class="bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700"
+                      data-clinic="${payload}"
+                      onclick="selectClinic(this)">選択</button>
+            </td>
+          </tr>`;
+      })
+      .join('');
+  }
+
+  function normalize(text) {
+    return (text || '').toString().toLowerCase();
+  }
+
+  function applyFilter(keyword) {
+    currentKeyword = keyword;
+    const trimmed = keyword.trim();
+    if (!trimmed) {
+      renderClinics(clinicData, false);
+      return;
+    }
+
+    const normalizedKeyword = normalize(trimmed);
+    const filtered = clinicData.filter((clinic) => normalize(clinic.name).includes(normalizedKeyword));
+    renderClinics(filtered, true);
+  }
+
   async function loadClinics() {
-    const tbody = document.getElementById("clinicTable");
-    tbody.innerHTML = "<tr><td colspan='3' class='p-3 text-center text-gray-500'>読み込み中...</td></tr>";
+    clinicTableBody.innerHTML = "<tr><td colspan='3' class='p-3 text-center text-gray-500'>読み込み中...</td></tr>";
 
     try {
       const res = await fetch("https://ncd-app.altry.workers.dev/api/listClinics");
       const data = await res.json();
 
       if (res.ok && data.ok && Array.isArray(data.clinics) && data.clinics.length > 0) {
-        tbody.innerHTML = data.clinics
-          .map((c, i) => {
-            const payload = encodeURIComponent(JSON.stringify(c));
-            return `
-              <tr class="hover:bg-blue-50">
-                <td class="p-2 border align-top">${i + 1}</td>
-                <td class="p-2 border">
-                  <div class="font-semibold text-blue-800">${c.name || "(名称未設定)"}</div>
-                  <div class="text-xs text-gray-500 mt-1">${c.address || "住所未登録"}</div>
-                </td>
-                <td class="p-2 border align-top text-center">
-                  <button class="bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700"
-                          data-clinic="${payload}"
-                          onclick="selectClinic(this)">選択</button>
-                </td>
-              </tr>`;
-          })
-          .join("");
+        clinicData = data.clinics;
+        applyFilter(currentKeyword);
       } else {
-        tbody.innerHTML = "<tr><td colspan='3' class='p-3 text-center text-gray-500'>登録済みの診療所はありません。</td></tr>";
+        clinicData = [];
+        renderClinics([], false);
       }
     } catch (err) {
-      tbody.innerHTML = `<tr><td colspan='3' class='p-3 text-center text-red-600'>エラー: ${err.message}</td></tr>`;
+      clinicTableBody.innerHTML = `<tr><td colspan='3' class='p-3 text-center text-red-600'>エラー: ${err.message}</td></tr>`;
     }
   }
 
   loadClinics();
+
+  if (clinicSearchInput) {
+    clinicSearchInput.addEventListener('input', (event) => {
+      applyFilter(event.target.value || '');
+    });
+  }
 
   function selectClinic(btn) {
     try {
