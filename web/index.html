@@ -54,19 +54,27 @@
       </h1>
       <p class="mt-4 text-lg md:text-xl text-white/90">NCD 入力システム</p>
 
-      <div class="mt-8 flex items-center justify-center gap-3 md:gap-4">
-        <a href="register.html" class="inline-flex items-center gap-2 rounded-md bg-white/95 text-gray-900 px-5 py-3 font-semibold shadow hover:bg-white">
-          <i class="fas fa-plus-circle"></i>
-          新規登録
-        </a>
-        <a href="list.html" class="inline-flex items-center gap-2 rounded-md bg-blue-500/90 text-white px-5 py-3 font-semibold shadow hover:bg-blue-500">
-          <i class="fas fa-list"></i>
-          施設を選ぶ
-        </a>
-        <a href="searchSymptom.html" class="inline-flex items-center gap-2 rounded-md bg-emerald-500/90 text-white px-5 py-3 font-semibold shadow hover:bg-emerald-500">
-          <i class="fas fa-stethoscope"></i>
-          症状から探す
-        </a>
+      <div class="mt-8 flex flex-col items-center gap-4">
+        <div class="flex items-center justify-center gap-3 md:gap-4">
+          <a href="register.html" class="inline-flex items-center gap-2 rounded-md bg-white/95 text-gray-900 px-5 py-3 font-semibold shadow hover:bg-white">
+            <i class="fas fa-plus-circle"></i>
+            新規登録
+          </a>
+          <a href="list.html" class="inline-flex items-center gap-2 rounded-md bg-blue-500/90 text-white px-5 py-3 font-semibold shadow hover:bg-blue-500">
+            <i class="fas fa-list"></i>
+            施設を選ぶ
+          </a>
+        </div>
+        <div class="flex flex-col items-center gap-3 md:flex-row md:gap-4">
+          <a href="searchMap.html" class="inline-flex items-center gap-2 rounded-md bg-amber-500/90 text-white px-5 py-3 font-semibold shadow hover:bg-amber-500">
+            <i class="fas fa-map-marker-alt"></i>
+            テスト：地図から検索
+          </a>
+          <a href="searchSymptom.html" class="inline-flex items-center gap-2 rounded-md bg-emerald-500/90 text-white px-5 py-3 font-semibold shadow hover:bg-emerald-500">
+            <i class="fas fa-stethoscope"></i>
+            テスト：症状で検索
+          </a>
+        </div>
       </div>
     </div>
   </section>
@@ -95,7 +103,7 @@
     <h3 class="text-xl font-bold mb-2 mt-8">症状から検索</h3>
     <p class="mb-4">患者さんの主訴や気になる症状から、対応可能な診療所や検査を検索できます</p>
     <a href="searchSymptom.html" class="block bg-white shadow rounded p-6 hover:bg-gray-50">
-      <i class="fas fa-stethoscope"></i> 症状から探す
+      <i class="fas fa-stethoscope"></i> テスト：症状で検索
     </a>
   </main>
 

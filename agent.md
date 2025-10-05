@@ -188,6 +188,18 @@
 - 2025-10-05: `/api/searchClinicsBySymptom` を実装し、`web/searchSymptom.html` から症状→診療・検査→診療所を横断検索できるようにした（関連マスター・未対応項目の可視化を含む）。
 - 2025-10-05: トップページの症状検索ボタンはテスト向け (`テスト 症状で検索`) に変更予定。本番利用は患者向け検索ページ（症状・地図など）で提供する方針。同様に `テスト 地図から検索` 導線も暫定で追加する。
 - 2025-10-06: 症状・部位マスターの種別を拡充（めまい/胸痛/呼吸困難/下痢/関節痛、腰部/骨盤/肩関節/膝関節など）し、`scripts/seedSymptomMaster.js` と `scripts/seedBodySiteMaster.js` を更新。
+- 2025-10-07: `web/searchMap.html` と `web/clinicSummary.html` を刷新し、フロント側でクリニック一覧と詳細ページへ遷移できる検索/サマリーUIを追加。Leafletベースで暫定マップ表示を実装しつつ、Google Maps Platform への置き換え方針と比較検討結果を整理（下記メモ参照）。
+
+#### Frontend Search/Map メモ (2025-10-07)
+- 現状: Leaflet + OSM で暫定表示中。症状検索ページからはクリニック検索API結果に基づきサマリーページへ遷移可能。
+- 地図検索: `/api/listClinics` の結果をそのまま利用し、住所ありクリニックはすべてピン表示が望ましい。現在は緯度経度が欠けており、`FALLBACK_COORDS` で野方クリニックのみハードコード表示。
+- サマリー画面: `/api/clinicDetail` を表示。Leafletでマップにピン表示するが、座標未設定の場合はメッセージを表示。
+- TODO（確定方針）:
+  - Google Maps Platform を採用予定（予算クリア前提）。次の実装で Maps JS API + Geocoding API へ切り替える。
+  - 現在地（Geolocation API）・任意住所検索（Geocoding）をサポートし、地図中心を更新させる。
+  - すべてのクリニックについて緯度経度キャッシュ整備 or サーバー側ジオコーディングを実施する。
+  - ピンクリック/InfoWindowからサマリーページ遷移できるようにする（UI仕様はGoogle Maps版で再実装）。
+- 留意点: Google APIキー管理（フロント/バック別）、課金監視設定、規約遵守（ロゴ表示/キャッシュ禁止）を導入すること。
 
 - Symptom Master（`master:symptom:<category>|<name>`）: 共通フィールドに加えて `patientLabel`（患者向け名称）、`bodySiteRefs`（`bodySite:<slug>`配列）、`severityTags`、`icd10`、`synonyms`、`defaultServices`（関連サービスの`masterKey`配列）を格納する。初期カテゴリは「消化器症状」「呼吸器症状」「循環器症状」など診療領域別に設定。
 - Body Site Master（`master:bodySite:<system>|<name>`）: `anatomicalSystem`（器官系）、`canonical_name`（半角キー）、`parentKey`（上位部位）、`laterality`（左右/両側など）、`aliases`、`patientLabel` を保持し階層化する。トップ階層は「頭頸部」「胸部」「腹部」「四肢」「体幹」「皮膚」などを想定。

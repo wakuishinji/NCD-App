@@ -15,7 +15,8 @@
     categories: [],
     selected: null,
     result: null,
-    bodySiteMap: new Map()
+    bodySiteMap: new Map(),
+    symptomOptions: []
   };
 
   function nk(value) {
@@ -69,6 +70,14 @@
     return { type, category, name };
   }
 
+  function getSymptomKey(symptom) {
+    if (!symptom || typeof symptom !== 'object') return '';
+    if (symptom._key) return symptom._key;
+    const category = symptom.category || '';
+    const name = symptom.name || '';
+    return `master:symptom:${category}|${name}`;
+  }
+
   async function fetchJson(path) {
     const res = await fetch(`${API_BASE}${path}`);
     if (!res.ok) {
@@ -91,6 +100,69 @@
       option.textContent = category;
       els.categoryFilter.appendChild(option);
     });
+  }
+
+  function populateSymptomSelect() {
+    if (!els.symptomSelect) return;
+
+    els.symptomSelect.innerHTML = '';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = '症状を選択（部位順）';
+    els.symptomSelect.appendChild(placeholder);
+
+    const options = state.symptoms.map(symptom => {
+      const key = getSymptomKey(symptom);
+      const primary = resolvePrimaryBodySite(symptom);
+      const symptomLabel = symptom.name || symptom.patientLabel || '名称未設定';
+      const bodySiteLabel = primary.label || '部位未設定';
+      const bodyCategory = primary.category || '';
+      const display = bodyCategory ? `${bodySiteLabel} / ${bodyCategory} / ${symptomLabel}` : `${bodySiteLabel} / ${symptomLabel}`;
+      return { key, display, bodySiteLabel, symptomLabel, symptom };
+    });
+
+    options.sort((a, b) => {
+      const siteDiff = a.bodySiteLabel.localeCompare(b.bodySiteLabel, 'ja');
+      if (siteDiff !== 0) return siteDiff;
+      return a.symptomLabel.localeCompare(b.symptomLabel, 'ja');
+    });
+
+    state.symptomOptions = options;
+    options.forEach(option => {
+      const opt = document.createElement('option');
+      opt.value = option.key;
+      opt.textContent = option.display;
+      opt.dataset.bodySite = option.bodySiteLabel;
+      els.symptomSelect.appendChild(opt);
+    });
+  }
+
+  function handleSymptomSelect(event) {
+    const key = event.target.value;
+    if (!key) {
+      state.selected = null;
+      state.result = null;
+      els.searchInput.value = '';
+      els.categoryFilter.value = '';
+      state.filteredSymptoms = [...state.symptoms];
+      renderSymptomList();
+      renderSymptomDetail();
+      hideResults();
+      return;
+    }
+
+    const foundOption = state.symptomOptions.find(option => option.key === key);
+    const target = foundOption?.symptom || state.symptoms.find(item => getSymptomKey(item) === key);
+    if (!target) return;
+
+    state.selected = target;
+    state.result = null;
+    els.searchInput.value = '';
+    els.categoryFilter.value = '';
+    state.filteredSymptoms = [...state.symptoms];
+    renderSymptomList();
+    renderSymptomDetail();
+    hideResults();
   }
 
   function groupSymptoms(symptoms) {
@@ -228,6 +300,24 @@
     });
   }
 
+  function resolvePrimaryBodySite(symptom) {
+    const sites = resolveBodySites(symptom);
+    if (!sites.length) {
+      return { label: '部位未設定', category: '', site: null };
+    }
+    const sorted = [...sites].sort((a, b) => {
+      const labelA = (a.patientLabel || a.name || a.ref || '').localeCompare(b.patientLabel || b.name || b.ref || '', 'ja');
+      if (labelA !== 0) return labelA;
+      return (a.category || '').localeCompare(b.category || '', 'ja');
+    });
+    const primary = sorted.find(item => item?.patientLabel) || sorted[0];
+    return {
+      label: primary.patientLabel || primary.name || primary.ref || '部位未設定',
+      category: primary.category || '',
+      site: primary
+    };
+  }
+
   function parseRecommendation(keys, expectedType) {
     if (!Array.isArray(keys)) return [];
     const items = [];
@@ -279,12 +369,18 @@
 
   function renderSymptomDetail() {
     if (!state.selected) {
+      if (els.symptomSelect) {
+        els.symptomSelect.value = '';
+      }
       els.symptomInfo.classList.add('hidden');
       els.symptomEmpty.classList.remove('hidden');
       return;
     }
 
     const base = state.selected;
+    if (els.symptomSelect) {
+      els.symptomSelect.value = getSymptomKey(base);
+    }
     const enriched = state.result?.symptom;
     const name = enriched?.name || base.name || '名称未設定';
     const patientLabel = enriched?.patientLabel || base.patientLabel;
@@ -391,7 +487,15 @@
 
         const title = document.createElement('h4');
         title.className = 'text-lg font-semibold text-blue-900';
-        title.textContent = clinic.clinicName || '名称未登録';
+        if (clinic.clinicId) {
+          const link = document.createElement('a');
+          link.href = `clinicSummary.html?id=${encodeURIComponent(clinic.clinicId)}`;
+          link.className = 'hover:underline';
+          link.textContent = clinic.clinicName || '名称未登録';
+          title.appendChild(link);
+        } else {
+          title.textContent = clinic.clinicName || '名称未登録';
+        }
         header.appendChild(title);
 
         if (typeof clinic.score === 'number') {
@@ -466,6 +570,17 @@
           });
           block.append(label, list);
           card.appendChild(block);
+        }
+
+        if (clinic.clinicId) {
+          const actions = document.createElement('div');
+          actions.className = 'flex flex-wrap gap-2 pt-2';
+          const detailLink = document.createElement('a');
+          detailLink.href = `clinicSummary.html?id=${encodeURIComponent(clinic.clinicId)}`;
+          detailLink.className = 'inline-flex items-center gap-2 rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700';
+          detailLink.textContent = '詳細を見る';
+          actions.appendChild(detailLink);
+          card.appendChild(actions);
         }
 
         els.resultsList.appendChild(card);
@@ -572,6 +687,7 @@
     state.symptoms = items;
     state.categories = Array.from(new Set(items.map(item => item.category).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ja'));
     populateCategoryFilter();
+    populateSymptomSelect();
     state.filteredSymptoms = [...state.symptoms];
     renderSymptomList();
   }
@@ -579,6 +695,7 @@
   function bindElements() {
     els.searchInput = document.getElementById('symptomSearch');
     els.categoryFilter = document.getElementById('symptomCategoryFilter');
+    els.symptomSelect = document.getElementById('symptomSelect');
     els.symptomList = document.getElementById('symptomList');
     els.symptomEmpty = document.getElementById('symptomEmpty');
     els.symptomInfo = document.getElementById('symptomInfo');
@@ -597,6 +714,9 @@
 
     els.searchInput.addEventListener('input', applyFilters);
     els.categoryFilter.addEventListener('change', applyFilters);
+    if (els.symptomSelect) {
+      els.symptomSelect.addEventListener('change', handleSymptomSelect);
+    }
     els.searchButton.addEventListener('click', searchClinicsForSelected);
   }
 
