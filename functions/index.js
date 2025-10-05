@@ -21,6 +21,22 @@ export default {
 
     function nk(s) { return (s || "").trim(); }
 
+    function optionalString(value) {
+      const trimmed = nk(value);
+      return trimmed ? trimmed : null;
+    }
+
+    function normalizeStringArray(value) {
+      if (Array.isArray(value)) {
+        return Array.from(new Set(value.map(v => nk(v)).filter(Boolean)));
+      }
+      if (typeof value === "string") {
+        const single = nk(value);
+        return single ? [single] : [];
+      }
+      return [];
+    }
+
     // 正規化キー（マスター用）
     function normalizeKey(type, category, name) {
       const zenkakuToHankaku = (s) => s.normalize("NFKC");
@@ -38,6 +54,136 @@ export default {
         .normalize("NFKC")
         .toLowerCase()
         .replace(/[\s\u3000・･\-ー（）()]/g, "");
+    }
+
+    function normalizeThesaurusTerm(s) {
+      return (s || "")
+        .normalize("NFKC")
+        .trim()
+        .toLowerCase();
+    }
+
+    function sanitizeKeySegment(value) {
+      if (!value) return '';
+      return value
+        .normalize('NFKC')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '');
+    }
+
+    function comparableMasterKey(type, category, name) {
+      const t = sanitizeKeySegment(type);
+      const c = sanitizeKeySegment(category);
+      const n = sanitizeKeySegment(name);
+      if (!t || !c || !n) return null;
+      return `${t}:${c}|${n}`;
+    }
+
+    function parseMasterKeyLoose(key) {
+      if (!key) return null;
+      let raw = key.trim();
+      if (raw.startsWith('master:')) {
+        raw = raw.substring(7);
+      }
+      const typeSep = raw.indexOf(':');
+      if (typeSep === -1) return null;
+      const type = raw.substring(0, typeSep);
+      const rest = raw.substring(typeSep + 1);
+      const nameSep = rest.indexOf('|');
+      if (nameSep === -1) return null;
+      const category = rest.substring(0, nameSep);
+      const name = rest.substring(nameSep + 1);
+      const comparable = comparableMasterKey(type, category, name);
+      return comparable ? { type, category, name, comparable } : null;
+    }
+
+    async function loadMasterItemsRaw(env, type) {
+      const prefix = `master:${type}:` ;
+      let cursor = undefined;
+      const out = [];
+      do {
+        const page = await env.SETTINGS.list({ prefix, cursor });
+        for (const entry of page.keys || []) {
+          const key = entry.name;
+          if (!key) continue;
+          const raw = await env.SETTINGS.get(key);
+          if (!raw) continue;
+          try {
+            const obj = JSON.parse(raw);
+            obj._key = key;
+            if (!obj.type) obj.type = type;
+            out.push(obj);
+          } catch (err) {
+            console.warn('failed to parse master item (raw)', key, err);
+          }
+        }
+        cursor = page.cursor;
+        if (page.list_complete) break;
+      } while (cursor);
+      return out;
+    }
+
+    function masterKeyFromParts(type, category, name) {
+      if (!type || !category || !name) return null;
+      return `master:${type}:${category}|${name}`;
+    }
+
+    function collectMasterKeyCandidates(entry, fallbackType) {
+      if (!entry || typeof entry !== 'object') return [];
+      const keys = [];
+      const possibleProps = ['masterKey', 'masterkey', 'master_key'];
+      for (const prop of possibleProps) {
+        const value = entry[prop];
+        if (typeof value === 'string' && value.trim()) {
+          keys.push(value.trim());
+        }
+      }
+      const type = typeof entry.type === 'string' && entry.type ? entry.type : fallbackType;
+      const category = entry.category;
+      const name = entry.name;
+      if (type && category && name) {
+        keys.push(`master:${type}:${category}|${name}`);
+      }
+      return keys;
+    }
+
+    function extractComparableKeys(entry, fallbackType) {
+      const keys = new Set();
+      for (const candidate of collectMasterKeyCandidates(entry, fallbackType)) {
+        const parsed = parseMasterKeyLoose(candidate);
+        if (!parsed) continue;
+        const expectedType = fallbackType || parsed.type;
+        if (expectedType && parsed.type !== expectedType) continue;
+        if (parsed.comparable) {
+          keys.add(parsed.comparable);
+        }
+      }
+      return Array.from(keys);
+    }
+
+    function normalizeBodySiteRef(ref) {
+      if (!ref) return null;
+      let raw = ref.trim();
+      if (!raw) return null;
+      const lower = raw.toLowerCase();
+      if (lower.startsWith('bodysite:')) {
+        raw = raw.substring('bodysite:'.length);
+      }
+      const normalized = sanitizeKeySegment(raw);
+      if (!normalized) return null;
+      return `bodysite:${normalized}`;
+    }
+
+    function bodySiteRefCandidates(item) {
+      const refs = new Set();
+      if (!item || typeof item !== 'object') return Array.from(refs);
+      const values = [item.canonical_name, item.name, item.category];
+      for (const value of values) {
+        const normalized = normalizeBodySiteRef(value);
+        if (normalized) refs.add(normalized);
+      }
+      return Array.from(refs);
     }
 
     function extractNameAndNote(name) {
@@ -560,8 +706,8 @@ if (routeMatch(url, "GET", "listClinics")) {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        if (!["test", "service", "qual", "department", "facility"].includes(type)) {
-          return new Response(JSON.stringify({ error: "type は test / service / qual / department / facility" }), {
+        if (!["test", "service", "qual", "department", "facility", "symptom", "bodySite"].includes(type)) {
+          return new Response(JSON.stringify({ error: "type は test / service / qual / department / facility / symptom / bodySite" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
@@ -619,6 +765,72 @@ if (routeMatch(url, "GET", "listClinics")) {
           item.desc = notes; // maintain legacy desc compatibility
         } else if (item.desc && !item.notes) {
           item.notes = item.desc;
+        }
+
+        if (typeof body?.canonical_name === "string") {
+          item.canonical_name = optionalString(body.canonical_name);
+        }
+        if (Object.prototype.hasOwnProperty.call(body || {}, "sortGroup")) {
+          const trimmed = optionalString(body.sortGroup);
+          item.sortGroup = trimmed;
+        }
+        if (Object.prototype.hasOwnProperty.call(body || {}, "sortOrder")) {
+          const num = Number(body.sortOrder);
+          item.sortOrder = Number.isFinite(num) ? num : null;
+        }
+
+        if (type === "symptom") {
+          if (Object.prototype.hasOwnProperty.call(body, "patientLabel")) {
+            item.patientLabel = optionalString(body.patientLabel);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "bodySiteRefs")) {
+            const refs = normalizeStringArray(body.bodySiteRefs);
+            item.bodySiteRefs = refs;
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "severityTags")) {
+            item.severityTags = normalizeStringArray(body.severityTags);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "icd10")) {
+            const codes = normalizeStringArray(body.icd10).map(code => code.toUpperCase());
+            item.icd10 = codes;
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "synonyms")) {
+            item.synonyms = normalizeStringArray(body.synonyms);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "defaultServices")) {
+            item.defaultServices = normalizeStringArray(body.defaultServices);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "defaultTests")) {
+            item.defaultTests = normalizeStringArray(body.defaultTests);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "thesaurusRefs")) {
+            item.thesaurusRefs = normalizeStringArray(body.thesaurusRefs);
+          }
+        }
+
+        if (type === "bodySite") {
+          if (Object.prototype.hasOwnProperty.call(body, "anatomicalSystem")) {
+            item.anatomicalSystem = optionalString(body.anatomicalSystem);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "patientLabel")) {
+            item.patientLabel = optionalString(body.patientLabel);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "canonical_name")) {
+            item.canonical_name = optionalString(body.canonical_name);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "parentKey")) {
+            const value = optionalString(body.parentKey);
+            item.parentKey = value;
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "laterality")) {
+            item.laterality = optionalString(body.laterality);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "aliases")) {
+            item.aliases = normalizeStringArray(body.aliases);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "thesaurusRefs")) {
+            item.thesaurusRefs = normalizeStringArray(body.thesaurusRefs);
+          }
         }
 
         await env.SETTINGS.put(key, JSON.stringify(item));
@@ -844,6 +1056,57 @@ if (routeMatch(url, "GET", "listClinics")) {
           }
         }
 
+        if (type === "symptom") {
+          if (Object.prototype.hasOwnProperty.call(body, "patientLabel")) {
+            obj.patientLabel = optionalString(body.patientLabel);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "bodySiteRefs")) {
+            obj.bodySiteRefs = normalizeStringArray(body.bodySiteRefs);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "severityTags")) {
+            obj.severityTags = normalizeStringArray(body.severityTags);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "icd10")) {
+            obj.icd10 = normalizeStringArray(body.icd10).map(code => code.toUpperCase());
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "synonyms")) {
+            obj.synonyms = normalizeStringArray(body.synonyms);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "defaultServices")) {
+            obj.defaultServices = normalizeStringArray(body.defaultServices);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "defaultTests")) {
+            obj.defaultTests = normalizeStringArray(body.defaultTests);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "thesaurusRefs")) {
+            obj.thesaurusRefs = normalizeStringArray(body.thesaurusRefs);
+          }
+        }
+
+        if (type === "bodySite") {
+          if (Object.prototype.hasOwnProperty.call(body, "anatomicalSystem")) {
+            obj.anatomicalSystem = optionalString(body.anatomicalSystem);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "patientLabel")) {
+            obj.patientLabel = optionalString(body.patientLabel);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "canonical_name")) {
+            obj.canonical_name = optionalString(body.canonical_name);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "parentKey")) {
+            obj.parentKey = optionalString(body.parentKey);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "laterality")) {
+            obj.laterality = optionalString(body.laterality);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "aliases")) {
+            obj.aliases = normalizeStringArray(body.aliases);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "thesaurusRefs")) {
+            obj.thesaurusRefs = normalizeStringArray(body.thesaurusRefs);
+          }
+        }
+
         let targetCategory = category;
         let targetName = name;
         if (typeof newCategory === "string" && newCategory.trim()) {
@@ -901,8 +1164,8 @@ if (routeMatch(url, "GET", "listClinics")) {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        if (!["test", "service", "qual", "department", "facility"].includes(type)) {
-          return new Response(JSON.stringify({ error: "type は test / service / qual / department / facility" }), {
+        if (!["test", "service", "qual", "department", "facility", "symptom", "bodySite"].includes(type)) {
+          return new Response(JSON.stringify({ error: "type は test / service / qual / department / facility / symptom / bodySite" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
@@ -985,6 +1248,12 @@ if (routeMatch(url, "GET", "listClinics")) {
     ];
     const DEFAULT_CATEGORIES_DEPARTMENT = ["標榜診療科"];
     const DEFAULT_CATEGORIES_FACILITY = ["学会認定","行政・公費","地域・在宅"];
+    const DEFAULT_CATEGORIES_SYMPTOM = [
+      "消化器症状","呼吸器症状","循環器症状","内分泌・代謝症状","神経症状","整形外科症状","皮膚症状","耳鼻咽喉症状","眼科症状","泌尿器症状","産婦人科症状","小児科症状","精神・心理症状"
+    ];
+    const DEFAULT_CATEGORIES_BODYSITE = [
+      "頭頸部","胸部","腹部","骨盤","背部","上肢","下肢","皮膚","体幹","全身"
+    ];
 
     async function getCategories(env, type) {
       const key = `categories:${type}`;
@@ -1003,6 +1272,8 @@ if (routeMatch(url, "GET", "listClinics")) {
         case "qual": return [...DEFAULT_CATEGORIES_QUAL];
         case "department": return [...DEFAULT_CATEGORIES_DEPARTMENT];
         case "facility": return [...DEFAULT_CATEGORIES_FACILITY];
+        case "symptom": return [...DEFAULT_CATEGORIES_SYMPTOM];
+        case "bodySite": return [...DEFAULT_CATEGORIES_BODYSITE];
         default: return [];
       }
     }
@@ -1010,8 +1281,8 @@ if (routeMatch(url, "GET", "listClinics")) {
     // <<< START: CATEGORIES_LIST >>>
       if (routeMatch(url, "GET", "listCategories")) {
     const type = url.searchParams.get("type");
-    if (!type || !["test","service","qual","department","facility"].includes(type)) {
-      return new Response(JSON.stringify({ error: "type は test / service / qual / department / facility" }), {
+    if (!type || !["test","service","qual","department","facility","symptom","bodySite"].includes(type)) {
+      return new Response(JSON.stringify({ error: "type は test / service / qual / department / facility / symptom / bodySite" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
@@ -1030,8 +1301,8 @@ if (routeMatch(url, "GET", "listClinics")) {
       const body = await request.json();
       const type = body?.type;
       const name = (body?.name || "").trim();
-      if (!type || !["test","service","qual","department","facility"].includes(type) || !name) {
-        return new Response(JSON.stringify({ error: "type/name 不正（type は test / service / qual / department / facility）" }), {
+      if (!type || !["test","service","qual","department","facility","symptom","bodySite"].includes(type) || !name) {
+        return new Response(JSON.stringify({ error: "type/name 不正（type は test / service / qual / department / facility / symptom / bodySite）" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       }
@@ -1050,8 +1321,8 @@ if (routeMatch(url, "GET", "listClinics")) {
       const type = body?.type;
       const oldName = (body?.oldName || "").trim();
       const newName = (body?.newName || "").trim();
-      if (!type || !["test","service","qual","department","facility"].includes(type) || !oldName || !newName) {
-        return new Response(JSON.stringify({ error: "パラメータ不正（type は test / service / qual / department / facility）" }), {
+      if (!type || !["test","service","qual","department","facility","symptom","bodySite"].includes(type) || !oldName || !newName) {
+        return new Response(JSON.stringify({ error: "パラメータ不正（type は test / service / qual / department / facility / symptom / bodySite）" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       }
@@ -1069,8 +1340,8 @@ if (routeMatch(url, "GET", "listClinics")) {
       const body = await request.json();
       const type = body?.type;
       const name = (body?.name || "").trim();
-      if (!type || !["test","service","qual","department","facility"].includes(type) || !name) {
-        return new Response(JSON.stringify({ error: "パラメータ不正（type は test / service / qual / department / facility）" }), {
+      if (!type || !["test","service","qual","department","facility","symptom","bodySite"].includes(type) || !name) {
+        return new Response(JSON.stringify({ error: "パラメータ不正（type は test / service / qual / department / facility / symptom / bodySite）" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       }
@@ -1082,6 +1353,363 @@ if (routeMatch(url, "GET", "listClinics")) {
       });
     }
     // <<< END: CATEGORIES_DELETE >>>
+
+    // ============================================================
+    // Thesaurus API
+    // ============================================================
+
+    if (routeMatch(url, "GET", "thesaurus")) {
+      const normalizedParam = optionalString(url.searchParams.get("normalized"));
+      const termParam = optionalString(url.searchParams.get("term"));
+      const contextParam = optionalString(url.searchParams.get("context"));
+      const prefix = "thesaurus:";
+      let items = [];
+
+      if (normalizedParam) {
+        const key = `${prefix}${normalizeThesaurusTerm(normalizedParam)}`;
+        const raw = await env.SETTINGS.get(key);
+        if (raw) {
+          try { items.push(JSON.parse(raw)); } catch (_) {}
+        }
+      } else {
+        const list = await env.SETTINGS.list({ prefix });
+        const values = await Promise.all(list.keys.map(k => env.SETTINGS.get(k.name)));
+        for (const raw of values) {
+          if (!raw) continue;
+          try { items.push(JSON.parse(raw)); } catch (_) {}
+        }
+      }
+
+      if (termParam) {
+        const normalizedTerm = normalizeThesaurusTerm(termParam);
+        items = items.filter(entry => {
+          if (!entry) return false;
+          const base = normalizeThesaurusTerm(entry.term || "");
+          if (base.includes(normalizedTerm)) return true;
+          const variants = Array.isArray(entry.variants) ? entry.variants : [];
+          return variants.some(v => normalizeThesaurusTerm(v).includes(normalizedTerm));
+        });
+      }
+
+      if (contextParam) {
+        const target = contextParam;
+        items = items.filter(entry => {
+          if (!entry) return false;
+          const ctx = Array.isArray(entry.context) ? entry.context : entry.context ? [entry.context] : [];
+          return ctx.includes(target);
+        });
+      }
+
+      return new Response(JSON.stringify({ ok: true, items }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (routeMatch(url, "GET", "searchClinicsBySymptom")) {
+      try {
+        const keyParam = nk(url.searchParams.get("key"));
+        const queryParam = nk(url.searchParams.get("symptom") || url.searchParams.get("q"));
+        const includeServices = url.searchParams.get("includeServices") !== "false";
+        const includeTests = url.searchParams.get("includeTests") !== "false";
+        if (!keyParam && !queryParam) {
+          return new Response(JSON.stringify({ ok: false, error: "symptom または key を指定してください" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const allSymptomsRaw = await loadMasterItemsRaw(env, 'symptom');
+        const symptoms = allSymptomsRaw.filter(item => item && item.status !== 'archived');
+        if (!symptoms.length) {
+          return new Response(JSON.stringify({ ok: false, error: "症状マスターが見つかりません" }), {
+            status: 404,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const bodySiteItems = await loadMasterItemsRaw(env, 'bodySite');
+        const bodySiteMap = new Map();
+        for (const site of bodySiteItems) {
+          for (const ref of bodySiteRefCandidates(site)) {
+            if (ref && !bodySiteMap.has(ref)) {
+              bodySiteMap.set(ref, site);
+            }
+          }
+        }
+
+        let target = null;
+        if (keyParam) {
+          const parsedKey = parseMasterKeyLoose(keyParam);
+          const comparableKeyValue = parsedKey && parsedKey.type === 'symptom' ? parsedKey.comparable : null;
+          const directKey = keyParam.startsWith('master:') ? keyParam : `master:symptom:${keyParam}`;
+          target = symptoms.find(sym => sym._key === directKey);
+          if (!target && comparableKeyValue) {
+            target = symptoms.find(sym => comparableMasterKey('symptom', sym.category, sym.name) === comparableKeyValue);
+          }
+        }
+
+        if (!target && queryParam) {
+          const normalizedQuery = normalizeForSimilarity(queryParam);
+          let best = null;
+          let bestScore = 0;
+          for (const sym of symptoms) {
+            const candidates = [sym.name, sym.patientLabel];
+            if (Array.isArray(sym.synonyms)) {
+              candidates.push(...sym.synonyms);
+            }
+            let localBest = 0;
+            for (const candidate of candidates) {
+              if (!candidate) continue;
+              const score = jaroWinkler(normalizedQuery, normalizeForSimilarity(candidate));
+              if (score > localBest) {
+                localBest = score;
+              }
+            }
+            if (localBest > bestScore) {
+              bestScore = localBest;
+              best = sym;
+            }
+          }
+          if (best && bestScore >= 0.72) {
+            target = best;
+          }
+        }
+
+        if (!target) {
+          return new Response(JSON.stringify({ ok: false, error: "該当する症状が見つかりません" }), {
+            status: 404,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const symptomKey = target._key || masterKeyFromParts('symptom', target.category || '', target.name || '');
+        const targetComparable = comparableMasterKey('symptom', target.category || '', target.name || '');
+
+        const recommendedServicesRaw = Array.isArray(target.defaultServices) ? target.defaultServices : [];
+        const recommendedTestsRaw = Array.isArray(target.defaultTests) ? target.defaultTests : [];
+
+        const serviceInfos = [];
+        const serviceKeyMap = new Map();
+        for (const raw of recommendedServicesRaw) {
+          const parsed = parseMasterKeyLoose(raw);
+          if (!parsed || parsed.type !== 'service' || !parsed.comparable) continue;
+          if (serviceKeyMap.has(parsed.comparable)) continue;
+          const info = { key: raw, type: parsed.type, category: parsed.category, name: parsed.name, comparable: parsed.comparable };
+          serviceInfos.push(info);
+          serviceKeyMap.set(parsed.comparable, info);
+        }
+
+        const testInfos = [];
+        const testKeyMap = new Map();
+        for (const raw of recommendedTestsRaw) {
+          const parsed = parseMasterKeyLoose(raw);
+          if (!parsed || parsed.type !== 'test' || !parsed.comparable) continue;
+          if (testKeyMap.has(parsed.comparable)) continue;
+          const info = { key: raw, type: parsed.type, category: parsed.category, name: parsed.name, comparable: parsed.comparable };
+          testInfos.push(info);
+          testKeyMap.set(parsed.comparable, info);
+        }
+
+        const clinicsResult = await listClinicsKV(env, { limit: 5000, offset: 0 });
+        const clinics = Array.isArray(clinicsResult.items) ? clinicsResult.items : [];
+
+        const matches = [];
+        const matchedServiceKeys = new Set();
+        const matchedTestKeys = new Set();
+
+        for (const clinic of clinics) {
+          const matchedServices = [];
+          const matchedTests = [];
+
+          if (includeServices && serviceKeyMap.size) {
+            const services = Array.isArray(clinic.services) ? clinic.services : [];
+            for (const svc of services) {
+              const comparables = extractComparableKeys(svc, 'service');
+              let matchedInfo = null;
+              for (const comp of comparables) {
+                const info = serviceKeyMap.get(comp);
+                if (info) {
+                  matchedInfo = info;
+                  matchedServiceKeys.add(info.comparable);
+                  break;
+                }
+              }
+              if (matchedInfo) {
+                matchedServices.push({
+                  category: svc.category || matchedInfo.category,
+                  name: svc.name || matchedInfo.name,
+                  desc: svc.desc || null,
+                  source: svc.source || null,
+                  masterKey: matchedInfo.key
+                });
+              }
+            }
+          }
+
+          if (includeTests && testKeyMap.size) {
+            const tests = Array.isArray(clinic.tests) ? clinic.tests : [];
+            for (const tst of tests) {
+              const comparables = extractComparableKeys(tst, 'test');
+              let matchedInfo = null;
+              for (const comp of comparables) {
+                const info = testKeyMap.get(comp);
+                if (info) {
+                  matchedInfo = info;
+                  matchedTestKeys.add(info.comparable);
+                  break;
+                }
+              }
+              if (matchedInfo) {
+                matchedTests.push({
+                  category: tst.category || matchedInfo.category,
+                  name: tst.name || matchedInfo.name,
+                  desc: tst.desc || null,
+                  source: tst.source || null,
+                  masterKey: matchedInfo.key
+                });
+              }
+            }
+          }
+
+          const score = matchedServices.length * 2 + matchedTests.length;
+          if (score > 0 || (!serviceKeyMap.size && !testKeyMap.size)) {
+            matches.push({
+              clinicId: clinic.id || null,
+              clinicName: clinic.name || '',
+              address: clinic.address || '',
+              phone: clinic.phone || clinic.phoneNumber || null,
+              url: clinic.homepage || clinic.website || null,
+              matchedServices,
+              matchedTests,
+              score
+            });
+          }
+        }
+
+        matches.sort((a, b) => {
+          if (b.score !== a.score) return b.score - a.score;
+          return (a.clinicName || '').localeCompare(b.clinicName || '', 'ja');
+        });
+
+        const missingServices = serviceInfos.filter(info => !matchedServiceKeys.has(info.comparable));
+        const missingTests = testInfos.filter(info => !matchedTestKeys.has(info.comparable));
+
+        const rawBodyRefs = Array.isArray(target.bodySiteRefs) ? target.bodySiteRefs : [];
+        const resolvedBodySites = rawBodyRefs.map(ref => {
+          const normalized = normalizeBodySiteRef(ref);
+          const site = normalized ? bodySiteMap.get(normalized) : null;
+          return {
+            ref,
+            normalized,
+            name: site?.name || null,
+            patientLabel: site?.patientLabel || null,
+            category: site?.category || null,
+            canonical: site?.canonical_name || null,
+            laterality: site?.laterality || null
+          };
+        });
+
+        const responseBody = {
+          ok: true,
+          symptom: {
+            key: symptomKey,
+            comparableKey: targetComparable,
+            name: target.name || '',
+            patientLabel: target.patientLabel || '',
+            category: target.category || '',
+            severityTags: target.severityTags || [],
+            icd10: target.icd10 || [],
+            synonyms: target.synonyms || [],
+            bodySites: resolvedBodySites,
+            notes: target.notes || null
+          },
+          recommendedServices: serviceInfos.map(info => ({ key: info.key, category: info.category, name: info.name })),
+          recommendedTests: testInfos.map(info => ({ key: info.key, category: info.category, name: info.name })),
+          clinics: matches,
+          missingServices: missingServices.map(info => ({ key: info.key, category: info.category, name: info.name })),
+          missingTests: missingTests.map(info => ({ key: info.key, category: info.category, name: info.name }))
+        };
+
+        return new Response(JSON.stringify(responseBody), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (err) {
+        console.error('searchClinicsBySymptom failed', err);
+        return new Response(JSON.stringify({ ok: false, error: err.message }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
+
+    if (routeMatch(url, "POST", "thesaurus")) {
+      let payload;
+      try {
+        payload = await request.json();
+      } catch (err) {
+        return new Response(JSON.stringify({ error: "Invalid JSON" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const term = optionalString(payload?.term);
+      const normalizedInput = optionalString(payload?.normalized);
+      const normalized = normalizeThesaurusTerm(normalizedInput || term || "");
+      if (!normalized) {
+        return new Response(JSON.stringify({ error: "normalized または term が必要です" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const key = `thesaurus:${normalized}`;
+      const existing = await env.SETTINGS.get(key);
+      const now = new Date().toISOString();
+
+      let entry = null;
+      if (existing) {
+        try { entry = JSON.parse(existing); } catch (_) { entry = null; }
+      }
+      if (!entry || typeof entry !== "object") {
+        entry = { normalized, created_at: now };
+      }
+
+      if (term) {
+        entry.term = term;
+      } else if (!entry.term) {
+        entry.term = normalized;
+      }
+
+      if (Object.prototype.hasOwnProperty.call(payload || {}, "variants")) {
+        entry.variants = normalizeStringArray(payload.variants);
+      }
+      if (Object.prototype.hasOwnProperty.call(payload || {}, "context")) {
+        if (Array.isArray(payload.context)) {
+          entry.context = normalizeStringArray(payload.context);
+        } else if (typeof payload.context === "string") {
+          entry.context = normalizeStringArray([payload.context]);
+        } else {
+          entry.context = [];
+        }
+      }
+      if (Object.prototype.hasOwnProperty.call(payload || {}, "locale")) {
+        entry.locale = optionalString(payload.locale);
+      }
+      if (Object.prototype.hasOwnProperty.call(payload || {}, "notes")) {
+        entry.notes = optionalString(payload.notes);
+      }
+      if (Object.prototype.hasOwnProperty.call(payload || {}, "source")) {
+        entry.source = optionalString(payload.source);
+      }
+
+      entry.updated_at = now;
+
+      await env.SETTINGS.put(key, JSON.stringify(entry));
+      return new Response(JSON.stringify({ ok: true, entry }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
 
 // ===== /api/deleteClinic =====
