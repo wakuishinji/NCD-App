@@ -8,19 +8,34 @@
     }
   })();
 
+  const DEFAULT_CENTER = { lat: 35.7095, lng: 139.6654 };
   const FALLBACK_COORDS = {
     '4766366a-e9ec-4e40-b330-355f179babfc': { lat: 35.709782, lng: 139.654846 },
-    'のがたクリニック': { lat: 35.709782, lng: 139.654846 }
+    'のがたクリニック': { lat: 35.709782, lng: 139.654846 },
+    '0bc93f6c-4453-4bdb-9812-4afb4e09dc91': { lat: 35.710651, lng: 139.652756 },
+    '板橋クリニック': { lat: 35.710651, lng: 139.652756 }
   };
 
   const els = {};
   const mapState = {
     map: null,
-    marker: null
+    marker: null,
+    maps: null,
+    mapsPromise: null
   };
 
   function nk(value) {
-    return (value || '').trim();
+    if (typeof value === 'string') {
+      return value.trim();
+    }
+    if (typeof value === 'number') {
+      return String(value);
+    }
+    if (Array.isArray(value)) {
+      const first = value.find((item) => typeof item === 'string' && item.trim());
+      return first ? first.trim() : '';
+    }
+    return '';
   }
 
   function fetchJson(path) {
@@ -101,39 +116,79 @@
     return null;
   }
 
-  function ensureMap() {
-    if (mapState.map || !els.map || typeof L === 'undefined') return;
-    els.map.innerHTML = '';
-    const map = L.map(els.map, { scrollWheelZoom: false }).setView([35.7095, 139.6654], 13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-    }).addTo(map);
-    mapState.map = map;
+  function getMaps() {
+    if (mapState.maps) return Promise.resolve(mapState.maps);
+    if (mapState.mapsPromise) return mapState.mapsPromise;
+    const loader = window.NCD && typeof window.NCD.loadGoogleMaps === 'function'
+      ? window.NCD.loadGoogleMaps
+      : null;
+    if (!loader) {
+      return Promise.reject(new Error('Google Maps loader is not available. Make sure googleMapsLoader.js is loaded.'));
+    }
+    mapState.mapsPromise = loader({ libraries: [] })
+      .then((maps) => {
+        mapState.maps = maps;
+        return maps;
+      })
+      .catch((err) => {
+        mapState.mapsPromise = null;
+        throw err;
+      });
+    return mapState.mapsPromise;
   }
 
-  function renderMap(clinic) {
-    if (!els.map || typeof L === 'undefined') return;
+  async function ensureMap() {
+    if (!els.map) return null;
+    if (mapState.map) return mapState.map;
+
+    const maps = await getMaps();
+    els.map.innerHTML = '';
+    mapState.map = new maps.Map(els.map, {
+      center: DEFAULT_CENTER,
+      zoom: 13,
+      mapTypeControl: false,
+      streetViewControl: false,
+      fullscreenControl: false,
+    });
+    return mapState.map;
+  }
+
+  async function renderMap(clinic) {
+    if (!els.map) return;
     const coords = resolveCoordinates(clinic);
+
     if (!coords) {
-      if (mapState.map) {
-        mapState.map.remove();
-        mapState.map = null;
+      if (mapState.marker) {
+        mapState.marker.setMap(null);
+        mapState.marker = null;
       }
-      mapState.marker = null;
+      mapState.map = null;
       els.map.innerHTML = '<div class="flex h-full items-center justify-center text-sm text-slate-500">位置情報は未登録です。</div>';
       return;
     }
 
-    ensureMap();
-    if (!mapState.map) return;
+    try {
+      const map = await ensureMap();
+      if (!map) return;
+      const maps = await getMaps();
 
-    mapState.map.setView([coords.lat, coords.lng], 16);
-    if (mapState.marker) {
-      mapState.marker.remove();
+      map.setCenter({ lat: coords.lat, lng: coords.lng });
+      map.setZoom(16);
+
+      if (!mapState.marker) {
+        mapState.marker = new maps.Marker({ map });
+      }
+      mapState.marker.setPosition({ lat: coords.lat, lng: coords.lng });
+      mapState.marker.setTitle(clinic.name || '');
+    } catch (err) {
+      console.error('Failed to render Google Map', err);
+      els.map.innerHTML = '<div class="flex h-full items-center justify-center text-sm text-red-600">地図の読み込みに失敗しました。</div>';
+      if (mapState.marker) {
+        mapState.marker.setMap(null);
+      }
+      mapState.map = null;
+      mapState.marker = null;
     }
-    mapState.marker = L.marker([coords.lat, coords.lng]).addTo(mapState.map);
-    mapState.marker.bindPopup(`<div class="text-sm font-semibold text-blue-900">${clinic.name || ''}</div>`);
-    setTimeout(() => mapState.map.invalidateSize(), 150);
   }
 
   function appendContact(label, value, options = {}) {

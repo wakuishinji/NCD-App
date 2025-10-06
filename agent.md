@@ -139,6 +139,22 @@
 - `/api/generate` はOpenAI課金が発生するため、テストは短文・最小回数で。
 - 404が出る場合: 叩いているURLがPages側になっていないか、まず `*.workers.dev` を直叩きで動作を確認。
 
+### Secrets / APIキー設定手順（Cloudflare Workers）
+- 必要なSecrets: `GOOGLE_MAPS_API_KEY`（フロント地図用）、`OPENAI_API_KEY`（WorkerのAI生成用）。
+- 前提: Cloudflare CLI `wrangler` が利用可能で、`wrangler.toml` と同じディレクトリで実行する。
+- 本番（デフォルト環境）反映手順:
+  1. `npx wrangler secret put GOOGLE_MAPS_API_KEY`
+  2. `npx wrangler secret put OPENAI_API_KEY`
+  3. プロンプトが出たら取得済みのキーを貼り付けてEnter。
+- ステージング等で別環境を使う場合は `--env <name>` を付ける（例: `npx wrangler secret put GOOGLE_MAPS_API_KEY --env staging`）。`wrangler.toml` に該当envセクションを定義してから実行する。
+- 反映確認:
+  - Google Maps: `GET /api/client-config` を叩いて `{ "googleMapsApiKey":"***" }` が返ること。
+  - OpenAI: `npx wrangler dev --remote` で `POST /api/generate` を短文で叩き、エラーが出ないこと。
+- ローカルで静的HTMLを直開きする場合のみ、暫定的に以下のいずれかでAPIキーを渡す。
+  - ブラウザDevToolsで `localStorage.setItem('ncdGoogleMapsApiKey', '...')`
+  - `<meta name="ncd-google-maps-key" content="...">` を一時的にHTMLへ直書き（管理者のみ確認用途）。
+  - Workers経由の動作確認に切り替えたら、上記暫定設定は必ず削除する。
+
 ## 今後の方針（データテーブル別）
 
 ### Clinics
@@ -189,16 +205,15 @@
 - 2025-10-05: トップページの症状検索ボタンはテスト向け (`テスト 症状で検索`) に変更予定。本番利用は患者向け検索ページ（症状・地図など）で提供する方針。同様に `テスト 地図から検索` 導線も暫定で追加する。
 - 2025-10-06: 症状・部位マスターの種別を拡充（めまい/胸痛/呼吸困難/下痢/関節痛、腰部/骨盤/肩関節/膝関節など）し、`scripts/seedSymptomMaster.js` と `scripts/seedBodySiteMaster.js` を更新。
 - 2025-10-07: `web/searchMap.html` と `web/clinicSummary.html` を刷新し、フロント側でクリニック一覧と詳細ページへ遷移できる検索/サマリーUIを追加。Leafletベースで暫定マップ表示を実装しつつ、Google Maps Platform への置き換え方針と比較検討結果を整理（下記メモ参照）。
+- 2025-10-08: 地図UIを Google Maps JavaScript API へ移行。`web/js/googleMapsLoader.js` で API キー（`meta[name="ncd-google-maps-key"]` / `localStorage.ncdGoogleMapsApiKey` / `window.NCD_GOOGLE_MAPS_API_KEY`）を解決し、`searchMap.js` / `clinicSummary.js` は Google Maps でピン表示・InfoWindow を提供。緯度経度が未登録の場合はメッセージ表示でフォールバック。
 
 #### Frontend Search/Map メモ (2025-10-07)
 - 現状: Leaflet + OSM で暫定表示中。症状検索ページからはクリニック検索API結果に基づきサマリーページへ遷移可能。
 - 地図検索: `/api/listClinics` の結果をそのまま利用し、住所ありクリニックはすべてピン表示が望ましい。現在は緯度経度が欠けており、`FALLBACK_COORDS` で野方クリニックのみハードコード表示。
 - サマリー画面: `/api/clinicDetail` を表示。Leafletでマップにピン表示するが、座標未設定の場合はメッセージを表示。
 - TODO（確定方針）:
-  - Google Maps Platform を採用予定（予算クリア前提）。次の実装で Maps JS API + Geocoding API へ切り替える。
-  - 現在地（Geolocation API）・任意住所検索（Geocoding）をサポートし、地図中心を更新させる。
-  - すべてのクリニックについて緯度経度キャッシュ整備 or サーバー側ジオコーディングを実施する。
-  - ピンクリック/InfoWindowからサマリーページ遷移できるようにする（UI仕様はGoogle Maps版で再実装）。
+  - Google Maps Platform の Geocoding / Places 連携は未実装。住所検索・現在地センタリング・緯度経度キャッシュ生成を次ステップで対応する。
+  - API キー管理（フロント/バック別）、課金監視設定、利用制限（ドメイン/IP）を設定して運用する。
 - 留意点: Google APIキー管理（フロント/バック別）、課金監視設定、規約遵守（ロゴ表示/キャッシュ禁止）を導入すること。
 
 - Symptom Master（`master:symptom:<category>|<name>`）: 共通フィールドに加えて `patientLabel`（患者向け名称）、`bodySiteRefs`（`bodySite:<slug>`配列）、`severityTags`、`icd10`、`synonyms`、`defaultServices`（関連サービスの`masterKey`配列）を格納する。初期カテゴリは「消化器症状」「呼吸器症状」「循環器症状」など診療領域別に設定。

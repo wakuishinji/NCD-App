@@ -8,10 +8,12 @@
     }
   })();
 
-  const DEFAULT_CENTER = [35.7095, 139.6654];
+  const DEFAULT_CENTER = { lat: 35.7095, lng: 139.6654 };
   const FALLBACK_COORDS = {
     '4766366a-e9ec-4e40-b330-355f179babfc': { lat: 35.709782, lng: 139.654846 },
-    'のがたクリニック': { lat: 35.709782, lng: 139.654846 }
+    'のがたクリニック': { lat: 35.709782, lng: 139.654846 },
+    '0bc93f6c-4453-4bdb-9812-4afb4e09dc91': { lat: 35.710651, lng: 139.652756 },
+    '板橋クリニック': { lat: 35.710651, lng: 139.652756 }
   };
 
   const els = {};
@@ -22,7 +24,10 @@
     serviceOptions: [],
     bodySiteOptions: [],
     map: null,
-    markerLayer: null
+    markers: [],
+    infoWindow: null,
+    maps: null,
+    mapsPromise: null
   };
 
   function nk(value) {
@@ -205,14 +210,23 @@
       return;
     }
 
+    clinics.forEach((clinic, idx) => {
+      clinic._listIndex = idx + 1;
+    });
+
     els.clinicList.innerHTML = clinics.map((clinic) => {
       const safeAddress = clinic.address || '住所未登録';
       const tagsMarkup = clinic.tags.map((tag) => `<span class="inline-flex items-center rounded bg-emerald-100 px-2 py-0.5 text-[11px] text-emerald-700">${tag}</span>`).join('');
       return `
         <button class="w-full px-4 py-4 text-left hover:bg-slate-50 transition" data-clinic-id="${clinic.id}">
-          <div class="text-sm font-semibold text-blue-900">${clinic.name}</div>
-          <div class="mt-1 text-xs text-slate-500">${safeAddress}</div>
-          <div class="mt-2 flex flex-wrap gap-1">${tagsMarkup}</div>
+          <div class="flex items-start gap-3">
+            <span class="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-full bg-emerald-500 px-2 text-xs font-semibold text-white">${clinic._listIndex}</span>
+            <div class="flex-1">
+              <div class="text-sm font-semibold text-blue-900">${clinic.name}</div>
+              <div class="mt-1 text-xs text-slate-500">${safeAddress}</div>
+              <div class="mt-2 flex flex-wrap gap-1">${tagsMarkup}</div>
+            </div>
+          </div>
         </button>
       `;
     }).join('');
@@ -236,49 +250,128 @@
     updateStatus();
   }
 
-  function ensureMap() {
-    if (state.map || !els.mapView || typeof L === 'undefined') return;
-    const map = L.map(els.mapView, {
-      scrollWheelZoom: false,
-    }).setView(DEFAULT_CENTER, 13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-    }).addTo(map);
-    state.map = map;
-    state.markerLayer = L.layerGroup().addTo(map);
+  function ensureInfoWindow(maps) {
+    if (!state.infoWindow) {
+      state.infoWindow = new maps.InfoWindow();
+    }
+    return state.infoWindow;
   }
 
-  function updateMarkers(clinics) {
-    ensureMap();
-    if (!state.map || !state.markerLayer) return;
+  function clearMarkers() {
+    if (!state.markers || !state.markers.length) return;
+    state.markers.forEach((marker) => marker.setMap(null));
+    state.markers = [];
+  }
 
-    state.markerLayer.clearLayers();
-    if (!clinics || !clinics.length) {
-      state.map.setView(DEFAULT_CENTER, 13);
-      return;
+  async function getMaps() {
+    if (state.maps) return state.maps;
+    if (state.mapsPromise) return state.mapsPromise;
+    const loader = window.NCD && typeof window.NCD.loadGoogleMaps === 'function'
+      ? window.NCD.loadGoogleMaps
+      : null;
+    if (!loader) {
+      return Promise.reject(new Error('Google Maps loader is not available. Make sure googleMapsLoader.js is loaded.'));
     }
+    state.mapsPromise = loader({ libraries: ['places'] })
+      .then((maps) => {
+        state.maps = maps;
+        return maps;
+      })
+      .catch((err) => {
+        state.mapsPromise = null;
+        throw err;
+      });
+    return state.mapsPromise;
+  }
 
-    const bounds = [];
-    clinics.forEach((clinic) => {
-      if (!Number.isFinite(clinic.lat) || !Number.isFinite(clinic.lng)) return;
-      const marker = L.marker([clinic.lat, clinic.lng], { clinicId: clinic.id });
-      const popupHtml = `
-        <div class="space-y-1">
-          <div class="font-semibold text-sm text-blue-900">${clinic.name}</div>
-          <div class="text-xs text-slate-600">${clinic.address || '住所未登録'}</div>
-          <a class="text-xs text-emerald-600 hover:underline" href="clinicSummary.html?id=${encodeURIComponent(clinic.id)}">詳細を表示</a>
-        </div>
-      `;
-      marker.bindPopup(popupHtml, { maxWidth: 240 });
-      marker.addTo(state.markerLayer);
-      bounds.push([clinic.lat, clinic.lng]);
+  async function ensureMap() {
+    if (state.map) return state.map;
+    if (!els.mapView) return null;
+    const maps = await getMaps();
+    const map = new maps.Map(els.mapView, {
+      center: DEFAULT_CENTER,
+      zoom: 13,
+      mapTypeControl: false,
+      streetViewControl: false,
+      fullscreenControl: false,
     });
+    state.map = map;
+    ensureInfoWindow(maps);
+    return map;
+  }
 
-    if (bounds.length) {
-      const latLngBounds = L.latLngBounds(bounds);
-      state.map.fitBounds(latLngBounds, { padding: [32, 32] });
-    } else {
-      state.map.setView(DEFAULT_CENTER, 13);
+  async function updateMarkers(clinics) {
+    try {
+      const map = await ensureMap();
+      if (!map) return;
+
+      const maps = await getMaps();
+      const infoWindow = ensureInfoWindow(maps);
+
+      clearMarkers();
+
+      if (!clinics || !clinics.length) {
+        map.setCenter(DEFAULT_CENTER);
+        map.setZoom(13);
+        return;
+      }
+
+      const bounds = new maps.LatLngBounds();
+      let hasBounds = false;
+      let createdMarkers = 0;
+      let lastPosition = null;
+
+      clinics.forEach((clinic) => {
+        if (!Number.isFinite(clinic.lat) || !Number.isFinite(clinic.lng)) return;
+        const markerLabel = typeof clinic._listIndex === 'number'
+          ? {
+              text: String(clinic._listIndex),
+              color: '#ffffff',
+              fontSize: '12px',
+              fontWeight: '600'
+            }
+          : undefined;
+
+        const marker = new maps.Marker({
+          position: { lat: clinic.lat, lng: clinic.lng },
+          map,
+          title: clinic.name,
+          label: markerLabel,
+        });
+
+        marker.addListener('click', () => {
+          const content = `
+            <div class="space-y-1">
+              <div class="font-semibold text-sm text-blue-900">${clinic.name}</div>
+              <div class="text-xs text-slate-600">${clinic.address || '住所未登録'}</div>
+              <a class="text-xs text-emerald-600 hover:underline" href="clinicSummary.html?id=${encodeURIComponent(clinic.id)}">詳細を表示</a>
+            </div>
+          `;
+          infoWindow.setContent(content);
+          infoWindow.open({ map, anchor: marker });
+        });
+
+        state.markers.push(marker);
+        bounds.extend(marker.getPosition());
+        hasBounds = true;
+        createdMarkers += 1;
+        lastPosition = marker.getPosition();
+      });
+
+      if (!createdMarkers) {
+        map.setCenter(DEFAULT_CENTER);
+        map.setZoom(13);
+      } else if (createdMarkers === 1 && lastPosition) {
+        map.setCenter(lastPosition);
+        map.setZoom(14);
+      } else if (hasBounds) {
+        map.fitBounds(bounds, { top: 32, right: 32, bottom: 32, left: 32 });
+      }
+    } catch (err) {
+      console.error('Failed to update map markers', err);
+      if (!state.map && els.mapView) {
+        els.mapView.innerHTML = '<div class="flex h-full items-center justify-center text-sm text-red-600">地図の読み込みに失敗しました。Google Maps APIキーを設定してください。</div>';
+      }
     }
   }
 
@@ -354,7 +447,11 @@
     if (els.resultCount) {
       els.resultCount.textContent = '--';
     }
-    ensureMap();
+    try {
+      await ensureMap();
+    } catch (err) {
+      console.error('Failed to initialize map', err);
+    }
     await loadClinics();
   }
 

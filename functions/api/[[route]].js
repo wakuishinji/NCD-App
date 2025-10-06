@@ -161,6 +161,20 @@ export async function onRequest(context) {
   }
   // <<< END: ROUTE_MATCH >>>
 
+  if (routeMatch(url, "GET", "client-config")) {
+    const googleMapsApiKey =
+      typeof env.GOOGLE_MAPS_API_KEY === "string"
+        ? env.GOOGLE_MAPS_API_KEY.trim()
+        : "";
+    return new Response(JSON.stringify({ googleMapsApiKey }), {
+      status: 200,
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "application/json",
+      },
+    });
+  }
+
   function normalizeTodoEntry(raw) {
     if (!raw || typeof raw !== "object") return null;
     const category = nk(raw.category);
