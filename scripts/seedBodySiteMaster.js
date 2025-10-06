@@ -151,6 +151,149 @@ const BODY_SITES = [
     parentKey: 'bodySite:head-neck',
     aliases: ['頭頂部', '頭全体'],
     status: 'candidate'
+  },
+  {
+    category: '頭頸部',
+    name: '顔面',
+    canonical_name: 'face',
+    anatomicalSystem: '皮膚',
+    parentKey: 'bodySite:head-neck',
+    patientLabel: '顔',
+    aliases: ['顔周り'],
+    status: 'candidate'
+  },
+  {
+    category: '頭頸部',
+    name: '眼',
+    canonical_name: 'eye',
+    anatomicalSystem: '視覚器',
+    parentKey: 'bodySite:head',
+    patientLabel: '目',
+    aliases: ['眼球'],
+    laterality: 'bilateral',
+    status: 'candidate'
+  },
+  {
+    category: '頭頸部',
+    name: '耳',
+    canonical_name: 'ear',
+    anatomicalSystem: '聴覚器',
+    parentKey: 'bodySite:head',
+    patientLabel: '耳',
+    aliases: ['耳介'],
+    laterality: 'bilateral',
+    status: 'candidate'
+  },
+  {
+    category: '頭頸部',
+    name: '鼻腔',
+    canonical_name: 'nasal-cavity',
+    anatomicalSystem: '呼吸器',
+    parentKey: 'bodySite:head-neck',
+    patientLabel: '鼻の中',
+    aliases: ['鼻の奥', '鼻腔'],
+    status: 'candidate'
+  },
+  {
+    category: '頭頸部',
+    name: '咽頭',
+    canonical_name: 'pharynx',
+    anatomicalSystem: '呼吸器',
+    parentKey: 'bodySite:head-neck',
+    patientLabel: 'のど',
+    aliases: ['咽喉'],
+    status: 'candidate'
+  },
+  {
+    category: '胸部',
+    name: '心臓',
+    canonical_name: 'heart',
+    anatomicalSystem: '循環器',
+    parentKey: 'bodySite:thorax',
+    patientLabel: '心臓',
+    aliases: ['心'],
+    status: 'candidate'
+  },
+  {
+    category: '胸部',
+    name: '乳房',
+    canonical_name: 'breast',
+    anatomicalSystem: '乳腺',
+    parentKey: 'bodySite:thorax',
+    patientLabel: '乳房',
+    aliases: ['乳腺'],
+    laterality: 'bilateral',
+    status: 'candidate'
+  },
+  {
+    category: '腹部',
+    name: '胃',
+    canonical_name: 'stomach',
+    anatomicalSystem: '消化器',
+    parentKey: 'bodySite:upper-abdomen',
+    patientLabel: '胃',
+    aliases: ['胃袋'],
+    status: 'candidate'
+  },
+  {
+    category: '腹部',
+    name: '肝臓',
+    canonical_name: 'liver',
+    anatomicalSystem: '消化器',
+    parentKey: 'bodySite:upper-abdomen',
+    patientLabel: '肝臓',
+    aliases: ['肝'],
+    status: 'candidate'
+  },
+  {
+    category: '泌尿器',
+    name: '泌尿器系',
+    canonical_name: 'urinary-system',
+    anatomicalSystem: '泌尿器',
+    patientLabel: '泌尿器',
+    aliases: ['尿路系'],
+    status: 'candidate'
+  },
+  {
+    category: '泌尿器',
+    name: '腎臓',
+    canonical_name: 'kidney',
+    anatomicalSystem: '泌尿器',
+    parentKey: 'bodySite:urinary-system',
+    patientLabel: 'じんぞう',
+    aliases: ['腎'],
+    laterality: 'bilateral',
+    status: 'candidate'
+  },
+  {
+    category: '泌尿器',
+    name: '膀胱',
+    canonical_name: 'bladder',
+    anatomicalSystem: '泌尿器',
+    parentKey: 'bodySite:urinary-system',
+    patientLabel: 'ぼうこう',
+    aliases: ['膀胱'],
+    status: 'candidate'
+  },
+  {
+    category: '骨盤',
+    name: '子宮',
+    canonical_name: 'uterus',
+    anatomicalSystem: '女性生殖器',
+    parentKey: 'bodySite:pelvis',
+    patientLabel: '子宮',
+    aliases: ['しきゅう'],
+    status: 'candidate'
+  },
+  {
+    category: '皮膚',
+    name: '皮膚',
+    canonical_name: 'skin',
+    anatomicalSystem: '皮膚',
+    parentKey: 'bodySite:whole-body',
+    patientLabel: '肌',
+    aliases: ['皮ふ'],
+    status: 'candidate'
   }
 ];
 

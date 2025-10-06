@@ -22,6 +22,102 @@ const ENTRIES = [
     locale: 'ja-JP'
   },
   {
+    term: '頭痛',
+    variants: ['頭が痛い', '偏頭痛', 'ズキズキする頭痛'],
+    context: ['symptom'],
+    locale: 'ja-JP'
+  },
+  {
+    term: '腰痛',
+    variants: ['腰が痛い', 'ぎっくり腰', '腰の違和感'],
+    context: ['symptom'],
+    locale: 'ja-JP'
+  },
+  {
+    term: '発熱',
+    variants: ['熱が出る', '高熱', '微熱'],
+    context: ['symptom'],
+    locale: 'ja-JP'
+  },
+  {
+    term: '吐き気',
+    variants: ['吐き気がする', '嘔気', '気持ち悪い'],
+    context: ['symptom'],
+    locale: 'ja-JP'
+  },
+  {
+    term: '排尿痛',
+    variants: ['おしっこが痛い', '排尿時痛', '尿がしみる'],
+    context: ['symptom'],
+    locale: 'ja-JP'
+  },
+  {
+    term: '頻尿',
+    variants: ['トイレが近い', '夜間頻尿', '尿が近い'],
+    context: ['symptom'],
+    locale: 'ja-JP'
+  },
+  {
+    term: '生理痛',
+    variants: ['月経痛', '生理がつらい', '下腹部の重さ'],
+    context: ['symptom'],
+    locale: 'ja-JP'
+  },
+  {
+    term: '鼻づまり',
+    variants: ['鼻閉', '鼻がつまる', '鼻が通らない'],
+    context: ['symptom'],
+    locale: 'ja-JP'
+  },
+  {
+    term: '喉の痛み',
+    variants: ['咽頭痛', 'のどが痛い', 'のどの違和感'],
+    context: ['symptom'],
+    locale: 'ja-JP'
+  },
+  {
+    term: '耳鳴り',
+    variants: ['耳鳴', '耳なりがする', 'キーンと鳴る'],
+    context: ['symptom'],
+    locale: 'ja-JP'
+  },
+  {
+    term: '視力低下',
+    variants: ['視力が落ちる', '目がかすむ', '視界がぼやける'],
+    context: ['symptom'],
+    locale: 'ja-JP'
+  },
+  {
+    term: '発疹',
+    variants: ['皮疹', '肌にブツブツ', '皮膚に発赤'],
+    context: ['symptom'],
+    locale: 'ja-JP'
+  },
+  {
+    term: 'しびれ',
+    variants: ['手足がしびれる', '感覚がない', 'ピリピリする'],
+    context: ['symptom'],
+    locale: 'ja-JP'
+  },
+  {
+    term: 'むくみ',
+    variants: ['浮腫', '足がパンパン', 'むくみが気になる'],
+    context: ['symptom'],
+    locale: 'ja-JP'
+  },
+  {
+    term: '不眠',
+    variants: ['眠れない', '寝つけない', '夜中に目が覚める'],
+    context: ['symptom'],
+    locale: 'ja-JP'
+  },
+  {
+    term: '乳房のしこり',
+    variants: ['胸のしこり', '乳房腫瘤', '胸にしこりがある'],
+    context: ['symptom'],
+    locale: 'ja-JP'
+  },
+  {
     term: '内視鏡検査',
     variants: ['内視鏡', '胃カメラ'],
     context: ['test'],
