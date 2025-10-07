@@ -106,6 +106,145 @@
       </div>
     </section>
 
+    <!-- 画像管理 -->
+    <section class="bg-white rounded shadow p-6 space-y-4">
+      <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 class="text-lg font-semibold text-blue-800">画像管理</h2>
+          <p class="text-sm text-gray-600">ロゴや施設外観の画像をアップロードできます（PNG/JPEG/WebP/GIF、5MB以下）。</p>
+        </div>
+        <span class="text-xs text-gray-500">保存前でもアップロード後は即時反映されます。</span>
+      </div>
+      <div class="grid gap-4 lg:grid-cols-3">
+        <div class="rounded border border-slate-200 bg-slate-50/60 p-4 space-y-3" data-media-slot="logoSmall">
+          <div class="flex items-start gap-3">
+            <div id="media-preview-logoSmall" class="flex h-24 w-24 items-center justify-center overflow-hidden rounded bg-white shadow-inner text-xs text-slate-400">画像未設定</div>
+            <div class="flex-1 space-y-2">
+              <div>
+                <p class="text-sm font-semibold text-blue-900">ロゴ（正方形）</p>
+                <p class="text-xs text-slate-500">推奨 512×512px / 5MB以下</p>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <button type="button" class="rounded bg-blue-600 px-3 py-1 text-sm font-semibold text-white hover:bg-blue-700" data-media-upload="logoSmall">画像を選択</button>
+                <button type="button" class="rounded bg-red-100 px-3 py-1 text-sm font-semibold text-red-600 hover:bg-red-200 hidden" data-media-remove="logoSmall">削除</button>
+              </div>
+              <div id="media-meta-logoSmall" class="text-xs text-slate-500"></div>
+            </div>
+          </div>
+          <div>
+            <label for="media-alt-logoSmall" class="text-xs text-slate-500">代替テキスト</label>
+            <input id="media-alt-logoSmall" class="mt-1 w-full rounded border px-3 py-2 text-sm" placeholder="例: クリニックのロゴ" disabled />
+          </div>
+          <input id="media-file-logoSmall" type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="hidden" />
+        </div>
+        <div class="rounded border border-slate-200 bg-slate-50/60 p-4 space-y-3" data-media-slot="logoLarge">
+          <div class="flex items-start gap-3">
+            <div id="media-preview-logoLarge" class="flex h-24 w-32 items-center justify-center overflow-hidden rounded bg-white shadow-inner text-xs text-slate-400">画像未設定</div>
+            <div class="flex-1 space-y-2">
+              <div>
+                <p class="text-sm font-semibold text-blue-900">ロゴ（横長）</p>
+                <p class="text-xs text-slate-500">推奨 960×320px / 5MB以下</p>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <button type="button" class="rounded bg-blue-600 px-3 py-1 text-sm font-semibold text-white hover:bg-blue-700" data-media-upload="logoLarge">画像を選択</button>
+                <button type="button" class="rounded bg-red-100 px-3 py-1 text-sm font-semibold text-red-600 hover:bg-red-200 hidden" data-media-remove="logoLarge">削除</button>
+              </div>
+              <div id="media-meta-logoLarge" class="text-xs text-slate-500"></div>
+            </div>
+          </div>
+          <div>
+            <label for="media-alt-logoLarge" class="text-xs text-slate-500">代替テキスト</label>
+            <input id="media-alt-logoLarge" class="mt-1 w-full rounded border px-3 py-2 text-sm" placeholder="例: 公式ロゴ（横長）" disabled />
+          </div>
+          <input id="media-file-logoLarge" type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="hidden" />
+        </div>
+        <div class="rounded border border-slate-200 bg-slate-50/60 p-4 space-y-3" data-media-slot="facade">
+          <div class="flex items-start gap-3">
+            <div id="media-preview-facade" class="flex h-24 w-32 items-center justify-center overflow-hidden rounded bg-white shadow-inner text-xs text-slate-400">画像未設定</div>
+            <div class="flex-1 space-y-2">
+              <div>
+                <p class="text-sm font-semibold text-blue-900">施設外観写真</p>
+                <p class="text-xs text-slate-500">推奨 1600×900px / 5MB以下</p>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <button type="button" class="rounded bg-blue-600 px-3 py-1 text-sm font-semibold text-white hover:bg-blue-700" data-media-upload="facade">画像を選択</button>
+                <button type="button" class="rounded bg-red-100 px-3 py-1 text-sm font-semibold text-red-600 hover:bg-red-200 hidden" data-media-remove="facade">削除</button>
+              </div>
+              <div id="media-meta-facade" class="text-xs text-slate-500"></div>
+            </div>
+          </div>
+          <div>
+            <label for="media-alt-facade" class="text-xs text-slate-500">代替テキスト</label>
+            <input id="media-alt-facade" class="mt-1 w-full rounded border px-3 py-2 text-sm" placeholder="例: 入口の外観" disabled />
+          </div>
+          <input id="media-file-facade" type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="hidden" />
+        </div>
+      </div>
+    </section>
+
+    <!-- アクセス情報 -->
+    <section class="bg-white rounded shadow p-6 space-y-4">
+      <h2 class="text-lg font-semibold text-blue-800">アクセス情報</h2>
+      <div class="grid gap-4 md:grid-cols-2">
+        <div class="md:col-span-2">
+          <label for="accessStation" class="block text-sm text-gray-700 mb-1">最寄駅・徒歩ルート</label>
+          <input id="accessStation" class="w-full rounded border px-3 py-2" placeholder="例: JR中野駅 北口より徒歩5分" />
+        </div>
+        <div class="md:col-span-2">
+          <label for="accessBus" class="block text-sm text-gray-700 mb-1">バス停・その他アクセス</label>
+          <input id="accessBus" class="w-full rounded border px-3 py-2" placeholder="例: 中野区循環バス1番停留所 徒歩2分" />
+        </div>
+        <div>
+          <label class="block text-sm text-gray-700 mb-1">駐車場</label>
+          <div class="flex items-center gap-2 text-sm text-gray-600">
+            <input id="accessParkingAvailable" type="checkbox" class="h-4 w-4 text-blue-600" />
+            <span>駐車場あり</span>
+          </div>
+          <div class="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <input id="accessParkingCapacity" type="number" min="0" class="w-full rounded border px-3 py-2 sm:max-w-[140px]" placeholder="台数" />
+            <input id="accessParkingNotes" class="w-full rounded border px-3 py-2" placeholder="備考（提携コインPなど）" />
+          </div>
+        </div>
+        <div>
+          <label for="accessBarrierFree" class="block text-sm text-gray-700 mb-1">バリアフリー設備</label>
+          <textarea id="accessBarrierFree" rows="3" class="w-full rounded border px-3 py-2 text-sm" placeholder="例: 入口段差なし\n例: 多目的トイレあり"></textarea>
+          <p class="text-xs text-gray-500 mt-1">1行につき1項目を入力してください。</p>
+        </div>
+        <div class="md:col-span-2">
+          <label for="accessNotes" class="block text-sm text-gray-700 mb-1">その他アクセス補足</label>
+          <textarea id="accessNotes" rows="2" class="w-full rounded border px-3 py-2 text-sm" placeholder="例: 自転車は建物左側の駐輪スペースをご利用ください"></textarea>
+        </div>
+      </div>
+    </section>
+
+    <!-- 診療形態 -->
+    <section class="bg-white rounded shadow p-6 space-y-4">
+      <h2 class="text-lg font-semibold text-blue-800">診療形態・対応</h2>
+      <p class="text-sm text-gray-600">該当する項目にチェックを入れてください。公開ページでバッジ表示されます。</p>
+      <div class="grid gap-3 sm:grid-cols-2">
+        <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+          <input type="checkbox" id="mode-online" class="h-4 w-4 text-blue-600" />
+          <span>オンライン診療</span>
+        </label>
+        <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+          <input type="checkbox" id="mode-night" class="h-4 w-4 text-blue-600" />
+          <span>夜間診療（18時以降）</span>
+        </label>
+        <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+          <input type="checkbox" id="mode-holiday" class="h-4 w-4 text-blue-600" />
+          <span>休日診療</span>
+        </label>
+        <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+          <input type="checkbox" id="mode-homeVisit" class="h-4 w-4 text-blue-600" />
+          <span>在宅・訪問診療</span>
+        </label>
+        <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+          <input type="checkbox" id="mode-emergency" class="h-4 w-4 text-blue-600" />
+          <span>救急対応・急患受付</span>
+        </label>
+      </div>
+    </section>
+
     <!-- 標榜診療科 -->
     <section class="bg-white rounded shadow p-6">
       <h2 class="text-lg font-semibold text-blue-800 mb-4">標榜診療科</h2>
@@ -236,6 +375,27 @@ const BASE = "https://ncd-app.altry.workers.dev";
 const days = ["月曜","火曜","水曜","木曜","金曜","土曜","日曜","祝日"];
 const DEPARTMENT_CATEGORY = "標榜診療科";
 
+const MEDIA_SLOT_DEFS = [
+  { key: 'logoSmall', previewId: 'media-preview-logoSmall', fileInputId: 'media-file-logoSmall', altInputId: 'media-alt-logoSmall', metaId: 'media-meta-logoSmall', uploadBtnSelector: "[data-media-upload='logoSmall']", removeBtnSelector: "[data-media-remove='logoSmall']" },
+  { key: 'logoLarge', previewId: 'media-preview-logoLarge', fileInputId: 'media-file-logoLarge', altInputId: 'media-alt-logoLarge', metaId: 'media-meta-logoLarge', uploadBtnSelector: "[data-media-upload='logoLarge']", removeBtnSelector: "[data-media-remove='logoLarge']" },
+  { key: 'facade', previewId: 'media-preview-facade', fileInputId: 'media-file-facade', altInputId: 'media-alt-facade', metaId: 'media-meta-facade', uploadBtnSelector: "[data-media-upload='facade']", removeBtnSelector: "[data-media-remove='facade']" }
+];
+const MEDIA_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif';
+const MEDIA_MAX_SIZE = 5 * 1024 * 1024; // 5MB
+let mediaState = {
+  logoSmall: null,
+  logoLarge: null,
+  facade: null,
+};
+
+const MODE_DEFS = [
+  { key: 'online', checkboxId: 'mode-online' },
+  { key: 'night', checkboxId: 'mode-night' },
+  { key: 'holiday', checkboxId: 'mode-holiday' },
+  { key: 'homeVisit', checkboxId: 'mode-homeVisit' },
+  { key: 'emergency', checkboxId: 'mode-emergency' },
+];
+
 let currentClinicId = "";
 let retainedQualifications = "";
 let departmentMaster = [];
@@ -287,6 +447,374 @@ function formatPostalCode(value) {
   if (digits.length <= 3) return digits;
   return `${digits.slice(0, 3)}-${digits.slice(3, 7)}`;
 }
+
+function updateSelectedClinicCache(mutator) {
+  try {
+    const raw = localStorage.getItem('selectedClinic');
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return;
+    mutator(parsed);
+    localStorage.setItem('selectedClinic', JSON.stringify(parsed));
+  } catch (err) {
+    console.warn('failed to update selectedClinic cache', err);
+  }
+}
+
+function sanitizeMediaRecord(raw) {
+  if (!raw || typeof raw !== 'object' || !raw.key) return null;
+  return {
+    key: String(raw.key),
+    contentType: raw.contentType || '',
+    width: Number.isFinite(raw.width) ? raw.width : null,
+    height: Number.isFinite(raw.height) ? raw.height : null,
+    fileSize: Number.isFinite(raw.fileSize) ? raw.fileSize : null,
+    alt: typeof raw.alt === 'string' ? raw.alt : '',
+    uploadedAt: Number.isFinite(raw.uploadedAt) ? raw.uploadedAt : null,
+  };
+}
+
+function sanitizeMediaState(source) {
+  const state = {};
+  MEDIA_SLOT_DEFS.forEach(({ key }) => {
+    state[key] = sanitizeMediaRecord(source?.[key]);
+  });
+  return state;
+}
+
+function buildMediaPayload() {
+  const payload = {};
+  MEDIA_SLOT_DEFS.forEach(({ key }) => {
+    const state = mediaState[key];
+    if (state && state.key) {
+      payload[key] = {
+        key: state.key,
+        contentType: state.contentType || '',
+        width: Number.isFinite(state.width) ? state.width : null,
+        height: Number.isFinite(state.height) ? state.height : null,
+        fileSize: Number.isFinite(state.fileSize) ? state.fileSize : null,
+        alt: state.alt || '',
+        uploadedAt: Number.isFinite(state.uploadedAt) ? state.uploadedAt : null,
+      };
+    }
+  });
+  return payload;
+}
+
+function readImageDimensions(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      URL.revokeObjectURL(url);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('画像の読み込みに失敗しました'));
+    };
+    img.src = url;
+  });
+}
+
+function formatFileSize(bytes) {
+  if (!Number.isFinite(bytes)) return '';
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  }
+  if (bytes >= 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${bytes} B`;
+}
+
+function setMediaSlotBusy(slot, busy) {
+  const uploadBtn = document.querySelector(`[data-media-upload='${slot}']`);
+  const removeBtn = document.querySelector(`[data-media-remove='${slot}']`);
+  if (uploadBtn) {
+    if (busy) {
+      uploadBtn.disabled = true;
+      uploadBtn.dataset.originalLabel = uploadBtn.dataset.originalLabel || uploadBtn.textContent;
+      uploadBtn.textContent = 'アップロード中…';
+    } else {
+      uploadBtn.disabled = false;
+      if (uploadBtn.dataset.originalLabel) {
+        uploadBtn.textContent = uploadBtn.dataset.originalLabel;
+      }
+    }
+  }
+  if (removeBtn) {
+    removeBtn.disabled = busy;
+  }
+}
+
+function renderMediaSlot(slot) {
+  const def = MEDIA_SLOT_DEFS.find(item => item.key === slot);
+  if (!def) return;
+  const state = mediaState[slot];
+  const previewEl = document.getElementById(def.previewId);
+  const altInput = document.getElementById(def.altInputId);
+  const metaEl = document.getElementById(def.metaId);
+  const removeBtn = document.querySelector(def.removeBtnSelector);
+  if (!previewEl) return;
+
+  if (state && state.key) {
+    const encodedKey = encodeURIComponent(state.key);
+    previewEl.innerHTML = `<img src="/assets/${encodedKey}?w=400&h=300&fit=cover" alt="" class="h-full w-full object-cover" />`;
+    if (altInput) {
+      altInput.disabled = false;
+      altInput.value = state.alt || '';
+    }
+    if (removeBtn) {
+      removeBtn.classList.remove('hidden');
+      removeBtn.disabled = false;
+    }
+    if (metaEl) {
+      const sizeText = formatFileSize(state.fileSize);
+      const resolutionText = state.width && state.height ? `${state.width}×${state.height}px` : '';
+      const parts = [state.contentType || '', resolutionText, sizeText].filter(Boolean);
+      metaEl.textContent = parts.join(' / ');
+    }
+  } else {
+    previewEl.textContent = '画像未設定';
+    if (altInput) {
+      altInput.value = '';
+      altInput.disabled = true;
+    }
+    if (removeBtn) {
+      removeBtn.classList.add('hidden');
+    }
+    if (metaEl) {
+      metaEl.textContent = 'PNG / JPEG / WebP / GIF （5MB以下）';
+    }
+  }
+}
+
+function renderAllMediaSlots() {
+  MEDIA_SLOT_DEFS.forEach(({ key }) => renderMediaSlot(key));
+}
+
+async function handleMediaUpload(slot, file) {
+  if (!currentClinicId) {
+    alert('先に診療所データを保存してから画像をアップロードしてください。');
+    return;
+  }
+  if (!file) return;
+  if (file.size > MEDIA_MAX_SIZE) {
+    alert('ファイルサイズが大きすぎます（5MB以下にしてください）。');
+    return;
+  }
+  const def = MEDIA_SLOT_DEFS.find(item => item.key === slot);
+  if (!def) return;
+  const altInput = document.getElementById(def.altInputId);
+  const altText = altInput ? altInput.value.trim() : '';
+
+  setMediaSlotBusy(slot, true);
+  try {
+    let dimensions = { width: null, height: null };
+    try {
+      dimensions = await readImageDimensions(file);
+    } catch (dimErr) {
+      console.warn('failed to read image dimensions', dimErr);
+    }
+
+    const formData = new FormData();
+    formData.append('clinicId', currentClinicId);
+    formData.append('slot', slot);
+    if (altText) formData.append('alt', altText);
+    if (dimensions.width) formData.append('width', String(dimensions.width));
+    if (dimensions.height) formData.append('height', String(dimensions.height));
+    formData.append('file', file, file.name || `${slot}.png`);
+
+    const res = await fetch(`${BASE}/api/media/upload`, {
+      method: 'POST',
+      body: formData,
+    });
+    const data = await res.json();
+    if (!res.ok || data?.ok === false) {
+      throw new Error(data?.error || `HTTP ${res.status}`);
+    }
+
+    mediaState[slot] = sanitizeMediaRecord(data.media);
+    renderMediaSlot(slot);
+    updateSelectedClinicCache(clinic => {
+      clinic.media = clinic.media && typeof clinic.media === 'object' ? clinic.media : {};
+      clinic.media[slot] = mediaState[slot];
+    });
+    alert('画像をアップロードしました。');
+  } catch (err) {
+    console.error(err);
+    alert(`画像のアップロードに失敗しました: ${err.message}`);
+  } finally {
+    setMediaSlotBusy(slot, false);
+    const fileInput = document.getElementById(def.fileInputId);
+    if (fileInput) {
+      fileInput.value = '';
+    }
+  }
+}
+
+async function handleMediaDelete(slot) {
+  if (!currentClinicId) {
+    alert('診療所を選択してから削除してください。');
+    return;
+  }
+  if (!mediaState[slot]) return;
+  if (!window.confirm('この画像を削除しますか？')) return;
+  setMediaSlotBusy(slot, true);
+  try {
+    const res = await fetch(`${BASE}/api/media/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clinicId: currentClinicId, slot }),
+    });
+    const data = await res.json();
+    if (!res.ok || data?.ok === false) {
+      throw new Error(data?.error || `HTTP ${res.status}`);
+    }
+    mediaState[slot] = null;
+    renderMediaSlot(slot);
+    updateSelectedClinicCache(clinic => {
+      if (!clinic.media || typeof clinic.media !== 'object') return;
+      delete clinic.media[slot];
+    });
+    alert('画像を削除しました。');
+  } catch (err) {
+    console.error(err);
+    alert(`画像の削除に失敗しました: ${err.message}`);
+  } finally {
+    setMediaSlotBusy(slot, false);
+  }
+}
+
+function initMediaSection() {
+  MEDIA_SLOT_DEFS.forEach(def => {
+    const fileInput = document.getElementById(def.fileInputId);
+    if (fileInput) {
+      fileInput.accept = MEDIA_ACCEPT;
+      fileInput.addEventListener('change', event => {
+        const file = event.target.files?.[0];
+        if (file) {
+          handleMediaUpload(def.key, file);
+        }
+      });
+    }
+    const uploadBtn = document.querySelector(def.uploadBtnSelector);
+    if (uploadBtn) {
+      uploadBtn.addEventListener('click', () => {
+        const input = document.getElementById(def.fileInputId);
+        if (input) input.click();
+      });
+    }
+    const removeBtn = document.querySelector(def.removeBtnSelector);
+    if (removeBtn) {
+      removeBtn.addEventListener('click', () => {
+        handleMediaDelete(def.key);
+      });
+    }
+    const altInput = document.getElementById(def.altInputId);
+    if (altInput) {
+      altInput.addEventListener('input', () => {
+        if (mediaState[def.key]) {
+          mediaState[def.key].alt = altInput.value.trim();
+          markDirty();
+        }
+      });
+    }
+  });
+  renderAllMediaSlots();
+}
+
+function readAccessFromForm() {
+  const nearestStation = document.getElementById('accessStation')?.value.trim() || '';
+  const bus = document.getElementById('accessBus')?.value.trim() || '';
+  const parkingAvailable = Boolean(document.getElementById('accessParkingAvailable')?.checked);
+  const capacityValue = document.getElementById('accessParkingCapacity')?.value;
+  const capacity = capacityValue ? Number(capacityValue) : null;
+  const parkingNotes = document.getElementById('accessParkingNotes')?.value.trim() || '';
+  const barrierFreeRaw = document.getElementById('accessBarrierFree')?.value || '';
+  const barrierFree = barrierFreeRaw
+    .split(/\n+/)
+    .map(item => item.trim())
+    .filter(Boolean);
+  const notes = document.getElementById('accessNotes')?.value.trim() || '';
+  return {
+    nearestStation,
+    bus,
+    parking: {
+      available: parkingAvailable,
+      capacity: Number.isFinite(capacity) ? capacity : null,
+      notes: parkingNotes,
+    },
+    barrierFree,
+    notes,
+  };
+}
+
+function applyAccessToForm(access) {
+  const parking = access?.parking || {};
+  const available = Boolean(parking.available);
+  const capacityField = document.getElementById('accessParkingCapacity');
+  const notesField = document.getElementById('accessParkingNotes');
+
+  const setValue = (id, value) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if ('value' in el) {
+      el.value = value ?? '';
+    }
+  };
+
+  setValue('accessStation', access?.nearestStation || '');
+  setValue('accessBus', access?.bus || '');
+  const checkbox = document.getElementById('accessParkingAvailable');
+  if (checkbox) checkbox.checked = available;
+  setValue('accessParkingCapacity', Number.isFinite(parking.capacity) ? parking.capacity : '');
+  setValue('accessParkingNotes', parking.notes || '');
+  setValue('accessBarrierFree', Array.isArray(access?.barrierFree) ? access.barrierFree.join('\n') : '');
+  setValue('accessNotes', access?.notes || '');
+
+  if (capacityField) capacityField.disabled = !available;
+  if (notesField) notesField.disabled = !available;
+}
+
+function initAccessSection() {
+  const checkbox = document.getElementById('accessParkingAvailable');
+  const capacityField = document.getElementById('accessParkingCapacity');
+  const notesField = document.getElementById('accessParkingNotes');
+  if (checkbox) {
+    checkbox.addEventListener('change', () => {
+      const enabled = checkbox.checked;
+      if (capacityField) {
+        capacityField.disabled = !enabled;
+        if (!enabled) capacityField.value = '';
+      }
+      if (notesField) {
+        notesField.disabled = !enabled;
+        if (!enabled) notesField.value = '';
+      }
+    });
+  }
+}
+
+function readModesFromForm() {
+  const modes = {};
+  MODE_DEFS.forEach(({ key, checkboxId }) => {
+    const checkbox = document.getElementById(checkboxId);
+    modes[key] = Boolean(checkbox?.checked);
+  });
+  return modes;
+}
+
+function applyModesToForm(modes) {
+  MODE_DEFS.forEach(({ key, checkboxId }) => {
+    const checkbox = document.getElementById(checkboxId);
+    if (checkbox) {
+      checkbox.checked = Boolean(modes?.[key]);
+    }
+  });
+}
+
 
 function markDirty() {
   if (suppressDirtyTracking) return;
@@ -1059,6 +1587,10 @@ async function saveClinic() {
   scheduleState.days = readScheduleFormDays();
   renderDisplay();
 
+  const access = readAccessFromForm();
+  const modes = readModesFromForm();
+  const mediaPayload = buildMediaPayload();
+
   const clinicData = {
     id: currentClinicId,
     name,
@@ -1077,7 +1609,10 @@ async function saveClinic() {
     departments: {
       master: selectedDeptMaster,
       others: uniqueOtherDept
-    }
+    },
+    media: mediaPayload,
+    access,
+    modes
   };
 
   try {
@@ -1090,6 +1625,10 @@ async function saveClinic() {
 
     const result = await res.json();
     localStorage.setItem("selectedClinic", JSON.stringify(result.clinic));
+    mediaState = sanitizeMediaState(result.clinic?.media);
+    renderAllMediaSlots();
+    applyAccessToForm(result.clinic?.access);
+    applyModesToForm(result.clinic?.modes);
     alert("診療所データを更新しました");
     await registerDepartmentCandidates(uniqueOtherDept);
     resetDirtyState();
@@ -1108,6 +1647,10 @@ function loadClinicDetail() {
       scheduleState.days = {};
       applyScheduleStateToForm();
       renderDisplay();
+      mediaState = sanitizeMediaState({});
+      renderAllMediaSlots();
+      applyAccessToForm(null);
+      applyModesToForm(null);
     });
     latestPostalLookup = '';
     resetDirtyState();
@@ -1150,6 +1693,11 @@ function loadClinicDetail() {
     scheduleState.days = sanitizeScheduleDays(clinic.schedule?.days);
     applyScheduleStateToForm();
     renderDisplay();
+
+    mediaState = sanitizeMediaState(clinic.media);
+    renderAllMediaSlots();
+    applyAccessToForm(clinic.access);
+    applyModesToForm(clinic.modes);
   });
 
   latestPostalLookup = normalizePostalCode(loadedPostal);
@@ -1163,6 +1711,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     initScheduleEditorUI();
     initTimeInputDefaults();
     initPostalCodeField();
+    initMediaSection();
+    initAccessSection();
     await loadDepartmentMaster();
     loadClinicDetail();
   } finally {
