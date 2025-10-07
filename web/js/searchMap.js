@@ -16,6 +16,15 @@
     '板橋クリニック': { lat: 35.710651, lng: 139.652756 }
   };
 
+  const MODE_LABELS = {
+    online: 'オンライン',
+    night: '夜間',
+    holiday: '休日',
+    homeVisit: '在宅',
+    emergency: '救急'
+  };
+  const MODE_ORDER = ['online', 'night', 'holiday', 'homeVisit', 'emergency'];
+
   const els = {};
   const state = {
     rawClinics: [],
@@ -111,6 +120,25 @@
     return fields.filter(Boolean).map((value) => String(value).toLowerCase()).join(' ');
   }
 
+  function mediaUrl(record, params = {}) {
+    if (!record || !record.key) return '';
+    const base = `/assets/${encodeURIComponent(record.key)}`;
+    const query = new URLSearchParams();
+    if (params.width) query.set('w', String(params.width));
+    if (params.height) query.set('h', String(params.height));
+    if (params.fit) query.set('fit', params.fit);
+    if (params.format) query.set('format', params.format);
+    const qs = query.toString();
+    return qs ? `${base}?${qs}` : base;
+  }
+
+  function buildModesBadges(modes) {
+    if (!modes || typeof modes !== 'object') return '';
+    const active = MODE_ORDER.filter((key) => modes[key]);
+    if (!active.length) return '';
+    return active.map((key) => `<span class="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-600">${MODE_LABELS[key]}</span>`).join('');
+  }
+
   function resolveCoordinates(raw) {
     const candidates = [];
     const push = (lat, lng) => {
@@ -154,6 +182,12 @@
     const tags = buildTags(raw);
     const searchText = buildSearchText(raw);
     const coordinates = resolveCoordinates(raw);
+    const media = raw.media && typeof raw.media === 'object' ? raw.media : {};
+    const modes = raw.modes && typeof raw.modes === 'object' ? raw.modes : {};
+    const access = raw.access && typeof raw.access === 'object' ? raw.access : {};
+    const accessSummaryParts = [];
+    if (access.nearestStation) accessSummaryParts.push(access.nearestStation);
+    if (access.bus) accessSummaryParts.push(access.bus);
     return {
       id,
       name,
@@ -164,7 +198,11 @@
       searchText,
       raw,
       lat: coordinates?.lat ?? null,
-      lng: coordinates?.lng ?? null
+      lng: coordinates?.lng ?? null,
+      media,
+      modes,
+      access,
+      accessSummary: accessSummaryParts.join(' / ')
     };
   }
 
@@ -217,14 +255,23 @@
     els.clinicList.innerHTML = clinics.map((clinic) => {
       const safeAddress = clinic.address || '住所未登録';
       const tagsMarkup = clinic.tags.map((tag) => `<span class="inline-flex items-center rounded bg-emerald-100 px-2 py-0.5 text-[11px] text-emerald-700">${tag}</span>`).join('');
+      const modesMarkup = buildModesBadges(clinic.modes);
+      const mediaRecord = clinic.media.logoSmall || clinic.media.logoLarge || clinic.media.facade;
+      const logoUrl = mediaUrl(mediaRecord, { width: 120, height: 120, fit: 'cover' });
+      const logoMarkup = logoUrl
+        ? `<img src="${logoUrl}" alt="" class="h-full w-full object-cover" />`
+        : '<span class="text-[11px] text-slate-400">Logo</span>';
+      const accessSummary = clinic.accessSummary ? `<div class="mt-1 text-xs text-slate-500">${clinic.accessSummary}</div>` : '';
       return `
         <button class="w-full px-4 py-4 text-left hover:bg-slate-50 transition" data-clinic-id="${clinic.id}">
           <div class="flex items-start gap-3">
             <span class="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-full bg-emerald-500 px-2 text-xs font-semibold text-white">${clinic._listIndex}</span>
+            <div class="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white shadow-sm">${logoMarkup}</div>
             <div class="flex-1">
               <div class="text-sm font-semibold text-blue-900">${clinic.name}</div>
               <div class="mt-1 text-xs text-slate-500">${safeAddress}</div>
-              <div class="mt-2 flex flex-wrap gap-1">${tagsMarkup}</div>
+              ${accessSummary}
+              <div class="mt-2 flex flex-wrap gap-1">${modesMarkup}${tagsMarkup}</div>
             </div>
           </div>
         </button>
@@ -340,10 +387,12 @@
         });
 
         marker.addListener('click', () => {
+          const summary = clinic.accessSummary ? `<div class="text-xs text-slate-500">${clinic.accessSummary}</div>` : '';
           const content = `
-            <div class="space-y-1">
+            <div class="space-y-1 max-w-[230px]">
               <div class="font-semibold text-sm text-blue-900">${clinic.name}</div>
               <div class="text-xs text-slate-600">${clinic.address || '住所未登録'}</div>
+              ${summary}
               <a class="text-xs text-emerald-600 hover:underline" href="clinicSummary.html?id=${encodeURIComponent(clinic.id)}">詳細を表示</a>
             </div>
           `;

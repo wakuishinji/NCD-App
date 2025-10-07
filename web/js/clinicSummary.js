@@ -191,6 +191,77 @@
     }
   }
 
+  function mediaUrl(record, params = {}) {
+    if (!record || !record.key) return '';
+    const base = `/assets/${encodeURIComponent(record.key)}`;
+    const query = new URLSearchParams();
+    if (params.width) query.set('w', String(params.width));
+    if (params.height) query.set('h', String(params.height));
+    if (params.fit) query.set('fit', params.fit);
+    if (params.format) query.set('format', params.format);
+    if (query.toString()) {
+      return `${base}?${query.toString()}`;
+    }
+    return base;
+  }
+
+  function renderLogo(clinic) {
+    if (!els.logo) return;
+    const media = clinic.media && typeof clinic.media === 'object' ? clinic.media : {};
+    const record = media.logoSmall || media.logoLarge;
+    if (record && record.key) {
+      const img = document.createElement('img');
+      img.src = mediaUrl(record, { width: 256, height: 256, fit: 'cover' });
+      img.alt = record.alt || clinic.name || 'クリニックロゴ';
+      img.className = 'h-full w-full object-cover';
+      els.logo.replaceChildren(img);
+    } else {
+      els.logo.innerHTML = '<span class="text-xs text-slate-400">ロゴ未登録</span>';
+    }
+  }
+
+  function renderHero(clinic) {
+    if (!els.hero) return;
+    const media = clinic.media && typeof clinic.media === 'object' ? clinic.media : {};
+    const record = media.facade || media.logoLarge || media.logoSmall;
+    if (record && record.key) {
+      const img = document.createElement('img');
+      img.src = mediaUrl(record, { width: 1600, height: 900, fit: 'cover' });
+      img.alt = record.alt || `${clinic.name || ''} の外観`;
+      img.className = 'h-full w-full object-cover';
+      els.hero.replaceChildren(img);
+    } else {
+      els.hero.innerHTML = '<div class="flex h-full items-center justify-center text-sm text-slate-400">外観画像は準備中です</div>';
+    }
+  }
+
+  function renderModes(clinic) {
+    if (!els.modes) return;
+    els.modes.replaceChildren();
+    const modes = clinic.modes && typeof clinic.modes === 'object' ? clinic.modes : {};
+    const labels = {
+      online: 'オンライン診療',
+      night: '夜間診療',
+      holiday: '休日診療',
+      homeVisit: '在宅・訪問診療',
+      emergency: '救急対応',
+    };
+    const active = Object.entries(labels).filter(([key]) => modes[key]);
+    if (!active.length) {
+      const span = document.createElement('span');
+      span.className = 'text-xs text-slate-400';
+      span.textContent = '診療形態の登録はまだありません';
+      els.modes.appendChild(span);
+      return;
+    }
+    active.forEach(([key, label]) => {
+      const badge = document.createElement('span');
+      badge.className = 'inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 shadow-sm';
+      badge.textContent = label;
+      els.modes.appendChild(badge);
+    });
+  }
+
   function appendContact(label, value, options = {}) {
     if (!els.contact || !value) return;
     const wrapper = document.createElement('div');
@@ -458,11 +529,67 @@
   }
 
   function renderAccess(clinic) {
-    if (els.accessText) {
+    const access = clinic.access && typeof clinic.access === 'object' ? clinic.access : {};
+    const list = els.accessList;
+    const summaryEl = els.accessSummary;
+    const textEl = els.accessText;
+
+    const summaryParts = [];
+    if (access.nearestStation) summaryParts.push(access.nearestStation);
+    if (access.bus) summaryParts.push(access.bus);
+    if (summaryEl) {
+      summaryEl.textContent = summaryParts.join(' / ') || 'アクセス情報は準備中です。';
+    }
+
+    if (list) {
+      list.replaceChildren();
+      const entries = [];
+      if (access.nearestStation) entries.push(['最寄駅', access.nearestStation]);
+      if (access.bus) entries.push(['バス・ルート', access.bus]);
+      if (access.parking && typeof access.parking === 'object') {
+        const parking = access.parking;
+        const details = [];
+        if (parking.available) {
+          if (Number.isFinite(parking.capacity)) details.push(`収容 ${parking.capacity}台`);
+          if (parking.notes) details.push(parking.notes);
+          entries.push(['駐車場', details.join(' / ') || 'あり']);
+        } else if (parking.notes) {
+          entries.push(['駐車場', parking.notes]);
+        }
+      }
+      if (Array.isArray(access.barrierFree) && access.barrierFree.length) {
+        entries.push(['バリアフリー', access.barrierFree.join(' / ')]);
+      }
+      if (access.notes) {
+        entries.push(['補足', access.notes]);
+      }
+
+      if (!entries.length) {
+        const dt = document.createElement('dt');
+        dt.className = 'font-semibold text-slate-500';
+        dt.textContent = '情報';
+        const dd = document.createElement('dd');
+        dd.textContent = 'アクセス情報は準備中です。';
+        dd.className = 'text-slate-500';
+        list.append(dt, dd);
+      } else {
+        entries.forEach(([label, value]) => {
+          const dt = document.createElement('dt');
+          dt.className = 'font-semibold text-slate-500';
+          dt.textContent = label;
+          const dd = document.createElement('dd');
+          dd.className = 'text-slate-600';
+          dd.textContent = value;
+          list.append(dt, dd);
+        });
+      }
+    }
+
+    if (textEl) {
       const lines = [];
       if (clinic.postalCode) lines.push(`〒${clinic.postalCode}`);
       if (clinic.address) lines.push(clinic.address);
-      els.accessText.textContent = lines.join(' ') || 'アクセス情報は準備中です。';
+      textEl.textContent = lines.join(' ') || '住所情報は準備中です。';
     }
   }
 
@@ -482,6 +609,7 @@
     }
 
     renderTags(clinic);
+    renderLogo(clinic);
     renderContact(clinic);
     renderLinks(clinic);
 
@@ -501,6 +629,8 @@
 
     renderSchedule(clinic.schedule);
     renderFeatures(clinic);
+    renderHero(clinic);
+    renderModes(clinic);
     renderAccess(clinic);
     renderMap(clinic);
   }
@@ -552,6 +682,7 @@
     els.title = document.getElementById('clinicTitle');
     els.subtitle = document.getElementById('clinicSubtitle');
     els.tags = document.getElementById('clinicTags');
+    els.logo = document.getElementById('clinicLogo');
     els.contact = document.getElementById('clinicContact');
     els.links = document.getElementById('clinicLinks');
     els.departments = document.getElementById('clinicDepartments');
@@ -559,6 +690,10 @@
     els.schedule = document.getElementById('clinicSchedule');
     els.scheduleNote = document.getElementById('clinicScheduleNote');
     els.features = document.getElementById('clinicFeatures');
+    els.hero = document.getElementById('clinicHero');
+    els.modes = document.getElementById('clinicModes');
+    els.accessSummary = document.getElementById('clinicAccessSummary');
+    els.accessList = document.getElementById('clinicAccessList');
     els.accessText = document.getElementById('clinicAccessText');
     els.map = document.getElementById('clinicMap');
   }
