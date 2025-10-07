@@ -424,6 +424,8 @@ export default {
 
     const MEDIA_SLOTS = new Set(["logoSmall", "logoLarge", "facade"]);
     const MODE_MASTER_PREFIX = 'master:mode:';
+    const SERVICE_EXPLANATION_PREFIX = 'master:serviceExplanation:';
+    const TEST_EXPLANATION_PREFIX = 'master:testExplanation:';
 
     async function listModes(env) {
       const prefix = MODE_MASTER_PREFIX;
@@ -495,6 +497,175 @@ export default {
       const existing = await env.SETTINGS.get(key);
       if (!existing) {
         throw new Error('mode not found');
+      }
+      await env.SETTINGS.delete(key);
+    }
+
+    function normalizeExplanationType(type) {
+      const value = (type || '').toLowerCase();
+      if (value === 'service' || value === 'test') return value;
+      throw new Error('invalid explanation type');
+    }
+
+    function resolveExplanationPrefix(type) {
+      return type === 'service' ? SERVICE_EXPLANATION_PREFIX : TEST_EXPLANATION_PREFIX;
+    }
+
+    function buildExplanationKey(type, id) {
+      return `${resolveExplanationPrefix(type)}${id}`;
+    }
+
+    function sanitizeExplanationPayload(payload, { requireId = false } = {}) {
+      if (!payload || typeof payload !== 'object') {
+        throw new Error('payload is required');
+      }
+      const type = normalizeExplanationType(payload.type || payload.explanationType);
+      const targetSlug = nk(payload.targetSlug || payload.slug || payload.serviceSlug || payload.testSlug);
+      if (!targetSlug) {
+        throw new Error('targetSlug is required');
+      }
+      const baseText = nk(payload.baseText || payload.text);
+      if (!baseText) {
+        throw new Error('baseText is required');
+      }
+      const idRaw = nk(payload.id);
+      if (requireId && !idRaw) {
+        throw new Error('id is required');
+      }
+      const id = idRaw || `${type}-${Date.now()}-${crypto.randomUUID()}`;
+      const audience = nk(payload.audience);
+      const context = nk(payload.context);
+      const inheritFrom = nk(payload.inheritFrom);
+      const status = (payload.status || 'draft').toLowerCase();
+      const allowedStatus = new Set(['draft', 'review', 'published']);
+      if (!allowedStatus.has(status)) {
+        throw new Error('invalid status');
+      }
+      const tags = Array.isArray(payload.tags)
+        ? Array.from(new Set(payload.tags.map((tag) => nk(tag)).filter(Boolean)))
+        : [];
+      return {
+        id,
+        type,
+        targetSlug,
+        baseText,
+        audience,
+        context,
+        inheritFrom: inheritFrom || null,
+        status,
+        tags,
+        sourceFacilityIds: Array.isArray(payload.sourceFacilityIds)
+          ? Array.from(new Set(payload.sourceFacilityIds.map((id) => nk(id)).filter(Boolean)))
+          : [],
+      };
+    }
+
+    async function listExplanations(env, { type, targetSlug, status }) {
+      const normalizedType = normalizeExplanationType(type);
+      const prefix = resolveExplanationPrefix(normalizedType);
+      const list = await env.SETTINGS.list({ prefix });
+      const out = [];
+      for (const key of list.keys) {
+        try {
+          const raw = await env.SETTINGS.get(key.name);
+          if (!raw) continue;
+          const obj = JSON.parse(raw);
+          if (!obj || typeof obj !== 'object') continue;
+          const item = {
+            id: key.name.replace(prefix, ''),
+            type: normalizedType,
+            targetSlug: obj.targetSlug || obj.slug || '',
+            baseText: obj.baseText || '',
+            audience: obj.audience || '',
+            context: obj.context || '',
+            inheritFrom: obj.inheritFrom || null,
+            status: obj.status || 'draft',
+            tags: Array.isArray(obj.tags) ? obj.tags : [],
+            sourceFacilityIds: Array.isArray(obj.sourceFacilityIds) ? obj.sourceFacilityIds : [],
+            versions: Array.isArray(obj.versions) ? obj.versions : [],
+            createdAt: obj.createdAt || null,
+            updatedAt: obj.updatedAt || null,
+          };
+          if (targetSlug && item.targetSlug !== targetSlug) continue;
+          if (status && item.status !== status) continue;
+          out.push(item);
+        } catch (err) {
+          console.warn('failed to parse explanation', key.name, err);
+        }
+      }
+      out.sort((a, b) => {
+        const au = Number.isFinite(a.updatedAt) ? a.updatedAt : 0;
+        const bu = Number.isFinite(b.updatedAt) ? b.updatedAt : 0;
+        if (bu !== au) return bu - au;
+        return (a.targetSlug || '').localeCompare(b.targetSlug || '', 'ja');
+      });
+      return out;
+    }
+
+    async function saveExplanation(env, payload, { requireId = false } = {}) {
+      const sanitized = sanitizeExplanationPayload(payload, { requireId });
+      const now = Date.now();
+      const key = buildExplanationKey(sanitized.type, sanitized.id);
+      const existingRaw = await env.SETTINGS.get(key);
+      let existing = null;
+      if (existingRaw) {
+        try {
+          existing = JSON.parse(existingRaw);
+        } catch (err) {
+          existing = null;
+        }
+      }
+      const record = {
+        targetSlug: sanitized.targetSlug,
+        baseText: sanitized.baseText,
+        audience: sanitized.audience,
+        context: sanitized.context,
+        inheritFrom: sanitized.inheritFrom,
+        status: sanitized.status,
+        tags: sanitized.tags,
+        sourceFacilityIds: sanitized.sourceFacilityIds,
+        versions: Array.isArray(existing?.versions) ? existing.versions : [],
+        createdAt: existing?.createdAt || now,
+        updatedAt: now,
+      };
+      // append history entry
+      const versionEntry = {
+        text: sanitized.baseText,
+        status: sanitized.status,
+        audience: sanitized.audience,
+        context: sanitized.context,
+        inheritFrom: sanitized.inheritFrom,
+        tags: sanitized.tags,
+        updatedAt: now,
+      };
+      record.versions = [...record.versions, versionEntry].slice(-20); // keep last 20 entries
+      await env.SETTINGS.put(key, JSON.stringify(record));
+      return {
+        id: sanitized.id,
+        type: sanitized.type,
+        targetSlug: sanitized.targetSlug,
+        baseText: sanitized.baseText,
+        audience: sanitized.audience,
+        context: sanitized.context,
+        inheritFrom: sanitized.inheritFrom,
+        status: sanitized.status,
+        tags: sanitized.tags,
+        sourceFacilityIds: sanitized.sourceFacilityIds,
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+      };
+    }
+
+    async function deleteExplanation(env, { type, id }) {
+      const normalizedType = normalizeExplanationType(type);
+      const slug = nk(id);
+      if (!slug) {
+        throw new Error('id is required');
+      }
+      const key = buildExplanationKey(normalizedType, slug);
+      const existing = await env.SETTINGS.get(key);
+      if (!existing) {
+        throw new Error('explanation not found');
       }
       await env.SETTINGS.delete(key);
     }
@@ -809,6 +980,74 @@ export default {
         });
       } catch (err) {
         const status = err.message === 'mode not found' ? 404 : /required/.test(err.message) ? 400 : 500;
+        return new Response(JSON.stringify({ ok: false, error: err.message }), {
+          status,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    if (routeMatch(url, 'GET', 'explanations')) {
+      try {
+        const type = url.searchParams.get('type');
+        const targetSlug = url.searchParams.get('targetSlug') || url.searchParams.get('slug');
+        const status = url.searchParams.get('status');
+        const items = await listExplanations(env, { type, targetSlug, status });
+        return new Response(JSON.stringify({ ok: true, explanations: items }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      } catch (err) {
+        const status = /invalid/.test(err.message) ? 400 : 500;
+        return new Response(JSON.stringify({ ok: false, error: err.message }), {
+          status,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    if (routeMatch(url, 'POST', 'explanations/add')) {
+      try {
+        const payload = await request.json();
+        const saved = await saveExplanation(env, payload || {});
+        return new Response(JSON.stringify({ ok: true, explanation: saved }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      } catch (err) {
+        const status = /required|invalid/.test(err.message) ? 400 : 500;
+        return new Response(JSON.stringify({ ok: false, error: err.message }), {
+          status,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    if (routeMatch(url, 'POST', 'explanations/update')) {
+      try {
+        const payload = await request.json();
+        const saved = await saveExplanation(env, payload || {}, { requireId: true });
+        return new Response(JSON.stringify({ ok: true, explanation: saved }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      } catch (err) {
+        const status = /required|invalid/.test(err.message) ? 400 : 500;
+        return new Response(JSON.stringify({ ok: false, error: err.message }), {
+          status,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    if (routeMatch(url, 'POST', 'explanations/delete')) {
+      try {
+        const payload = await request.json();
+        const type = payload?.type;
+        const id = payload?.id;
+        await deleteExplanation(env, { type, id });
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      } catch (err) {
+        const status = err.message === 'explanation not found' ? 404 : /required|invalid/.test(err.message) ? 400 : 500;
         return new Response(JSON.stringify({ ok: false, error: err.message }), {
           status,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
