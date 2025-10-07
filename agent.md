@@ -207,6 +207,21 @@
   - `POST /api/media/delete` … 対象スロットの R2 オブジェクト削除 + KV 更新。
   - `GET /assets/<key>` … R2 から画像配信。Google Maps 等から直接参照可能。
 
+### 診療形態マスター化（新規作業計画）
+1. データモデル
+   - KV キー: `master:mode:{slug}`。フィールド例: `{ label, description, icon, order, active, tags }`。
+   - 互換性のため既存 `clinic.modes` はオブジェクト → `modes.selected`（スラッグ配列）+ `modes.meta`（label などキャッシュ）へ移行。
+2. API
+   - Workers に `/api/listModes`, `/api/addMode`, `/api/updateMode`, `/api/deleteMode` を追加（既存 master API を拡張しても可）。
+   - `listClinics`, `clinicDetail`, `updateClinic` で新フィールドへ対応。
+3. 管理UI
+   - `web/admin/clinicModes.html` を新設。`masterPage.js` の共通ロジックを再利用し、ラベル・説明・表示順・公開ステータスのCRUDを提供。
+   - `clinicDetail.html` はチェックボックスからモード一覧を読み込み、選択を保存。
+4. 公開側
+   - `clinicSummary.js` `searchMap.js` でマスター情報を参照し表示名/色/アイコンを統一。
+5. 運用
+   - `agent.md` にモードマスターの運用手順（追加・表示制御）を追記。
+
 ## 今後の方針（データテーブル別）
 
 ### Clinics
