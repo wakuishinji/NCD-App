@@ -7,9 +7,11 @@ import json
 import http.server
 import socketserver
 import urllib.parse
+import sys
 from pathlib import Path
 
-PORT = 9000
+DEFAULT_PORT = 9000
+PORT = int(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_PORT
 BASE_DIR = Path(__file__).parent
 
 class NCDTestHandler(http.server.SimpleHTTPRequestHandler):

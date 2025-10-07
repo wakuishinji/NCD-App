@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const BASE = 'https://ncd-app.altry.workers.dev';
+const BASE = process.env.NCD_BASE || process.argv[2] || 'http://127.0.0.1:8787';
 
 const BODY_SITES = [
   {

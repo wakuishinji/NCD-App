@@ -1,6 +1,32 @@
 (function(){
-  const BASE = "https://ncd-app.altry.workers.dev";
+  const DEFAULT_API_BASE = "https://ncd-app.altry.workers.dev";
+
+  function resolveApiBase() {
+    if (typeof window !== 'undefined' && typeof window.API_BASE_OVERRIDE === 'string') {
+      const override = window.API_BASE_OVERRIDE.trim();
+      if (override) {
+        return override.replace(/\/$/, '');
+      }
+    }
+    try {
+      const stored = localStorage.getItem('ncdApiBase') || localStorage.getItem('ncdApiBaseUrl');
+      if (typeof stored === 'string' && stored.trim()) {
+        return stored.trim().replace(/\/$/, '');
+      }
+    } catch (_) {}
+    return DEFAULT_API_BASE;
+  }
+
+  const API_BASE = resolveApiBase();
+  window.NCD_API_BASE = API_BASE;
+
+  function apiUrl(path) {
+    const normalized = path.startsWith('/') ? path : `/${path}`;
+    return API_BASE ? `${API_BASE}${normalized}` : normalized;
+  }
+
   const PERSONAL_CLASSIFICATIONS = ["医師", "看護", "コメディカル", "事務", "その他"];
+  const EXPLANATION_STATUS_OPTIONS = ['draft', 'published', 'archived'];
 
   function escapeHtml(value) {
     return String(value ?? '')
@@ -176,7 +202,7 @@
 
     async loadCategories() {
       try {
-        const res = await fetch(`${BASE}/api/listCategories?type=${this.type}`);
+        const res = await fetch(apiUrl(`/api/listCategories?type=${this.type}`));
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         this.categoryOptions = Array.isArray(data.categories) ? data.categories : [];
@@ -218,7 +244,7 @@
           }
           this.inFlight = controller;
           try {
-            const url = new URL(`${BASE}/api/listMaster`);
+            const url = new URL(apiUrl('/api/listMaster'), window.location.origin);
             url.searchParams.set('type', this.type);
             if (status) url.searchParams.set('status', status);
             url.searchParams.set('includeSimilar', 'true');
@@ -366,6 +392,7 @@
                 <input class="w-full border rounded px-2 py-1" data-field="notes" value="${escapeHtml(item.notes || '')}" placeholder="備考を入力">
               </div>` : ''}
             </div>
+            <div class="mt-3 space-y-3" data-explanation-section></div>
             <div class="mt-2 flex flex-wrap gap-2 text-sm">
               <button class="bg-blue-600 px-3 py-1 font-semibold text-white rounded disabled:opacity-40" data-action="update" disabled>更新</button>
               <button class="bg-red-600 px-3 py-1 font-semibold text-white rounded" data-action="delete">削除</button>
@@ -375,6 +402,7 @@
             <div class="mt-1 space-y-1" data-similar></div>
           `;
 
+          this.renderExplanationSection(card, item);
           this.attachCardHandlers(card, item);
           this.renderSimilar(card, item);
           wrapper.appendChild(card);
@@ -400,6 +428,134 @@
         row.textContent = `${match.name} (status: ${match.status || '-'}, similarity: ${match.similarity})`;
         container.appendChild(row);
       });
+    }
+
+    renderExplanationSection(card, item) {
+      const host = card.querySelector('[data-explanation-section]');
+      if (!host) return;
+      if (!['service', 'test'].includes(this.type)) {
+        host.remove();
+        return;
+      }
+      host.innerHTML = '';
+
+      const header = document.createElement('div');
+      header.className = 'flex items-center justify-between text-xs text-slate-500';
+      header.innerHTML = `
+        <span>説明候補 (${Array.isArray(item.explanations) ? item.explanations.length : 0}件)</span>
+        <button type="button" class="text-blue-600 hover:text-blue-800" data-action="add-explanation">説明を追加</button>
+      `;
+      host.appendChild(header);
+
+      const list = document.createElement('div');
+      list.className = 'space-y-3';
+      list.dataset.explanationList = '1';
+      host.appendChild(list);
+
+      const explanations = Array.isArray(item.explanations) ? item.explanations : [];
+      if (!explanations.length) {
+        const empty = document.createElement('div');
+        empty.className = 'rounded border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500';
+        empty.dataset.explanationPlaceholder = '1';
+        empty.textContent = '登録済みの説明はありません。';
+        list.appendChild(empty);
+        return;
+      }
+
+      explanations.forEach(ex => {
+        const row = this.createExplanationRow(ex);
+        list.appendChild(row);
+      });
+    }
+
+    createExplanationRow(explanation = {}) {
+      const row = document.createElement('div');
+      row.className = 'rounded border border-slate-200 bg-white p-3 shadow-sm space-y-2';
+      row.dataset.explanationItem = '1';
+      if (explanation.id) row.dataset.explanationId = explanation.id;
+      if (Number.isFinite(Number(explanation.createdAt))) {
+        row.dataset.createdAt = String(explanation.createdAt);
+      }
+      if (Number.isFinite(Number(explanation.updatedAt))) {
+        row.dataset.updatedAt = String(explanation.updatedAt);
+      }
+
+      const textArea = document.createElement('textarea');
+      textArea.className = 'w-full border rounded px-2 py-1 text-sm';
+      textArea.rows = 3;
+      textArea.placeholder = '説明本文を入力';
+      textArea.dataset.explanationText = '1';
+      textArea.value = explanation.text || '';
+      row.appendChild(textArea);
+
+      const metaRow = document.createElement('div');
+      metaRow.className = 'flex flex-col gap-2 md:flex-row md:items-center';
+
+      const statusSelect = document.createElement('select');
+      statusSelect.className = 'w-full md:w-auto border rounded px-2 py-1 text-sm';
+      statusSelect.dataset.explanationStatus = '1';
+      EXPLANATION_STATUS_OPTIONS.forEach(option => {
+        const opt = document.createElement('option');
+        opt.value = option;
+        opt.textContent = option;
+        if ((explanation.status || 'draft') === option) {
+          opt.selected = true;
+        }
+        statusSelect.appendChild(opt);
+      });
+      metaRow.appendChild(statusSelect);
+
+      const audienceInput = document.createElement('input');
+      audienceInput.type = 'text';
+      audienceInput.className = 'w-full md:flex-1 border rounded px-2 py-1 text-sm';
+      audienceInput.placeholder = '対象（例: 患者向け）';
+      audienceInput.dataset.explanationAudience = '1';
+      audienceInput.value = explanation.audience || '';
+      metaRow.appendChild(audienceInput);
+
+      const contextInput = document.createElement('input');
+      contextInput.type = 'text';
+      contextInput.className = 'w-full md:flex-1 border rounded px-2 py-1 text-sm';
+      contextInput.placeholder = '用途（例: 説明資料）';
+      contextInput.dataset.explanationContext = '1';
+      contextInput.value = explanation.context || '';
+      metaRow.appendChild(contextInput);
+
+      row.appendChild(metaRow);
+
+      const footer = document.createElement('div');
+      footer.className = 'flex flex-wrap items-center justify-between text-xs text-slate-500';
+      const timestampPieces = [];
+      if (Number.isFinite(Number(explanation.createdAt))) {
+        const d = new Date(Number(explanation.createdAt) * 1000);
+        if (!Number.isNaN(d.getTime())) {
+          timestampPieces.push(`作成: ${d.toLocaleString('ja-JP', { hour12: false })}`);
+        }
+      }
+      if (Number.isFinite(Number(explanation.updatedAt))) {
+        const d = new Date(Number(explanation.updatedAt) * 1000);
+        if (!Number.isNaN(d.getTime())) {
+          timestampPieces.push(`更新: ${d.toLocaleString('ja-JP', { hour12: false })}`);
+        }
+      }
+      footer.innerHTML = `
+        <span>${timestampPieces.join(' / ') || ''}</span>
+        <button type="button" class="text-red-600 hover:text-red-800" data-action="remove-explanation">削除</button>
+      `;
+      row.appendChild(footer);
+
+      return row;
+    }
+
+    canonicalizeExplanations(list) {
+      const normalized = Array.isArray(list) ? list : [];
+      return JSON.stringify(normalized.map(entry => ({
+        id: entry.id || '',
+        text: typeof entry.text === 'string' ? entry.text.trim() : '',
+        status: entry.status || 'draft',
+        audience: entry.audience || '',
+        context: entry.context || ''
+      })));
     }
 
     attachCardHandlers(card, item) {
@@ -441,12 +597,14 @@
         canonical: item.canonical_name || '',
         status: item.status || '',
         classification: item.classification || PERSONAL_CLASSIFICATIONS[0],
-        notes: item.notes || ''
+        notes: item.notes || '',
+        explanationsSignature: this.canonicalizeExplanations(item.explanations)
       };
 
       const evaluateChanges = () => {
         const current = this.collectCardValues(card, item);
-        const changed = Object.keys(current).some(key => current[key] !== (original[key] ?? ''));
+        const keys = ['category', 'name', 'desc', 'canonical', 'status', 'classification', 'notes', 'explanationsSignature'];
+        const changed = keys.some(key => (current[key] ?? '') !== (original[key] ?? ''));
         updateBtn.disabled = !changed;
       };
 
@@ -472,6 +630,52 @@
         }
       });
 
+      const explanationSection = card.querySelector('[data-explanation-section]');
+      if (explanationSection) {
+        explanationSection.addEventListener('input', event => {
+          const target = event.target;
+          if (target.matches('[data-explanation-text], [data-explanation-audience], [data-explanation-context]')) {
+            evaluateChanges();
+          }
+        });
+        explanationSection.addEventListener('change', event => {
+          if (event.target.matches('[data-explanation-status]')) {
+            evaluateChanges();
+          }
+        });
+        explanationSection.addEventListener('click', event => {
+          const addBtn = event.target.closest('[data-action="add-explanation"]');
+          if (addBtn) {
+            const list = explanationSection.querySelector('[data-explanation-list]');
+            if (list) {
+              const placeholder = list.querySelector('[data-explanation-placeholder]');
+              if (placeholder) placeholder.remove();
+              list.appendChild(this.createExplanationRow());
+              evaluateChanges();
+            }
+            event.preventDefault();
+            return;
+          }
+          const removeBtn = event.target.closest('[data-action="remove-explanation"]');
+          if (removeBtn) {
+            const itemEl = removeBtn.closest('[data-explanation-item]');
+            const list = explanationSection.querySelector('[data-explanation-list]');
+            if (itemEl) {
+              itemEl.remove();
+              if (list && !list.querySelector('[data-explanation-item]')) {
+                const empty = document.createElement('div');
+                empty.className = 'rounded border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500';
+                empty.dataset.explanationPlaceholder = '1';
+                empty.textContent = '登録済みの説明はありません。';
+                list.appendChild(empty);
+              }
+              evaluateChanges();
+            }
+            event.preventDefault();
+          }
+        });
+      }
+
       if (deleteBtn) {
         deleteBtn.addEventListener('click', () => this.handleDelete(item));
       }
@@ -492,6 +696,34 @@
       const notes = notesField ? notesField.value : desc;
       const classification = classificationEl ? classificationEl.value : item.classification || '';
 
+      const explanationRows = Array.from(card.querySelectorAll('[data-explanation-item]'));
+      const explanationRaw = explanationRows.map(row => {
+        const text = row.querySelector('[data-explanation-text]')?.value ?? '';
+        const status = row.querySelector('[data-explanation-status]')?.value ?? 'draft';
+        const audience = row.querySelector('[data-explanation-audience]')?.value ?? '';
+        const context = row.querySelector('[data-explanation-context]')?.value ?? '';
+        const createdAt = Number(row.dataset.createdAt);
+        const updatedAt = Number(row.dataset.updatedAt);
+        return {
+          id: row.dataset.explanationId || undefined,
+          text: text,
+          status,
+          audience,
+          context,
+          createdAt: Number.isFinite(createdAt) ? createdAt : undefined,
+          updatedAt: Number.isFinite(updatedAt) ? updatedAt : undefined,
+        };
+      });
+      const explanations = explanationRaw
+        .map(entry => ({
+          ...entry,
+          text: entry.text.trim(),
+          audience: typeof entry.audience === 'string' ? entry.audience.trim() : '',
+          context: typeof entry.context === 'string' ? entry.context.trim() : '',
+        }))
+        .filter(entry => entry.text);
+      const explanationsSignature = this.canonicalizeExplanations(explanationRaw);
+
       return {
         category,
         name,
@@ -499,7 +731,9 @@
         canonical,
         status,
         classification,
-        notes
+        notes,
+        explanations,
+        explanationsSignature
       };
     }
 
@@ -544,9 +778,16 @@
         payload.notes = values.notes;
       }
 
+      if (['service', 'test'].includes(this.type)) {
+        payload.explanations = values.explanations;
+        if (!payload.desc && Array.isArray(values.explanations) && values.explanations.length) {
+          payload.desc = values.explanations[0].text;
+        }
+      }
+
       button.disabled = true;
       await this.withLoading('項目を更新しています...', async () => {
-        const res = await fetch(`${BASE}/api/updateMasterItem`, {
+        const res = await fetch(apiUrl('/api/updateMasterItem'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -565,7 +806,7 @@
     async handleDelete(item) {
       if (!confirm(`「${item.name}」を削除しますか？`)) return;
       await this.withLoading('項目を削除しています...', async () => {
-        const res = await fetch(`${BASE}/api/deleteMasterItem`, {
+        const res = await fetch(apiUrl('/api/deleteMasterItem'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ type: this.type, category: item.category, name: item.name })
@@ -608,7 +849,7 @@
             if (this.showNotes && !this.showDescription) {
               payload.notes = desc;
             }
-            const res = await fetch(`${BASE}/api/addMasterItem`, {
+            const res = await fetch(apiUrl('/api/addMasterItem'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(payload)
@@ -669,7 +910,7 @@
         payload.notes = notes;
       }
       await this.withLoading('項目を追加しています...', async () => {
-        const res = await fetch(`${BASE}/api/addMasterItem`, {
+      const res = await fetch(apiUrl('/api/addMasterItem'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)

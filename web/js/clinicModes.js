@@ -1,5 +1,29 @@
 (function () {
-  const BASE = 'https://ncd-app.altry.workers.dev';
+  const DEFAULT_API_BASE = 'https://ncd-app.altry.workers.dev';
+
+  function resolveApiBase() {
+    if (typeof window !== 'undefined' && typeof window.API_BASE_OVERRIDE === 'string') {
+      const override = window.API_BASE_OVERRIDE.trim();
+      if (override) {
+        return override.replace(/\/$/, '');
+      }
+    }
+    try {
+      const stored = localStorage.getItem('ncdApiBase') || localStorage.getItem('ncdApiBaseUrl');
+      if (typeof stored === 'string' && stored.trim()) {
+        return stored.trim().replace(/\/$/, '');
+      }
+    } catch (_) {}
+    return DEFAULT_API_BASE;
+  }
+
+  const API_BASE = resolveApiBase();
+  window.NCD_API_BASE = window.NCD_API_BASE || API_BASE;
+
+  function apiUrl(path) {
+    const normalized = path.startsWith('/') ? path : `/${path}`;
+    return API_BASE ? `${API_BASE}${normalized}` : normalized;
+  }
 
   const state = {
     modes: [],
@@ -38,7 +62,7 @@
   }
 
   async function fetchJson(path, init) {
-    const res = await fetch(`${BASE}${path}`, init);
+    const res = await fetch(apiUrl(path), init);
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`HTTP ${res.status} ${text}`);
@@ -141,7 +165,7 @@
   async function saveMode(payload) {
     const path = state.editing ? '/api/modes/update' : '/api/modes/add';
     await withLoading('保存しています...', async () => {
-      const res = await fetch(`${BASE}${path}`, {
+      const res = await fetch(apiUrl(path), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -158,7 +182,7 @@
 
   async function deleteMode(slug) {
     await withLoading('削除しています...', async () => {
-      const res = await fetch(`${BASE}/api/modes/delete`, {
+      const res = await fetch(apiUrl('/api/modes/delete'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: slug })

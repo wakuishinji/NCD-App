@@ -97,7 +97,31 @@
   </div>
 
 <script>
-const BASE = "https://ncd-app.altry.workers.dev";
+const DEFAULT_API_BASE = "https://ncd-app.altry.workers.dev";
+
+function resolveApiBase() {
+  if (typeof window !== 'undefined' && typeof window.API_BASE_OVERRIDE === 'string') {
+    const override = window.API_BASE_OVERRIDE.trim();
+    if (override) {
+      return override.replace(/\/$/, "");
+    }
+  }
+  try {
+    const stored = localStorage.getItem('ncdApiBase') || localStorage.getItem('ncdApiBaseUrl');
+    if (typeof stored === 'string' && stored.trim()) {
+      return stored.trim().replace(/\/$/, "");
+    }
+  } catch (_) {}
+  return DEFAULT_API_BASE;
+}
+
+const API_BASE = resolveApiBase();
+window.NCD_API_BASE = window.NCD_API_BASE || API_BASE;
+
+function apiUrl(path) {
+  const normalized = path.startsWith('/') ? path : `/${path}`;
+  return API_BASE ? `${API_BASE}${normalized}` : normalized;
+}
 
 let selectedClinic = null;
 let clinicData = null;
@@ -111,6 +135,39 @@ let testTemplateCache = [];
 let testTemplateSlug = '';
 let testSelectedTemplateIds = new Set();
 let testSelectedTemplateMeta = {};
+const testBySlug = new Map();
+
+function normalizeTestMasterEntry(item) {
+  if (!item || typeof item !== 'object') return null;
+  const derivedSlug = typeof item._key === 'string'
+    ? item._key.replace('master:test:', '')
+    : item.slug || `${item.category}|${item.name}`;
+  const explanations = Array.isArray(item.explanations) ? item.explanations : [];
+  return {
+    ...item,
+    slug: derivedSlug,
+    explanations,
+  };
+}
+
+function upsertTestMasterItem(rawItem) {
+  const normalized = normalizeTestMasterEntry(rawItem);
+  if (!normalized) return;
+  const slug = normalized.slug;
+  const matchIndex = masterTests.findIndex((entry) => {
+    if (slug && entry.slug) return entry.slug === slug;
+    return entry.category === normalized.category && entry.name === normalized.name;
+  });
+  if (matchIndex >= 0) {
+    masterTests[matchIndex] = normalized;
+  } else {
+    masterTests.push(normalized);
+  }
+  if (slug) {
+    testBySlug.set(slug, normalized);
+  }
+  return normalized;
+}
 
 const els = {
   selectedClinicName: document.getElementById("selectedClinicName"),
@@ -166,7 +223,7 @@ function loadSelectedClinic() {
 
 async function loadCategories() {
   try {
-    const res = await fetch(`${BASE}/api/listCategories?type=test`);
+    const res = await fetch(apiUrl(`/api/listCategories?type=test`));
     const data = await res.json();
     categories = Array.isArray(data?.categories) ? data.categories.filter(Boolean) : [];
     categories.sort((a, b) => a.localeCompare(b, "ja"));
@@ -178,20 +235,25 @@ async function loadCategories() {
 
 async function loadTestMaster() {
   try {
-    const url = new URL(`${BASE}/api/listMaster`);
+    const url = new URL(apiUrl('/api/listMaster'), window.location.origin);
     url.searchParams.set("type", "test");
     url.searchParams.set("status", "approved");
     const res = await fetch(url.toString());
     const data = await res.json();
+    testBySlug.clear();
     masterTests = Array.isArray(data?.items)
-      ? data.items.map((item) => ({
-          ...item,
-          slug: typeof item._key === 'string' ? item._key.replace('master:test:', '') : ''
-        }))
+      ? data.items.map((item) => {
+          const normalized = normalizeTestMasterEntry(item);
+          if (normalized?.slug) {
+            testBySlug.set(normalized.slug, normalized);
+          }
+          return normalized;
+        }).filter(Boolean)
       : [];
   } catch (err) {
     console.error("failed to load test master", err);
     masterTests = [];
+    testBySlug.clear();
   }
 }
 
@@ -211,7 +273,7 @@ async function loadClinicData() {
   }
 
   try {
-    const res = await fetch(`${BASE}/api/clinicDetail?${params.toString()}`);
+    const res = await fetch(apiUrl(`/api/clinicDetail?${params.toString()}`));
     if (!res.ok) throw new Error(`status ${res.status}`);
     const data = await res.json();
     const clinic = data?.clinic;
@@ -224,7 +286,7 @@ async function loadClinicData() {
   } catch (err) {
     console.warn("failed to load clinic detail", err);
     try {
-      const res = await fetch(`${BASE}/api/listClinics`);
+      const res = await fetch(apiUrl(`/api/listClinics`));
       const data = await res.json();
       const clinics = Array.isArray(data?.clinics) ? data.clinics : [];
       clinicData = clinics.find(c => (selectedClinic.id && c.id === selectedClinic.id) || c.name === selectedClinic.name) || { id: selectedClinic?.id, name: selectedClinic?.name };
@@ -281,7 +343,7 @@ function updateTestSelect(selectedValue = "") {
 
   const filtered = masterTests.filter(item => item.category === category);
   filtered.forEach(item => {
-    const slug = typeof item._key === 'string' ? item._key.replace('master:test:', '') : `${item.category}|${item.name}`;
+    const slug = item.slug || (typeof item._key === 'string' ? item._key.replace('master:test:', '') : `${item.category}|${item.name}`);
     const option = document.createElement("option");
     option.value = JSON.stringify({
       category: item.category || "",
@@ -317,18 +379,187 @@ function toggleManualInput(show) {
   }
 }
 
-function applySelectedTestDetails() {
+function renderTestSelectedTemplates() {
+  const container = els.selectedTemplates;
+  if (!container) return;
+  const ids = Array.from(testSelectedTemplateIds);
+  if (!ids.length) {
+    container.classList.add('hidden');
+    container.innerHTML = '';
+    return;
+  }
+  container.classList.remove('hidden');
+  container.innerHTML = ids.map((id) => {
+    const meta = testSelectedTemplateMeta[id] || testTemplateCache.find((tpl) => tpl.id === id) || { label: id };
+    const audience = meta.audience ? `/${escapeHtml(meta.audience)}` : '';
+    const context = meta.context ? `/${escapeHtml(meta.context)}` : '';
+    const label = escapeHtml(meta.label || id);
+    return `
+      <span class="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-800">
+        ${label}${audience}${context}
+        <button type="button" class="ml-1 text-blue-700 hover:text-blue-900" data-test-template-remove="${id}" aria-label="テンプレートを外す">×</button>
+      </span>
+    `;
+  }).join('');
+}
+
+function updateTestTemplateCheckboxes() {
+  if (!els.templateList) return;
+  els.templateList.querySelectorAll('input[data-test-template-id]').forEach((input) => {
+    input.checked = testSelectedTemplateIds.has(input.dataset.testTemplateId);
+  });
+}
+
+function renderTestTemplateList() {
+  if (!els.templateList) return;
+  els.templateList.innerHTML = '';
+  if (!testTemplateCache.length) {
+    if (els.templateEmpty) els.templateEmpty.classList.remove('hidden');
+    updateTestTemplateCheckboxes();
+    return;
+  }
+  if (els.templateEmpty) els.templateEmpty.classList.add('hidden');
+  els.templateList.innerHTML = testTemplateCache.map((tpl) => {
+    const checked = testSelectedTemplateIds.has(tpl.id) ? 'checked' : '';
+    const preview = escapeHtml((tpl.baseText || '').slice(0, 160).replace(/\n+/g, ' '));
+    const info = escapeHtml([tpl.audience, tpl.context].filter(Boolean).join(' / '));
+    const label = escapeHtml(tpl.targetSlug || tpl.id);
+    return `
+      <div class="rounded border border-slate-200 bg-white p-3 shadow-sm">
+        <div class="flex items-start gap-3">
+          <label class="inline-flex items-center gap-2 text-sm font-semibold text-blue-900">
+            <input type="checkbox" class="h-4 w-4 text-blue-600" data-test-template-id="${tpl.id}" ${checked}>
+            <span>${label}</span>
+          </label>
+          <div class="ml-auto flex gap-2">
+            <button type="button" class="rounded bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100" data-test-template-insert="${tpl.id}">本文に挿入</button>
+          </div>
+        </div>
+        <div class="mt-1 text-xs text-slate-500">${info || '読者/用途未設定'}</div>
+        <div class="mt-2 rounded bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-600">${preview || '（本文未登録）'}</div>
+      </div>
+    `;
+  }).join('');
+  updateTestTemplateCheckboxes();
+}
+
+function setTestSelectedTemplates(ids = [], meta = {}) {
+  testSelectedTemplateIds = new Set(ids.filter(Boolean));
+  testSelectedTemplateMeta = meta && typeof meta === 'object' ? { ...meta } : {};
+  renderTestSelectedTemplates();
+  updateTestTemplateCheckboxes();
+}
+
+function resetTestTemplateSelection() {
+  setTestSelectedTemplates([], {});
+}
+
+function buildTestExplanationsPayload(selectedIds) {
+  const payload = { selected: selectedIds, meta: {} };
+  selectedIds.forEach((id) => {
+    const tpl = testTemplateCache.find((item) => item.id === id) || testSelectedTemplateMeta[id];
+    if (tpl) {
+      const meta = {
+        label: tpl.targetSlug || tpl.slug || id,
+        audience: tpl.audience || '',
+        context: tpl.context || '',
+      };
+      payload.meta[id] = meta;
+    }
+  });
+  return payload;
+}
+
+function getTestCurrentSlugFromSelection() {
+  const category = els.category.value;
+  const selected = els.nameSelect.value;
+  if (!selected || selected === '__direct') {
+    const manualName = els.manualInput.value.trim();
+    return category && manualName ? `${category}|${manualName}` : '';
+  }
+  try {
+    const parsed = JSON.parse(selected);
+    if (parsed.slug) return parsed.slug;
+    return `${parsed.category || category}|${parsed.name || ''}`;
+  } catch (_) {
+    return `${category}|`;
+  }
+}
+
+async function loadTestTemplates(slug, { preserveSelection = false } = {}) {
+  testTemplateSlug = slug || '';
+  if (!slug) {
+    testTemplateCache = [];
+    if (!preserveSelection) resetTestTemplateSelection();
+    renderTestTemplateList();
+    return;
+  }
+  const testItem = testBySlug.get(slug) || masterTests.find(item => (item.slug || `${item.category}|${item.name}`) === slug);
+  if (!testItem) {
+    testTemplateCache = [];
+  } else {
+    const explanations = Array.isArray(testItem.explanations) ? testItem.explanations : [];
+    testTemplateCache = explanations.map((ex) => ({
+      id: ex.id,
+      slug: ex.id,
+      targetSlug: slug,
+      baseText: ex.text || '',
+      audience: ex.audience || '',
+      context: ex.context || '',
+      status: ex.status || 'draft',
+      updatedAt: ex.updatedAt,
+      createdAt: ex.createdAt,
+    }));
+    testTemplateCache.sort((a, b) => {
+      const aScore = a.status === 'published' ? 0 : a.status === 'draft' ? 1 : 2;
+      const bScore = b.status === 'published' ? 0 : b.status === 'draft' ? 1 : 2;
+      if (aScore !== bScore) return aScore - bScore;
+      return (b.updatedAt || 0) - (a.updatedAt || 0);
+    });
+  }
+  if (!preserveSelection) resetTestTemplateSelection();
+  renderTestTemplateList();
+}
+
+function insertTestTemplateToEditor(id) {
+  const tpl = testTemplateCache.find((item) => item.id === id);
+  if (!tpl) return;
+  const textArea = els.desc;
+  const insertText = tpl.baseText || '';
+  if (!insertText) return;
+  const { selectionStart, selectionEnd, value } = textArea;
+  const prefix = value.slice(0, selectionStart);
+  const suffix = value.slice(selectionEnd);
+  const joiner = prefix && !/\n$/.test(prefix) ? '\n\n' : '';
+  const newValue = `${prefix}${joiner}${insertText}${suffix ? '\n\n' + suffix.replace(/^\n+/, '') : ''}`;
+  textArea.value = newValue.trimStart();
+  textArea.focus();
+  testSelectedTemplateIds.add(id);
+  const meta = {
+    label: tpl.targetSlug || tpl.id,
+    audience: tpl.audience || '',
+    context: tpl.context || ''
+  };
+  testSelectedTemplateMeta[id] = meta;
+  renderTestSelectedTemplates();
+  updateTestTemplateCheckboxes();
+  updateFormState();
+}
+
+async function applySelectedTestDetails(options = {}) {
+  const { preserveSelection = false } = options;
   const value = els.nameSelect.value;
   if (!value) {
     toggleManualInput(false);
     els.desc.value = "";
+    await loadTestTemplates('', { preserveSelection: false });
     updateFormState();
     return;
   }
 
   if (value === "__direct") {
     toggleManualInput(true);
-    updateFormState();
+    await loadTestTemplates('', { preserveSelection });
     return;
   }
 
@@ -337,8 +568,11 @@ function applySelectedTestDetails() {
     const parsed = JSON.parse(value);
     const fallbackSample = Array.isArray(parsed.samples) ? parsed.samples[0] : "";
     els.desc.value = parsed.desc || fallbackSample || parsed.canonical || "";
+    const slug = parsed.slug || `${parsed.category || els.category.value}|${parsed.name || ''}`;
+    await loadTestTemplates(slug, { preserveSelection });
   } catch (err) {
     console.warn("failed to parse selected test", err);
+    await loadTestTemplates('', { preserveSelection: false });
     els.desc.value = "";
   }
   updateFormState();
@@ -389,13 +623,34 @@ function renderTestList() {
 
     info.append(categoryTag, content);
 
+    if (Array.isArray(t.explanations?.selected) && t.explanations.selected.length) {
+      const badges = document.createElement('div');
+      badges.className = 'flex flex-wrap gap-1 text-[11px] text-slate-500';
+      t.explanations.selected.forEach((id) => {
+        const meta = t.explanations?.meta?.[id] || { label: id };
+        const span = document.createElement('span');
+        span.className = 'inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5';
+        const parts = [meta.label || id];
+        if (meta.audience) parts.push(meta.audience);
+        if (meta.context) parts.push(meta.context);
+        span.textContent = parts.filter(Boolean).join(' / ');
+        badges.appendChild(span);
+      });
+      info.appendChild(badges);
+    }
+
     const actions = document.createElement("div");
     actions.className = "flex items-center gap-4 text-sm md:ml-auto";
 
     const editBtn = document.createElement("button");
     editBtn.className = "text-blue-600 hover:text-blue-800";
     editBtn.textContent = "編集";
-    editBtn.addEventListener("click", () => startEditing(originalIndex));
+    editBtn.addEventListener("click", () => {
+      startEditing(originalIndex).catch((err) => {
+        console.error('failed to start editing test entry', err);
+        alert('編集データの読み込みに失敗しました');
+      });
+    });
 
     const deleteBtn = document.createElement("button");
     deleteBtn.className = "text-red-600 hover:text-red-800";
@@ -416,10 +671,14 @@ function clearForm() {
   els.manualInput.value = "";
   toggleManualInput(false);
   els.desc.value = "";
+  testTemplateSlug = '';
+  testTemplateCache = [];
+  resetTestTemplateSelection();
+  renderTestTemplateList();
   updateFormState();
 }
 
-function startEditing(index) {
+async function startEditing(index) {
   const target = currentTests[index];
   if (!target) return;
   editingIndex = index;
@@ -428,6 +687,7 @@ function startEditing(index) {
   updateTestSelect();
 
   const match = masterTests.find(item => item.category === target.category && item.name === target.name);
+  let slug = '';
   if (match) {
     const value = JSON.stringify({
       category: match.category || "",
@@ -438,26 +698,71 @@ function startEditing(index) {
     updateTestSelect(value);
     els.nameSelect.value = value;
     toggleManualInput(false);
+    slug = match.slug || `${match.category}|${match.name}`;
   } else {
     updateTestSelect("__direct");
     els.nameSelect.value = "__direct";
     toggleManualInput(true);
     els.manualInput.value = target.name || "";
+    slug = `${target.category}|${target.name}`;
   }
 
   els.desc.value = target.desc || "";
+  const selectedTemplates = Array.isArray(target?.explanations?.selected) ? target.explanations.selected : [];
+  const meta = target?.explanations?.meta || {};
+  setTestSelectedTemplates(selectedTemplates, meta);
+  await loadTestTemplates(slug, { preserveSelection: true });
+  renderTestSelectedTemplates();
   updateFormState();
 }
 
 async function registerTestCandidate(category, name, desc) {
   try {
-    await fetch(`${BASE}/api/addMasterItem`, {
+    const res = await fetch(apiUrl('/api/addMasterItem'), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ type: "test", category, name, desc, source: "clinicTests" })
     });
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      if (data?.item) {
+        upsertTestMasterItem(data.item);
+      }
+    }
   } catch (err) {
     console.warn("failed to register test candidate", err);
+  }
+}
+
+async function registerTestExplanation(category, name, desc) {
+  try {
+    if (!desc) return;
+    const slug = `${category}|${name}`;
+    const res = await fetch(apiUrl('/api/master/addExplanation'), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "test",
+        category,
+        name,
+        text: desc,
+        source: "clinicTests"
+      })
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`HTTP ${res.status} ${text}`);
+    }
+    const data = await res.json().catch(() => null);
+    if (data?.item) {
+      const normalized = upsertTestMasterItem(data.item);
+      const refreshedSlug = normalized?.slug || slug;
+      if (refreshedSlug && refreshedSlug === testTemplateSlug) {
+        await loadTestTemplates(refreshedSlug, { preserveSelection: true });
+      }
+    }
+  } catch (err) {
+    console.warn("failed to append test explanation", err);
   }
 }
 
@@ -472,7 +777,7 @@ async function persistTests() {
     tests: currentTests
   };
 
-  const res = await fetch(`${BASE}/api/updateClinic`, {
+  const res = await fetch(apiUrl('/api/updateClinic'), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
@@ -543,6 +848,10 @@ async function handleSubmit() {
     }
   }
 
+  const selectedTemplates = Array.from(testSelectedTemplateIds);
+  entry.explanations = buildTestExplanationsPayload(selectedTemplates);
+  entry.originTemplates = selectedTemplates;
+
   const duplicateIndex = currentTests.findIndex((t, idx) => t.category === entry.category && t.name === entry.name && idx !== editingIndex);
   if (duplicateIndex >= 0) {
     alert("同じ検査が既に登録されています。");
@@ -562,6 +871,7 @@ async function handleSubmit() {
     if (entry.source === "manual") {
       await registerTestCandidate(entry.category, entry.name, entry.desc);
     }
+    await registerTestExplanation(entry.category, entry.name, entry.desc);
     renderTestList();
     clearForm();
     alert(wasEditing ? "検査を更新しました" : "検査を登録しました");
@@ -606,16 +916,78 @@ async function removeTest(index) {
 els.category.addEventListener("change", () => {
   updateTestSelect();
   els.desc.value = "";
+  testTemplateSlug = '';
+  testTemplateCache = [];
+  resetTestTemplateSelection();
+  renderTestTemplateList();
   updateFormState();
 });
-els.nameSelect.addEventListener("change", applySelectedTestDetails);
-els.manualInput.addEventListener("input", updateFormState);
+els.nameSelect.addEventListener("change", () => {
+  applySelectedTestDetails().catch((err) => {
+    console.error('failed to apply test details', err);
+  });
+});
+els.manualInput.addEventListener("input", () => {
+  updateFormState();
+});
 els.desc.addEventListener("input", updateFormState);
 els.submit.addEventListener("click", handleSubmit);
 els.clear.addEventListener("click", event => {
   event.preventDefault();
   clearForm();
 });
+if (els.templateReload) {
+  els.templateReload.addEventListener('click', () => {
+    const slug = getTestCurrentSlugFromSelection();
+    loadTestTemplates(slug, { preserveSelection: true }).catch((err) => {
+      console.error('failed to reload test templates', err);
+      alert('テンプレートの取得に失敗しました');
+    });
+  });
+}
+if (els.templateList) {
+  els.templateList.addEventListener('change', (event) => {
+    const checkbox = event.target.closest('input[data-test-template-id]');
+    if (!checkbox) return;
+    const id = checkbox.dataset.testTemplateId;
+    if (checkbox.checked) {
+      const tpl = testTemplateCache.find((item) => item.id === id);
+      if (tpl) {
+        testSelectedTemplateIds.add(id);
+        testSelectedTemplateMeta[id] = {
+          label: tpl.targetSlug || tpl.id,
+          audience: tpl.audience || '',
+          context: tpl.context || ''
+        };
+      } else {
+        testSelectedTemplateIds.add(id);
+      }
+    } else {
+      testSelectedTemplateIds.delete(id);
+      delete testSelectedTemplateMeta[id];
+    }
+    renderTestSelectedTemplates();
+    updateFormState();
+  });
+  els.templateList.addEventListener('click', (event) => {
+    const insertBtn = event.target.closest('[data-test-template-insert]');
+    if (insertBtn) {
+      insertTestTemplateToEditor(insertBtn.dataset.testTemplateInsert);
+    }
+  });
+}
+if (els.selectedTemplates) {
+  els.selectedTemplates.addEventListener('click', (event) => {
+    const removeBtn = event.target.closest('[data-test-template-remove]');
+    if (!removeBtn) return;
+    const id = removeBtn.dataset.testTemplateRemove;
+    testSelectedTemplateIds.delete(id);
+    delete testSelectedTemplateMeta[id];
+    renderTestSelectedTemplates();
+    updateTestTemplateCheckboxes();
+    updateFormState();
+  });
+}
 
 (async function init() {
   setLoading(true);

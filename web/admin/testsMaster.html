@@ -128,6 +128,8 @@
 
   <script>
     document.addEventListener('DOMContentLoaded', () => {
+      const API_BASE = (window.NCD_API_BASE || '').replace(/\/$/, '');
+
       initMasterPage({
         type: 'test',
         enableCategoryFilter: true,
@@ -155,11 +157,16 @@
           addStatus: document.getElementById('addStatus')
         }
       });
+      const buildExportUrl = (format) => {
+        const path = `/api/exportMaster?type=test&format=${format}`;
+        if (!API_BASE) return path;
+        return `${API_BASE}${path}`;
+      };
       document.getElementById('exportCsv').addEventListener('click', () => {
-        window.open('https://ncd-app.altry.workers.dev/api/exportMaster?type=test&format=csv', '_blank');
+        window.open(buildExportUrl('csv'), '_blank');
       });
       document.getElementById('exportJson').addEventListener('click', () => {
-        window.open('https://ncd-app.altry.workers.dev/api/exportMaster?type=test&format=json', '_blank');
+        window.open(buildExportUrl('json'), '_blank');
       });
     });
   </script>

@@ -18,6 +18,10 @@ export default {
       if (!env.MEDIA) {
         return new Response('R2 bucket is not configured.', { status: 500 });
       }
+
+      for (const item of items) {
+        normalizeItemExplanations(item, { fallbackStatus: item.status === 'approved' ? 'published' : 'draft' });
+      }
       const key = decodeURIComponent(url.pathname.replace(/^\/assets\//, ''));
       if (!key) {
         return new Response('Bad Request', { status: 400 });
@@ -59,6 +63,191 @@ export default {
         return single ? [single] : [];
       }
       return [];
+    }
+
+    const EXPLANATION_STATUS_SET = new Set(["draft", "published", "archived"]);
+
+    function sanitizeExplanationStatus(value) {
+      const raw = (value || "").toString().trim().toLowerCase();
+      if (EXPLANATION_STATUS_SET.has(raw)) {
+        return raw;
+      }
+      return "draft";
+    }
+
+    function ensureExplanationArray(item) {
+      if (!item || typeof item !== "object") return [];
+      if (!Array.isArray(item.explanations)) {
+        item.explanations = [];
+      }
+      return item.explanations;
+    }
+
+    function sanitizeExistingExplanation(raw, fallbackStatus = "draft") {
+      if (!raw || typeof raw !== "object") return null;
+      const text = nk(raw.text || raw.baseText || raw.desc);
+      if (!text) return null;
+      const id = nk(raw.id);
+      const now = Math.floor(Date.now() / 1000);
+      const createdAtNum = Number(raw.createdAt);
+      const updatedAtNum = Number(raw.updatedAt);
+      const audience = nk(raw.audience);
+      const context = nk(raw.context);
+      const source = nk(raw.source);
+      return {
+        id: id || crypto.randomUUID(),
+        text,
+        status: sanitizeExplanationStatus(raw.status || fallbackStatus),
+        audience: audience || null,
+        context: context || null,
+        source: source || null,
+        createdAt: Number.isFinite(createdAtNum) ? createdAtNum : now,
+        updatedAt: Number.isFinite(updatedAtNum) ? updatedAtNum : now,
+      };
+    }
+
+    function normalizeItemExplanations(item, { fallbackStatus = "draft" } = {}) {
+      if (!item || typeof item !== "object") return [];
+      const explanations = ensureExplanationArray(item);
+      const sanitized = [];
+      const seenTexts = new Set();
+      const now = Math.floor(Date.now() / 1000);
+
+      for (const entry of explanations) {
+        const sanitizedEntry = sanitizeExistingExplanation(entry, fallbackStatus);
+        if (!sanitizedEntry) continue;
+        const key = sanitizedEntry.text;
+        if (seenTexts.has(key)) {
+          const existing = sanitized.find(e => e.text === key);
+          if (existing) {
+            existing.updatedAt = Math.max(existing.updatedAt, sanitizedEntry.updatedAt || now);
+            if (!existing.audience && sanitizedEntry.audience) existing.audience = sanitizedEntry.audience;
+            if (!existing.context && sanitizedEntry.context) existing.context = sanitizedEntry.context;
+            if (!existing.source && sanitizedEntry.source) existing.source = sanitizedEntry.source;
+            if (sanitizedEntry.status === "published" && existing.status !== "published") {
+              existing.status = "published";
+            }
+          }
+          continue;
+        }
+        seenTexts.add(key);
+        sanitized.push(sanitizedEntry);
+      }
+
+      // 旧データへのフォールバック: desc や desc_samples から生成
+      if (!sanitized.length) {
+        const candidates = [];
+        if (typeof item.desc === "string" && item.desc.trim()) {
+          candidates.push(item.desc.trim());
+        }
+        if (Array.isArray(item.desc_samples)) {
+          for (const sample of item.desc_samples) {
+            if (typeof sample === "string" && sample.trim()) {
+              candidates.push(sample.trim());
+            }
+          }
+        }
+        for (const candidate of candidates) {
+          if (seenTexts.has(candidate)) continue;
+          seenTexts.add(candidate);
+          sanitized.push({
+            id: crypto.randomUUID(),
+            text: candidate,
+            status: fallbackStatus,
+            audience: null,
+            context: null,
+            source: null,
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+      }
+
+      item.explanations = sanitized;
+      if (!Array.isArray(item.desc_samples)) {
+        item.desc_samples = [];
+      }
+
+      const sampleSet = new Set(item.desc_samples.filter(s => typeof s === "string" && s));
+      for (const entry of sanitized) {
+        if (!sampleSet.has(entry.text)) {
+          item.desc_samples.push(entry.text);
+          sampleSet.add(entry.text);
+        }
+      }
+
+      if (!nk(item.desc) && sanitized.length) {
+        const published = sanitized.find(s => s.status === "published");
+        item.desc = (published || sanitized[0]).text;
+      }
+
+      return item.explanations;
+    }
+
+    function addExplanationToItem(item, payload = {}, options = {}) {
+      if (!item || typeof item !== "object") return null;
+      const text = nk(payload.text || payload.baseText || payload.desc);
+      if (!text) return null;
+      const status = sanitizeExplanationStatus(payload.status || options.defaultStatus || "draft");
+      const audience = nk(payload.audience);
+      const context = nk(payload.context);
+      const source = nk(payload.source);
+      const explanations = ensureExplanationArray(item);
+      const now = Math.floor(Date.now() / 1000);
+
+      const existing = explanations.find(entry => nk(entry.text) === text);
+      if (existing) {
+        existing.updatedAt = now;
+        existing.status = sanitizeExplanationStatus(payload.status || existing.status);
+        if (audience) existing.audience = audience;
+        if (context) existing.context = context;
+        if (source && !existing.source) existing.source = source;
+        return existing;
+      }
+
+      const entry = {
+        id: crypto.randomUUID(),
+        text,
+        status,
+        audience: audience || null,
+        context: context || null,
+        source: source || null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      explanations.push(entry);
+      if (!Array.isArray(item.desc_samples)) {
+        item.desc_samples = [];
+      }
+      if (!item.desc_samples.includes(text)) {
+        item.desc_samples.push(text);
+      }
+      if (!nk(item.desc)) {
+        item.desc = text;
+      }
+      return entry;
+    }
+
+    function syncExplanationDerivedFields(item) {
+      if (!item || typeof item !== "object") return;
+      const explanations = normalizeItemExplanations(item);
+      if (!Array.isArray(explanations) || !explanations.length) {
+        return;
+      }
+      const published = explanations.find(entry => entry.status === "published");
+      if (!nk(item.desc)) {
+        item.desc = (published || explanations[0]).text;
+      }
+      if (!Array.isArray(item.desc_samples)) {
+        item.desc_samples = [];
+      }
+      const sampleSet = new Set(item.desc_samples.filter(s => typeof s === 'string' && s));
+      explanations.forEach(entry => {
+        if (!sampleSet.has(entry.text)) {
+          item.desc_samples.push(entry.text);
+          sampleSet.add(entry.text);
+        }
+      });
     }
 
     // 正規化キー（マスター用）
@@ -1406,15 +1595,23 @@ if (routeMatch(url, "GET", "listClinics")) {
           item.classification = classification;
         }
 
+        if (status && ["candidate","approved","archived"].includes(status)) {
+          item.status = status;
+        }
+
+        normalizeItemExplanations(item, { fallbackStatus: item.status === 'approved' ? 'published' : 'draft' });
+
         if (desc) {
           item.desc_samples = Array.from(new Set([desc, ...(item.desc_samples || [])])).slice(0, 5);
           item.desc = desc;
+          addExplanationToItem(item, {
+            text: desc,
+            status: item.status === 'approved' ? 'published' : 'draft',
+            source,
+          });
         }
         if (source) {
           item.sources = Array.from(new Set([...(item.sources || []), source]));
-        }
-        if (status && ["candidate","approved","archived"].includes(status)) {
-          item.status = status;
         }
 
         if (notes) {
@@ -1489,6 +1686,8 @@ if (routeMatch(url, "GET", "listClinics")) {
             item.thesaurusRefs = normalizeStringArray(body.thesaurusRefs);
           }
         }
+
+        syncExplanationDerivedFields(item);
 
         await env.SETTINGS.put(key, JSON.stringify(item));
         await invalidateMasterCache(env, type);
@@ -1591,6 +1790,7 @@ if (routeMatch(url, "GET", "listClinics")) {
             }
 
             obj._key = finalKey || originalKey;
+            normalizeItemExplanations(obj, { fallbackStatus: obj.status === 'approved' ? 'published' : 'draft' });
             items.push(obj);
           } catch (err) {
             console.warn('failed to parse master item', keyNames[i], err);
@@ -1691,6 +1891,10 @@ if (routeMatch(url, "GET", "listClinics")) {
           obj.desc = desc;
           if (desc) {
             obj.desc_samples = Array.from(new Set([desc, ...(obj.desc_samples || [])])).slice(0, 5);
+            addExplanationToItem(obj, {
+              text: desc,
+              status: obj.status === 'approved' ? 'published' : 'draft',
+            });
           } else if (Array.isArray(obj.desc_samples) && obj.desc_samples.length && !obj.desc) {
             obj.desc = obj.desc_samples[0];
           }
@@ -1711,6 +1915,54 @@ if (routeMatch(url, "GET", "listClinics")) {
           } else {
             obj.classification = null;
           }
+        }
+
+        if (Array.isArray(body.explanations)) {
+          const fallbackStatus = obj.status === 'approved' ? 'published' : 'draft';
+          const next = [];
+          const seenText = new Set();
+          const existingMap = new Map();
+          if (Array.isArray(obj.explanations)) {
+            for (const entry of obj.explanations) {
+              const sanitized = sanitizeExistingExplanation(entry, fallbackStatus);
+              if (sanitized) {
+                existingMap.set(sanitized.id, sanitized);
+              }
+            }
+          }
+
+          for (const entry of body.explanations) {
+            if (!entry || typeof entry !== 'object') continue;
+            const base = entry.id && existingMap.get(entry.id) ? existingMap.get(entry.id) : null;
+            const merged = sanitizeExistingExplanation({
+              ...(base || {}),
+              id: entry.id || base?.id,
+              text: entry.text || entry.baseText || entry.desc || base?.text,
+              status: entry.status || base?.status || fallbackStatus,
+              audience: entry.audience ?? base?.audience ?? null,
+              context: entry.context ?? base?.context ?? null,
+              source: entry.source ?? base?.source ?? null,
+              createdAt: entry.createdAt ?? base?.createdAt,
+              updatedAt: entry.updatedAt ?? base?.updatedAt,
+            }, fallbackStatus);
+            if (!merged) continue;
+            if (base && base.createdAt && !Number.isFinite(Number(entry.createdAt))) {
+              merged.createdAt = base.createdAt;
+            }
+            if (!Number.isFinite(Number(merged.createdAt))) {
+              merged.createdAt = Math.floor(Date.now() / 1000);
+            }
+            if (!Number.isFinite(Number(merged.updatedAt))) {
+              merged.updatedAt = Math.floor(Date.now() / 1000);
+            }
+            if (seenText.has(merged.text)) {
+              continue;
+            }
+            seenText.add(merged.text);
+            next.push(merged);
+          }
+
+          obj.explanations = next;
         }
 
         if (type === "symptom") {
@@ -1764,6 +2016,8 @@ if (routeMatch(url, "GET", "listClinics")) {
           }
         }
 
+        syncExplanationDerivedFields(obj);
+
         let targetCategory = category;
         let targetName = name;
         if (typeof newCategory === "string" && newCategory.trim()) {
@@ -1810,6 +2064,71 @@ if (routeMatch(url, "GET", "listClinics")) {
       }
     }
     // <<< END: MASTER_UPDATE >>>
+
+    if (routeMatch(url, "POST", "master/addExplanation")) {
+      try {
+        const payload = await request.json();
+        const { type, category, name, text, status, audience, context, source } = payload || {};
+        if (!type || !category || !name) {
+          return new Response(JSON.stringify({ ok: false, error: "type, category, name は必須です" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const key = normalizeKey(type, category, name);
+        let raw = await env.SETTINGS.get(key);
+        let actualKey = key;
+        if (!raw) {
+          const legacy = legacyKey(type, category, name);
+          raw = await env.SETTINGS.get(legacy);
+          if (raw) {
+            actualKey = legacy;
+          }
+        }
+        if (!raw) {
+          return new Response(JSON.stringify({ ok: false, error: "対象が見つかりません" }), {
+            status: 404,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const item = JSON.parse(raw);
+        const defaultStatus = item.status === 'approved' ? 'published' : 'draft';
+        const entry = addExplanationToItem(item, {
+          text,
+          status: status || defaultStatus,
+          audience,
+          context,
+          source,
+        }, { defaultStatus });
+        if (!entry) {
+          return new Response(JSON.stringify({ ok: false, error: "説明本文が必要です" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        item.updated_at = Math.floor(Date.now() / 1000);
+        syncExplanationDerivedFields(item);
+
+        const normalizedKey = normalizeKey(type, item.category, item.name);
+        await env.SETTINGS.put(normalizedKey, JSON.stringify(item));
+        if (normalizedKey !== actualKey) {
+          await env.SETTINGS.delete(actualKey).catch(() => {});
+        }
+        await invalidateMasterCache(env, type);
+
+        const sanitizedEntry = sanitizeExistingExplanation(entry, defaultStatus);
+        return new Response(JSON.stringify({ ok: true, explanation: sanitizedEntry, item }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ ok: false, error: err.message || "unexpected error" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
 
     // <<< START: MASTER_DELETE >>>
     if (routeMatch(url, "POST", "deleteMasterItem")) {

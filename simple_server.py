@@ -3,6 +3,7 @@ import http.server
 import socketserver
 import json
 import os
+import sys
 
 class NCDHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
@@ -103,7 +104,7 @@ class NCDHandler(http.server.SimpleHTTPRequestHandler):
 
 if __name__ == "__main__":
     os.chdir("web")
-    PORT = 7000
-    with socketserver.TCPServer(("0.0.0.0", PORT), NCDHandler) as httpd:
-        print(f"Server running at http://0.0.0.0:{PORT}")
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 7000
+    with socketserver.TCPServer(("0.0.0.0", port), NCDHandler) as httpd:
+        print(f"Server running at http://0.0.0.0:{port}")
         httpd.serve_forever()
