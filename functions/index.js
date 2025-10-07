@@ -443,6 +443,9 @@ export default {
       if (!env.MEDIA) {
         throw new Error("R2 bucket is not configured");
       }
+      if (typeof env.MEDIA.createPresignedUrl !== "function") {
+        throw new Error("presigned upload is not supported");
+      }
       const { clinicId, slot, contentType } = payload;
       if (typeof clinicId !== "string" || !clinicId.trim()) {
         throw new Error("clinicId is required");
@@ -525,6 +528,75 @@ export default {
       } catch (err) {
         return new Response(JSON.stringify({ ok: false, error: err.message }), {
           status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
+    if (routeMatch(url, "POST", "media/upload")) {
+      try {
+        if (!env.MEDIA) {
+          throw new Error("R2 bucket is not configured");
+        }
+        const form = await request.formData();
+        const clinicId = form.get("clinicId");
+        const slot = form.get("slot");
+        const alt = form.get("alt");
+        const widthRaw = form.get("width");
+        const heightRaw = form.get("height");
+        const file = form.get("file");
+
+        if (typeof clinicId !== "string" || !clinicId.trim()) {
+          throw new Error("clinicId is required");
+        }
+        if (typeof slot !== "string" || !MEDIA_SLOTS.has(slot)) {
+          throw new Error("Invalid slot");
+        }
+        if (!(file instanceof File)) {
+          throw new Error("file is required");
+        }
+        if (file.size > 5 * 1024 * 1024) {
+          throw new Error("file size exceeds 5MB limit");
+        }
+        const contentType = file.type || "application/octet-stream";
+        let extension = inferExtension(contentType.toLowerCase());
+        if (!extension) {
+          const name = typeof file.name === "string" ? file.name : "";
+          const guessed = name.includes('.') ? name.split('.').pop() : "";
+          if (guessed) {
+            extension = guessed.toLowerCase();
+          } else {
+            throw new Error("Unsupported content type");
+          }
+        }
+
+        const unique = crypto.randomUUID();
+        const key = `clinic/${clinicId}/${slot}/${Date.now()}-${unique}.${extension}`;
+        await env.MEDIA.put(key, file.stream(), {
+          httpMetadata: {
+            contentType,
+          },
+        });
+
+        const width = widthRaw ? Number(widthRaw) : null;
+        const height = heightRaw ? Number(heightRaw) : null;
+
+        const record = await saveClinicMediaRecord(env, clinicId.trim(), slot, {
+          key,
+          contentType,
+          width: Number.isFinite(width) ? width : null,
+          height: Number.isFinite(height) ? height : null,
+          fileSize: file.size,
+          alt,
+        });
+
+        return new Response(JSON.stringify({ ok: true, media: record }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (err) {
+        const status = err.message === "clinic not found" ? 404 : 400;
+        return new Response(JSON.stringify({ ok: false, error: err.message }), {
+          status,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
