@@ -155,6 +155,43 @@
   - `<meta name="ncd-google-maps-key" content="...">` を一時的にHTMLへ直書き（管理者のみ確認用途）。
   - Workers経由の動作確認に切り替えたら、上記暫定設定は必ず削除する。
 
+### 画像/アクセス情報拡張（計画メモ）
+- 目的: 診療所詳細ページにロゴ・施設外観画像、アクセス情報、診療形態タグを追加。
+- 画像: `logoSmall`（正方形）/`logoLarge`（横長）/`facade`（外観）を管理。
+  - Cloudflare R2 バケット `ncd-clinic-media` を使用。キーは `clinic/<clinicId>/<slot>/<uuid>.webp` 形式。
+  - Worker `MEDIA` バインディング追加。署名付きアップロードURLを発行する `/api/media/upload-url`、保存 `/api/media/commit`、削除 `/api/media/delete` を実装。
+  - 表示時には Worker 経由の `/assets/<key>?w=...&h=...` エンドポイントで `cf.image` を使いリサイズ。
+  - KV 保存例:
+    ```json
+    "media": {
+      "logoSmall": {
+        "key": "clinic/xxx/logo-small/20251007.webp",
+        "contentType": "image/webp",
+        "width": 512,
+        "height": 512,
+        "fileSize": 39214,
+        "alt": "医院ロゴ",
+        "uploadedAt": 1759871234
+      },
+      "logoLarge": { ... },
+      "facade": { ... }
+    }
+    ```
+- アクセス情報:
+  ```json
+  "access": {
+    "nearestStation": "JR中野駅 北口 徒歩5分",
+    "bus": "区内循環1番 停留所 徒歩2分",
+    "parking": { "available": true, "capacity": 5, "notes": "提携Pあり" },
+    "barrierFree": ["入口段差なし", "多目的トイレ"],
+    "notes": "クリニック前は一方通行"
+  }
+  ```
+- 診療形態: `modes` フィールドに boolean で保存（オンライン/夜間/休日/在宅/救急など）。
+- 管理画面: 診療所編集画面にアップローダー・アクセス情報入力欄・診療形態チェックボックスを追加。
+- 公開側: 画像ギャラリー、アクセス情報カード、診療形態バッジを表示。
+- 後続検討: 施設ごとの認証（パスワード/魔法リンクなど）導入時は媒体アップロードもアクセス制御する。
+
 ## 今後の方針（データテーブル別）
 
 ### Clinics
