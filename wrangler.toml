@@ -10,3 +10,8 @@ compatibility_date = "2025-09-07"
 binding = "SETTINGS"
 id = "93471e6681f74377ab8c654c08c19eac"
 preview_id = "0bab0d461acc4e54bca925c9ca383db2"
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "ncd-clinic-media"
+preview_bucket_name = "ncd-clinic-media-preview"

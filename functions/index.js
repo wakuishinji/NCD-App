@@ -14,6 +14,30 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
+    if (url.pathname.startsWith('/assets/')) {
+      if (!env.MEDIA) {
+        return new Response('R2 bucket is not configured.', { status: 500 });
+      }
+      const key = decodeURIComponent(url.pathname.replace(/^\/assets\//, ''));
+      if (!key) {
+        return new Response('Bad Request', { status: 400 });
+      }
+      const object = await env.MEDIA.get(key);
+      if (!object) {
+        return new Response('Not Found', { status: 404 });
+      }
+      const headers = new Headers({
+        'Cache-Control': 'public, max-age=86400',
+      });
+      if (object.httpMetadata?.contentType) {
+        headers.set('Content-Type', object.httpMetadata.contentType);
+      }
+      if (object.httpMetadata?.contentDisposition) {
+        headers.set('Content-Disposition', object.httpMetadata.contentDisposition);
+      }
+      return new Response(object.body, { headers });
+    }
+
     // ============================================================
     // <<< START: UTILS >>>
     // ============================================================
@@ -397,6 +421,170 @@ export default {
       );
     }
     // <<< END: ROUTE_MATCH >>>
+
+    const MEDIA_SLOTS = new Set(["logoSmall", "logoLarge", "facade"]);
+
+    function inferExtension(contentType) {
+      switch (contentType) {
+        case "image/png": return "png";
+        case "image/jpeg":
+        case "image/jpg": return "jpg";
+        case "image/webp": return "webp";
+        case "image/gif": return "gif";
+        default: return "";
+      }
+    }
+
+    function sanitizeAlt(value) {
+      return typeof value === "string" ? value.trim().slice(0, 200) : "";
+    }
+
+    async function createClinicMediaUpload(env, payload) {
+      if (!env.MEDIA) {
+        throw new Error("R2 bucket is not configured");
+      }
+      const { clinicId, slot, contentType } = payload;
+      if (typeof clinicId !== "string" || !clinicId.trim()) {
+        throw new Error("clinicId is required");
+      }
+      if (!MEDIA_SLOTS.has(slot)) {
+        throw new Error("Invalid slot");
+      }
+      if (typeof contentType !== "string" || !contentType.trim()) {
+        throw new Error("contentType is required");
+      }
+      const extension = inferExtension(contentType.trim().toLowerCase());
+      if (!extension) {
+        throw new Error("Unsupported content type");
+      }
+      const unique = crypto.randomUUID();
+      const key = `clinic/${clinicId}/${slot}/${Date.now()}-${unique}.${extension}`;
+      const presigned = await env.MEDIA.createPresignedUrl({
+        key,
+        method: "PUT",
+        expiration: 300,
+        conditions: [["content-length-range", 0, 5 * 1024 * 1024]],
+      });
+      return {
+        key,
+        uploadUrl: presigned.url,
+        headers: presigned.headers || {},
+      };
+    }
+
+    async function saveClinicMediaRecord(env, clinicId, slot, mediaRecord) {
+      const clinic = await getClinicById(env, clinicId);
+      if (!clinic) {
+        throw new Error("clinic not found");
+      }
+      const media = clinic.media && typeof clinic.media === "object" ? clinic.media : {};
+      media[slot] = {
+        key: mediaRecord.key,
+        contentType: mediaRecord.contentType || "",
+        width: mediaRecord.width ?? null,
+        height: mediaRecord.height ?? null,
+        fileSize: mediaRecord.fileSize ?? null,
+        alt: sanitizeAlt(mediaRecord.alt),
+        uploadedAt: Math.floor(Date.now() / 1000),
+      };
+      clinic.media = media;
+      await saveClinic(env, clinic);
+      return media[slot];
+    }
+
+    async function deleteClinicMedia(env, clinicId, slot) {
+      const clinic = await getClinicById(env, clinicId);
+      if (!clinic) {
+        throw new Error("clinic not found");
+      }
+      const media = clinic.media && typeof clinic.media === "object" ? clinic.media : {};
+      const current = media[slot];
+      if (!current) {
+        return { deleted: false };
+      }
+      if (current.key && env.MEDIA) {
+        try {
+          await env.MEDIA.delete(current.key);
+        } catch (err) {
+          console.warn("failed to delete R2 object", current.key, err);
+        }
+      }
+      delete media[slot];
+      clinic.media = media;
+      await saveClinic(env, clinic);
+      return { deleted: true };
+    }
+
+    if (routeMatch(url, "POST", "media/upload-url")) {
+      try {
+        const payload = await request.json();
+        const result = await createClinicMediaUpload(env, payload || {});
+        return new Response(JSON.stringify({ ok: true, ...result }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ ok: false, error: err.message }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
+    if (routeMatch(url, "POST", "media/commit")) {
+      try {
+        const payload = await request.json();
+        const { clinicId, slot, objectKey, contentType, width, height, fileSize, alt } = payload || {};
+        if (typeof clinicId !== "string" || !clinicId.trim()) {
+          throw new Error("clinicId is required");
+        }
+        if (!MEDIA_SLOTS.has(slot)) {
+          throw new Error("Invalid slot");
+        }
+        if (typeof objectKey !== "string" || !objectKey.trim()) {
+          throw new Error("objectKey is required");
+        }
+        const record = await saveClinicMediaRecord(env, clinicId.trim(), slot, {
+          key: objectKey.trim(),
+          contentType,
+          width,
+          height,
+          fileSize,
+          alt,
+        });
+        return new Response(JSON.stringify({ ok: true, media: record }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (err) {
+        const status = err.message === "clinic not found" ? 404 : 400;
+        return new Response(JSON.stringify({ ok: false, error: err.message }), {
+          status,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
+    if (routeMatch(url, "POST", "media/delete")) {
+      try {
+        const payload = await request.json();
+        const { clinicId, slot } = payload || {};
+        if (typeof clinicId !== "string" || !clinicId.trim()) {
+          throw new Error("clinicId is required");
+        }
+        if (!MEDIA_SLOTS.has(slot)) {
+          throw new Error("Invalid slot");
+        }
+        const result = await deleteClinicMedia(env, clinicId.trim(), slot);
+        return new Response(JSON.stringify({ ok: true, ...result }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (err) {
+        const status = err.message === "clinic not found" ? 404 : 400;
+        return new Response(JSON.stringify({ ok: false, error: err.message }), {
+          status,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
 
     if (routeMatch(url, "GET", "client-config")) {
       const googleMapsApiKey =
