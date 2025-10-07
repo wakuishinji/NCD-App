@@ -26,6 +26,16 @@
     '0bc93f6c-4453-4bdb-9812-4afb4e09dc91': { lat: 35.710651, lng: 139.652756 },
     '板橋クリニック': { lat: 35.710651, lng: 139.652756 }
   };
+  const LEGACY_MODE_LABELS = {
+    online: 'オンライン診療',
+    night: '夜間診療',
+    holiday: '休日診療',
+    homeVisit: '在宅・訪問診療',
+    emergency: '救急対応',
+  };
+
+  let modeMaster = [];
+  const modeMasterMap = new Map();
 
   const els = {};
   const mapState = {
@@ -57,6 +67,23 @@
       }
       return res.json();
     });
+  }
+
+  async function loadModesMaster() {
+    try {
+      const data = await fetchJson('/api/modes');
+      modeMaster = Array.isArray(data?.modes)
+        ? data.modes.filter((mode) => mode.active !== false && mode.id)
+        : [];
+      modeMasterMap.clear();
+      modeMaster.forEach((mode) => {
+        modeMasterMap.set(mode.id, mode);
+      });
+    } catch (err) {
+      console.error('failed to load modes', err);
+      modeMaster = [];
+      modeMasterMap.clear();
+    }
   }
 
   function formatTimestamp(seconds) {
@@ -247,29 +274,57 @@
     }
   }
 
+  function extractSelectedModes(rawModes) {
+    if (!rawModes) return [];
+    if (Array.isArray(rawModes.selected)) {
+      return rawModes.selected.map((value) => nk(value)).filter(Boolean);
+    }
+    const out = [];
+    if (rawModes.meta && typeof rawModes.meta === 'object' && !Array.isArray(rawModes.meta)) {
+      Object.keys(rawModes.meta).forEach((slug) => {
+        out.push(nk(slug));
+      });
+    }
+    if (typeof rawModes === 'object') {
+      Object.keys(rawModes).forEach((key) => {
+        if (key === 'selected' || key === 'meta') return;
+        if (rawModes[key] === true) {
+          out.push(nk(key));
+        }
+      });
+    }
+    return Array.from(new Set(out.filter(Boolean)));
+  }
+
   function renderModes(clinic) {
     if (!els.modes) return;
     els.modes.replaceChildren();
-    const modes = clinic.modes && typeof clinic.modes === 'object' ? clinic.modes : {};
-    const labels = {
-      online: 'オンライン診療',
-      night: '夜間診療',
-      holiday: '休日診療',
-      homeVisit: '在宅・訪問診療',
-      emergency: '救急対応',
-    };
-    const active = Object.entries(labels).filter(([key]) => modes[key]);
-    if (!active.length) {
+    const selected = extractSelectedModes(clinic.modes);
+    if (!selected.length) {
       const span = document.createElement('span');
       span.className = 'text-xs text-slate-400';
       span.textContent = '診療形態の登録はまだありません';
       els.modes.appendChild(span);
       return;
     }
-    active.forEach(([key, label]) => {
+    selected.forEach((slug) => {
+      const meta = modeMasterMap.get(slug) || clinic.modes?.meta?.[slug] || { label: LEGACY_MODE_LABELS[slug] || slug };
       const badge = document.createElement('span');
-      badge.className = 'inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 shadow-sm';
-      badge.textContent = label;
+      badge.className = 'inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold shadow-sm';
+      if (meta.color) {
+        badge.style.backgroundColor = meta.color;
+        badge.style.color = '#fff';
+      } else {
+        badge.classList.add('bg-emerald-100', 'text-emerald-700');
+      }
+      if (meta.icon) {
+        const iconEl = document.createElement('i');
+        iconEl.className = meta.icon;
+        badge.appendChild(iconEl);
+      }
+      const text = document.createElement('span');
+      text.textContent = meta.label || slug;
+      badge.appendChild(text);
       els.modes.appendChild(badge);
     });
   }
@@ -710,7 +765,7 @@
     els.map = document.getElementById('clinicMap');
   }
 
-  function init() {
+  async function init() {
     bindElements();
     const params = new URLSearchParams(window.location.search);
     const clinicId = params.get('id');
@@ -718,12 +773,22 @@
       renderMissingId();
       return;
     }
-    loadClinic(clinicId);
+    await loadModesMaster();
+    await loadClinic(clinicId);
+  }
+
+  function start() {
+    init().catch((err) => {
+      console.error(err);
+      if (els.status) {
+        els.status.textContent = `初期化に失敗しました: ${err.message}`;
+      }
+    });
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', start);
   } else {
-    init();
+    start();
   }
 })();

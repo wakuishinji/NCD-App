@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>診療形態マスター管理 - NCD</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="../js/loading.js" defer></script>
+  <script src="../js/header.js" defer></script>
+  <script src="../js/clinicModes.js" defer></script>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+  <header class="bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 text-white shadow">
+    <div class="max-w-5xl mx-auto px-4 py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div class="flex items-center gap-2">
+        <a href="/admin/admin.html" class="inline-flex items-center gap-2 rounded bg-white/10 px-3 py-2 text-sm font-semibold tracking-wide transition hover:bg-white/20">管理トップへ</a>
+      </div>
+      <h1 class="text-lg md:text-xl font-semibold tracking-wide">診療形態マスター管理</h1>
+      <span class="self-start md:self-auto md:ml-auto text-xs text-white/80">Nakano Clinic Database</span>
+    </div>
+  </header>
+
+  <main class="flex-1">
+    <div class="max-w-5xl mx-auto px-4 py-6 space-y-6" id="modePanel">
+      <section class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 class="text-base font-semibold text-blue-900">登録済み一覧</h2>
+            <p class="text-xs text-slate-500">表示順は order → ラベルの順で並びます。公開フラグがオフの項目はフロントには表示されません。</p>
+          </div>
+          <div class="flex items-center gap-2 text-xs text-slate-500">
+            <span class="inline-flex h-2 w-2 rounded-full bg-emerald-500"></span> 公開中
+            <span class="inline-flex h-2 w-2 rounded-full bg-slate-400"></span> 非公開
+          </div>
+        </div>
+        <div class="mt-4 overflow-x-auto">
+          <table class="min-w-full divide-y divide-slate-200 text-sm">
+            <thead class="bg-slate-50 text-slate-600">
+              <tr>
+                <th class="px-3 py-2 text-left">表示名</th>
+                <th class="px-3 py-2 text-left">スラッグ</th>
+                <th class="px-3 py-2 text-left">説明</th>
+                <th class="px-3 py-2 text-left">アイコン</th>
+                <th class="px-3 py-2 text-left">カラー</th>
+                <th class="px-3 py-2 text-left">order</th>
+                <th class="px-3 py-2 text-left">タグ</th>
+                <th class="px-3 py-2 text-left">操作</th>
+              </tr>
+            </thead>
+            <tbody id="modeTableBody" class="divide-y divide-slate-100 bg-white"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 class="text-base font-semibold text-blue-900">追加 / 編集</h2>
+        <form id="modeForm" class="mt-4 grid gap-4 md:grid-cols-2">
+          <input type="hidden" id="modeId" />
+          <div class="md:col-span-1">
+            <label for="modeLabel" class="block text-sm text-slate-600 mb-1">表示名 <span class="text-red-500">*</span></label>
+            <input id="modeLabel" class="w-full rounded border px-3 py-2" placeholder="例: オンライン診療" required />
+          </div>
+          <div class="md:col-span-1">
+            <label for="modeSlug" class="block text-sm text-slate-600 mb-1">スラッグ (任意)</label>
+            <input id="modeSlug" class="w-full rounded border px-3 py-2" placeholder="例: online" />
+            <p class="mt-1 text-xs text-slate-400">未入力の場合は自動生成します。半角英数字とハイフンのみ。</p>
+          </div>
+          <div class="md:col-span-2">
+            <label for="modeDescription" class="block text-sm text-slate-600 mb-1">説明</label>
+            <textarea id="modeDescription" rows="3" class="w-full rounded border px-3 py-2 text-sm" placeholder="公開ページでの補足テキスト"></textarea>
+          </div>
+          <div class="md:col-span-1">
+            <label for="modeIcon" class="block text-sm text-slate-600 mb-1">アイコン (任意)</label>
+            <input id="modeIcon" class="w-full rounded border px-3 py-2" placeholder="例: fa-video" />
+            <p class="mt-1 text-xs text-slate-400">Font Awesome のクラスなど。未入力でも可。</p>
+          </div>
+          <div class="md:col-span-1">
+            <label for="modeColor" class="block text-sm text-slate-600 mb-1">カラーコード</label>
+            <input id="modeColor" class="w-full rounded border px-3 py-2" placeholder="#0ea5e9" />
+            <p class="mt-1 text-xs text-slate-400">バッジ表示の背景色 (CSS色指定)。例: #0ea5e9</p>
+          </div>
+          <div>
+            <label for="modeOrder" class="block text-sm text-slate-600 mb-1">order</label>
+            <input id="modeOrder" type="number" class="w-full rounded border px-3 py-2" placeholder="0" />
+          </div>
+          <div>
+            <label for="modeTags" class="block text-sm text-slate-600 mb-1">タグ (カンマ区切り)</label>
+            <input id="modeTags" class="w-full rounded border px-3 py-2" placeholder="例: telemedicine,remote" />
+          </div>
+          <div class="flex items-center gap-2 md:col-span-2">
+            <input id="modeActive" type="checkbox" class="h-4 w-4 text-blue-600" checked />
+            <label for="modeActive" class="text-sm text-slate-600">公開する</label>
+          </div>
+          <div class="md:col-span-2 flex gap-3">
+            <button type="submit" class="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">保存</button>
+            <button type="button" id="modeReset" class="rounded bg-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-300">リセット</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  </main>
+
+  <footer class="bg-slate-900/90 text-slate-100">
+    <div class="max-w-5xl mx-auto px-4 py-4 text-xs">© 2025 中野区医師会 Nakano Clinic Database</div>
+  </footer>
+</body>
+</html>

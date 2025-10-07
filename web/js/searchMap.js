@@ -26,15 +26,17 @@
     '0bc93f6c-4453-4bdb-9812-4afb4e09dc91': { lat: 35.710651, lng: 139.652756 },
     '板橋クリニック': { lat: 35.710651, lng: 139.652756 }
   };
-
-  const MODE_LABELS = {
+  const LEGACY_MODE_LABELS = {
     online: 'オンライン',
     night: '夜間',
     holiday: '休日',
     homeVisit: '在宅',
     emergency: '救急'
   };
-  const MODE_ORDER = ['online', 'night', 'holiday', 'homeVisit', 'emergency'];
+  const LEGACY_MODE_ORDER = ['online', 'night', 'holiday', 'homeVisit', 'emergency'];
+
+  let modeMaster = [];
+  const modeMasterMap = new Map();
 
   const els = {};
   const state = {
@@ -62,6 +64,23 @@
       }
       return res.json();
     });
+  }
+
+  async function loadModesMaster() {
+    try {
+      const data = await fetchJson('/api/modes');
+      modeMaster = Array.isArray(data?.modes)
+        ? data.modes.filter((mode) => mode.active !== false && mode.id)
+        : [];
+      modeMasterMap.clear();
+      modeMaster.forEach((mode) => {
+        modeMasterMap.set(mode.id, mode);
+      });
+    } catch (err) {
+      console.error('failed to load modes', err);
+      modeMaster = [];
+      modeMasterMap.clear();
+    }
   }
 
   function collectBodySites(clinic) {
@@ -144,11 +163,53 @@
     return qs ? `${base}?${qs}` : base;
   }
 
-  function buildModesBadges(modes) {
-    if (!modes || typeof modes !== 'object') return '';
-    const active = MODE_ORDER.filter((key) => modes[key]);
-    if (!active.length) return '';
-    return active.map((key) => `<span class="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-600">${MODE_LABELS[key]}</span>`).join('');
+  function extractSelectedModes(rawModes) {
+    if (!rawModes) return [];
+    if (Array.isArray(rawModes.selected)) {
+      return rawModes.selected.map((value) => nk(value)).filter(Boolean);
+    }
+    const out = [];
+    if (rawModes.meta && typeof rawModes.meta === 'object' && !Array.isArray(rawModes.meta)) {
+      Object.keys(rawModes.meta).forEach((slug) => out.push(nk(slug)));
+    }
+    if (typeof rawModes === 'object') {
+      Object.keys(rawModes).forEach((key) => {
+        if (key === 'selected' || key === 'meta') return;
+        if (rawModes[key] === true) out.push(nk(key));
+      });
+    }
+    return Array.from(new Set(out.filter(Boolean)));
+  }
+
+  function getModeMeta(slug, clinicModes) {
+    const master = modeMasterMap.get(slug);
+    if (master) return master;
+    const meta = clinicModes?.meta?.[slug];
+    if (meta && typeof meta === 'object') return { id: slug, ...meta };
+    return { id: slug, label: LEGACY_MODE_LABELS[slug] || slug };
+  }
+
+  function buildModesBadges(clinic) {
+    const selected = extractSelectedModes(clinic.modes);
+    if (!selected.length) return '';
+    const decorated = selected.map((slug) => {
+      const meta = getModeMeta(slug, clinic.modes || {});
+      const order = Number.isFinite(meta.order) ? meta.order : (modeMasterMap.has(slug) ? modeMasterMap.get(slug).order : LEGACY_MODE_ORDER.indexOf(slug));
+      return { slug, meta, order: Number.isFinite(order) ? order : 999 };
+    });
+    decorated.sort((a, b) => {
+      if (a.order !== b.order) return a.order - b.order;
+      return (a.meta.label || a.slug).localeCompare(b.meta.label || b.slug, 'ja');
+    });
+    return decorated.map(({ meta, slug }) => {
+      const label = meta.label || slug;
+      const icon = meta.icon ? `<i class="${meta.icon} mr-1"></i>` : '';
+      const baseClass = 'inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium shadow-sm';
+      if (meta.color) {
+        return `<span class="${baseClass}" style="background:${meta.color};color:#fff">${icon}${label}</span>`;
+      }
+      return `<span class="${baseClass} bg-emerald-50 text-emerald-600">${icon}${label}</span>`;
+    }).join('');
   }
 
   function resolveCoordinates(raw) {
@@ -267,7 +328,7 @@
     els.clinicList.innerHTML = clinics.map((clinic) => {
       const safeAddress = clinic.address || '住所未登録';
       const tagsMarkup = clinic.tags.map((tag) => `<span class="inline-flex items-center rounded bg-emerald-100 px-2 py-0.5 text-[11px] text-emerald-700">${tag}</span>`).join('');
-      const modesMarkup = buildModesBadges(clinic.modes);
+      const modesMarkup = buildModesBadges(clinic);
       const mediaRecord = clinic.media.logoSmall || clinic.media.logoLarge || clinic.media.facade;
       const logoUrl = mediaUrl(mediaRecord, { width: 120, height: 120, fit: 'cover' });
       const logoMarkup = logoUrl
@@ -513,6 +574,7 @@
     } catch (err) {
       console.error('Failed to initialize map', err);
     }
+    await loadModesMaster();
     await loadClinics();
   }
 

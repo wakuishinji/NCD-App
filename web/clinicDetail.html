@@ -221,27 +221,10 @@
     <section class="bg-white rounded shadow p-6 space-y-4">
       <h2 class="text-lg font-semibold text-blue-800">診療形態・対応</h2>
       <p class="text-sm text-gray-600">該当する項目にチェックを入れてください。公開ページでバッジ表示されます。</p>
-      <div class="grid gap-3 sm:grid-cols-2">
-        <label class="inline-flex items-center gap-2 text-sm text-gray-700">
-          <input type="checkbox" id="mode-online" class="h-4 w-4 text-blue-600" />
-          <span>オンライン診療</span>
-        </label>
-        <label class="inline-flex items-center gap-2 text-sm text-gray-700">
-          <input type="checkbox" id="mode-night" class="h-4 w-4 text-blue-600" />
-          <span>夜間診療（18時以降）</span>
-        </label>
-        <label class="inline-flex items-center gap-2 text-sm text-gray-700">
-          <input type="checkbox" id="mode-holiday" class="h-4 w-4 text-blue-600" />
-          <span>休日診療</span>
-        </label>
-        <label class="inline-flex items-center gap-2 text-sm text-gray-700">
-          <input type="checkbox" id="mode-homeVisit" class="h-4 w-4 text-blue-600" />
-          <span>在宅・訪問診療</span>
-        </label>
-        <label class="inline-flex items-center gap-2 text-sm text-gray-700">
-          <input type="checkbox" id="mode-emergency" class="h-4 w-4 text-blue-600" />
-          <span>救急対応・急患受付</span>
-        </label>
+      <div id="modesContainer" class="grid gap-3 sm:grid-cols-2"></div>
+      <div id="modesEmpty" class="hidden rounded border border-dashed border-slate-300 bg-slate-100 px-4 py-3 text-sm text-slate-500">
+        診療形態マスターに公開中の項目がありません。<br />
+        管理画面「診療形態マスター管理」で登録してください。
       </div>
     </section>
 
@@ -387,14 +370,9 @@ let mediaState = {
   logoLarge: null,
   facade: null,
 };
-
-const MODE_DEFS = [
-  { key: 'online', checkboxId: 'mode-online' },
-  { key: 'night', checkboxId: 'mode-night' },
-  { key: 'holiday', checkboxId: 'mode-holiday' },
-  { key: 'homeVisit', checkboxId: 'mode-homeVisit' },
-  { key: 'emergency', checkboxId: 'mode-emergency' },
-];
+let modeMaster = [];
+let modeContainerEl = null;
+let modeEmptyEl = null;
 
 let currentClinicId = "";
 let retainedQualifications = "";
@@ -499,6 +477,23 @@ function buildMediaPayload() {
     }
   });
   return payload;
+}
+
+function buildModesPayload(selected) {
+  const unique = Array.from(new Set((selected || []).map((slug) => nk(slug)).filter(Boolean)));
+  const meta = {};
+  unique.forEach((slug) => {
+    const master = modeMaster.find((item) => item.id === slug);
+    if (master) {
+      meta[slug] = {
+        label: master.label || '',
+        icon: master.icon || '',
+        color: master.color || '',
+        order: Number.isFinite(master.order) ? master.order : null,
+      };
+    }
+  });
+  return { selected: unique, meta };
 }
 
 function readImageDimensions(file) {
@@ -797,22 +792,115 @@ function initAccessSection() {
   }
 }
 
-function readModesFromForm() {
-  const modes = {};
-  MODE_DEFS.forEach(({ key, checkboxId }) => {
-    const checkbox = document.getElementById(checkboxId);
-    modes[key] = Boolean(checkbox?.checked);
-  });
-  return modes;
+async function loadModesMaster() {
+  try {
+    const res = await fetch(`${BASE}/api/modes`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    modeMaster = Array.isArray(data?.modes)
+      ? data.modes.filter((mode) => mode.active !== false && mode.id)
+      : [];
+  } catch (err) {
+    console.error('failed to load modes', err);
+    modeMaster = [];
+  }
 }
 
-function applyModesToForm(modes) {
-  MODE_DEFS.forEach(({ key, checkboxId }) => {
-    const checkbox = document.getElementById(checkboxId);
-    if (checkbox) {
-      checkbox.checked = Boolean(modes?.[key]);
+function initModesSection() {
+  modeContainerEl = document.getElementById('modesContainer');
+  modeEmptyEl = document.getElementById('modesEmpty');
+  renderModesOptions([]);
+}
+
+function renderModesOptions(selected = []) {
+  if (!modeContainerEl) modeContainerEl = document.getElementById('modesContainer');
+  if (!modeEmptyEl) modeEmptyEl = document.getElementById('modesEmpty');
+  if (!modeContainerEl) return;
+  modeContainerEl.replaceChildren();
+  const set = new Set(selected);
+  if (!Array.isArray(modeMaster) || !modeMaster.length) {
+    if (modeEmptyEl) modeEmptyEl.classList.remove('hidden');
+    return;
+  }
+  if (modeEmptyEl) modeEmptyEl.classList.add('hidden');
+  modeMaster.forEach((mode) => {
+    const checkboxId = `mode-${mode.id}`;
+    const wrapper = document.createElement('label');
+    wrapper.className = 'inline-flex items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm hover:bg-slate-50';
+
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.name = 'modeItem';
+    input.dataset.slug = mode.id;
+    input.className = 'h-4 w-4 text-blue-600';
+    input.id = checkboxId;
+    input.checked = set.has(mode.id);
+    input.addEventListener('change', markDirty);
+
+    const badge = document.createElement('span');
+    badge.className = 'inline-flex items-center gap-2';
+
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = mode.label || mode.id;
+    labelSpan.className = 'font-semibold';
+
+    const preview = document.createElement('span');
+    preview.className = 'hidden sm:inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium';
+    preview.textContent = 'Badge';
+    if (mode.color) {
+      preview.style.backgroundColor = mode.color;
+      preview.style.color = '#fff';
+    } else {
+      preview.classList.add('bg-emerald-50', 'text-emerald-700');
+    }
+
+    badge.append(labelSpan, preview);
+    wrapper.append(input, badge);
+    if (mode.description) {
+      const desc = document.createElement('span');
+      desc.className = 'text-xs text-slate-500';
+      desc.textContent = mode.description;
+      wrapper.appendChild(desc);
+    }
+    modeContainerEl.appendChild(wrapper);
+  });
+}
+
+function readModesFromForm() {
+  const selected = [];
+  document.querySelectorAll("input[name='modeItem']").forEach((input) => {
+    if (input.checked && input.dataset.slug) {
+      selected.push(input.dataset.slug);
     }
   });
+  return selected;
+}
+
+function extractSelectedModes(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw.selected)) {
+    return raw.selected.map((value) => nk(value)).filter(Boolean);
+  }
+  const out = [];
+  if (raw.meta && typeof raw.meta === 'object' && !Array.isArray(raw.meta)) {
+    Object.keys(raw.meta).forEach((slug) => {
+      out.push(nk(slug));
+    });
+  }
+  if (typeof raw === 'object') {
+    Object.keys(raw).forEach((key) => {
+      if (key === 'selected' || key === 'meta') return;
+      if (raw[key] === true) {
+        out.push(nk(key));
+      }
+    });
+  }
+  return Array.from(new Set(out.filter(Boolean)));
+}
+
+function applyModesToForm(rawModes) {
+  const selected = extractSelectedModes(rawModes);
+  renderModesOptions(selected);
 }
 
 
@@ -1588,7 +1676,8 @@ async function saveClinic() {
   renderDisplay();
 
   const access = readAccessFromForm();
-  const modes = readModesFromForm();
+  const selectedModes = readModesFromForm();
+  const modesPayload = buildModesPayload(selectedModes);
   const mediaPayload = buildMediaPayload();
 
   const clinicData = {
@@ -1612,7 +1701,7 @@ async function saveClinic() {
     },
     media: mediaPayload,
     access,
-    modes
+    modes: modesPayload
   };
 
   try {
@@ -1709,11 +1798,13 @@ window.addEventListener("DOMContentLoaded", async () => {
   try {
     initDepartmentSelectionUI();
     initScheduleEditorUI();
-    initTimeInputDefaults();
-    initPostalCodeField();
-    initMediaSection();
-    initAccessSection();
-    await loadDepartmentMaster();
+   initTimeInputDefaults();
+   initPostalCodeField();
+   initMediaSection();
+   initAccessSection();
+    initModesSection();
+    await Promise.all([loadDepartmentMaster(), loadModesMaster()]);
+    renderModesOptions([]);
     loadClinicDetail();
   } finally {
     toggleLoadingOverlay(false);
