@@ -43,6 +43,10 @@
       </section>
 
       <section class="flex-1 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <a id="clinicSummaryLink" href="#" class="bg-white rounded shadow p-6 hover:shadow-lg transition pointer-events-none opacity-60" data-disabled="true">
+          <div class="text-lg font-semibold text-blue-800 mb-2">公開ページを表示</div>
+          <div class="text-sm text-gray-600">別タブで施設サマリーページを開きます。施設を選択すると有効になります。</div>
+        </a>
         <a href="clinicDetail.html" class="bg-white rounded shadow p-6 hover:shadow-lg transition">
           <div class="text-lg font-semibold text-blue-800 mb-2">基本情報入力</div>
           <div class="text-sm text-gray-600">名称・住所・医師数・診療時間パターン/曜日設定など。</div>
@@ -69,13 +73,35 @@
   </footer>
 
   <script>
+    function updateSummaryLink(clinic) {
+      const link = document.getElementById('clinicSummaryLink');
+      if (!link) return;
+      if (clinic && clinic.id) {
+        link.href = `clinicSummary.html?id=${encodeURIComponent(clinic.id)}`;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.classList.remove('pointer-events-none', 'opacity-60');
+        link.dataset.disabled = 'false';
+      } else {
+        link.href = '#';
+        link.removeAttribute('target');
+        link.removeAttribute('rel');
+        link.classList.add('pointer-events-none', 'opacity-60');
+        link.dataset.disabled = 'true';
+      }
+    }
+
     function loadSelected() {
       const s = localStorage.getItem('selectedClinic');
-      if (!s) return;
+      if (!s) {
+        updateSummaryLink(null);
+        return;
+      }
       const c = JSON.parse(s);
       document.getElementById('clinicName').textContent = c.name || '(名称未設定)';
       document.getElementById('clinicId').textContent = "ID: " + (c.id || '-');
       document.getElementById('clinicAddr').textContent = "住所: " + (c.address || '-');
+      updateSummaryLink(c);
     }
     loadSelected();
   </script>

@@ -7,6 +7,17 @@
       return DEFAULT_API_BASE;
     }
   })();
+  const ASSET_BASE = (() => {
+    try {
+      const override = localStorage.getItem('ncdAssetBase');
+      if (typeof override === 'string' && override.trim()) {
+        return override.trim().replace(/\/$/, '');
+      }
+    } catch (_) {}
+    const base = (API_BASE || '').trim();
+    if (!base) return '';
+    return base.replace(/\/$/, '');
+  })();
 
   const DEFAULT_CENTER = { lat: 35.7095, lng: 139.6654 };
   const FALLBACK_COORDS = {
@@ -193,7 +204,8 @@
 
   function mediaUrl(record, params = {}) {
     if (!record || !record.key) return '';
-    const base = `/assets/${encodeURIComponent(record.key)}`;
+    const prefix = ASSET_BASE ? `${ASSET_BASE}/assets/` : '/assets/';
+    const base = `${prefix}${encodeURIComponent(record.key)}`;
     const query = new URLSearchParams();
     if (params.width) query.set('w', String(params.width));
     if (params.height) query.set('h', String(params.height));
