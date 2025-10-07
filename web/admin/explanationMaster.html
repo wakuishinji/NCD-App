@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>説明テンプレート管理 - NCD</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="../js/loading.js" defer></script>
+  <script src="../js/header.js" defer></script>
+  <script src="../js/explanationMaster.js" defer></script>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+  <header class="bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 text-white shadow">
+    <div class="max-w-6xl mx-auto px-4 py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div class="flex items-center gap-2">
+        <a href="/admin/admin.html" class="inline-flex items-center gap-2 rounded bg-white/10 px-3 py-2 text-sm font-semibold tracking-wide transition hover:bg-white/20">管理トップへ</a>
+      </div>
+      <h1 class="text-lg md:text-xl font-semibold tracking-wide">説明テンプレート管理</h1>
+      <span class="self-start md:self-auto md:ml-auto text-xs text-white/80">Nakano Clinic Database</span>
+    </div>
+  </header>
+
+  <main class="flex-1" id="explanationPanel">
+    <div class="max-w-6xl mx-auto px-4 py-6 space-y-6">
+      <section class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 class="text-base font-semibold text-blue-900">テンプレート一覧</h2>
+            <p class="text-xs text-slate-500">診療・検査の説明テンプレートを管理します。公開中テンプレートはフロントで再利用されます。</p>
+          </div>
+          <div class="flex flex-wrap gap-3 text-xs text-slate-500">
+            <select id="filterType" class="rounded border border-slate-300 px-3 py-1">
+              <option value="service">診療テンプレート</option>
+              <option value="test">検査テンプレート</option>
+            </select>
+            <select id="filterStatus" class="rounded border border-slate-300 px-3 py-1">
+              <option value="">全ステータス</option>
+              <option value="draft">ドラフト</option>
+              <option value="review">レビュー中</option>
+              <option value="published">公開済み</option>
+            </select>
+            <input id="filterSlug" class="rounded border border-slate-300 px-3 py-1" placeholder="名称スラッグで絞り込み" />
+            <button id="reloadBtn" class="rounded bg-blue-600 px-4 py-1 text-xs font-semibold text-white hover:bg-blue-700">再読み込み</button>
+          </div>
+        </div>
+        <div class="mt-4 overflow-x-auto">
+          <table class="min-w-full divide-y divide-slate-200 text-sm">
+            <thead class="bg-slate-50 text-slate-600">
+              <tr>
+                <th class="px-3 py-2 text-left">名称</th>
+                <th class="px-3 py-2 text-left">ステータス</th>
+                <th class="px-3 py-2 text-left">対象</th>
+                <th class="px-3 py-2 text-left">最終更新</th>
+                <th class="px-3 py-2 text-left">操作</th>
+              </tr>
+            </thead>
+            <tbody id="explanationTable" class="divide-y divide-slate-100 bg-white"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 class="text-base font-semibold text-blue-900">詳細 / 編集</h2>
+        <form id="explanationForm" class="mt-4 grid gap-4">
+          <input type="hidden" id="explanationId" />
+          <div class="grid gap-3 md:grid-cols-2">
+            <div>
+              <label for="explanationType" class="block text-sm text-slate-600 mb-1">テンプレート種別</label>
+              <select id="explanationType" class="w-full rounded border px-3 py-2">
+                <option value="service">診療テンプレート</option>
+                <option value="test">検査テンプレート</option>
+              </select>
+            </div>
+            <div>
+              <label for="explanationTarget" class="block text-sm text-slate-600 mb-1">対象スラッグ</label>
+              <input id="explanationTarget" class="w-full rounded border px-3 py-2" placeholder="例: service:internal-medicine" required />
+              <p class="mt-1 text-xs text-slate-400">診療/検査マスターの slug (分類+名称) を指定します。</p>
+            </div>
+          </div>
+          <div class="grid gap-3 md:grid-cols-3">
+            <div>
+              <label for="explanationAudience" class="block text-sm text-slate-600 mb-1">想定読者</label>
+              <input id="explanationAudience" class="w-full rounded border px-3 py-2" placeholder="例: 患者" />
+            </div>
+            <div>
+              <label for="explanationContext" class="block text-sm text-slate-600 mb-1">利用コンテキスト</label>
+              <input id="explanationContext" class="w-full rounded border px-3 py-2" placeholder="例: 紹介状" />
+            </div>
+            <div>
+              <label for="explanationStatus" class="block text-sm text-slate-600 mb-1">ステータス</label>
+              <select id="explanationStatus" class="w-full rounded border px-3 py-2">
+                <option value="draft">ドラフト</option>
+                <option value="review">レビュー中</option>
+                <option value="published">公開済み</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label for="explanationTags" class="block text-sm text-slate-600 mb-1">タグ (カンマ区切り)</label>
+            <input id="explanationTags" class="w-full rounded border px-3 py-2" placeholder="例: 患者向け,外来" />
+          </div>
+          <div>
+            <label for="explanationInherit" class="block text-sm text-slate-600 mb-1">親テンプレートID (任意)</label>
+            <input id="explanationInherit" class="w-full rounded border px-3 py-2" placeholder="inherit 元テンプレートのID" />
+          </div>
+          <div>
+            <label for="explanationText" class="block text-sm text-slate-600 mb-1">テンプレート本文</label>
+            <textarea id="explanationText" rows="12" class="w-full rounded border px-3 py-2 font-mono text-sm" placeholder="患者向けの説明を記入してください" required></textarea>
+          </div>
+          <div class="flex flex-wrap gap-3">
+            <button type="submit" class="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">保存</button>
+            <button type="button" id="explanationReset" class="rounded bg-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-300">リセット</button>
+            <button type="button" id="explanationDuplicate" class="hidden rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600">複製</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  </main>
+
+  <footer class="bg-slate-900/90 text-slate-100">
+    <div class="max-w-6xl mx-auto px-4 py-4 text-xs">© 2025 中野区医師会 Nakano Clinic Database</div>
+  </footer>
+</body>
+</html>
