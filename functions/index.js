@@ -423,6 +423,81 @@ export default {
     // <<< END: ROUTE_MATCH >>>
 
     const MEDIA_SLOTS = new Set(["logoSmall", "logoLarge", "facade"]);
+    const MODE_MASTER_PREFIX = 'master:mode:';
+
+    async function listModes(env) {
+      const prefix = MODE_MASTER_PREFIX;
+      const list = await env.SETTINGS.list({ prefix });
+      const out = [];
+      for (const key of list.keys) {
+        try {
+          const raw = await env.SETTINGS.get(key.name);
+          if (!raw) continue;
+          const obj = JSON.parse(raw);
+          if (!obj || typeof obj !== 'object') continue;
+          obj.id = key.name.replace(prefix, '');
+          out.push(obj);
+        } catch (err) {
+          console.warn('failed to parse mode master', key.name, err);
+        }
+      }
+      out.sort((a, b) => {
+        const oa = Number.isFinite(a.order) ? a.order : 999;
+        const ob = Number.isFinite(b.order) ? b.order : 999;
+        if (oa !== ob) return oa - ob;
+        return (a.label || '').localeCompare(b.label || '', 'ja');
+      });
+      return out;
+    }
+
+    function sanitizeModePayload(payload) {
+      if (!payload || typeof payload !== 'object') {
+        throw new Error('payload is required');
+      }
+      const label = nk(payload.label);
+      if (!label) {
+        throw new Error('label is required');
+      }
+      const slug = nk(payload.id || payload.slug || label).toLowerCase().replace(/[^a-z0-9_-]+/g, '-');
+      if (!slug) {
+        throw new Error('id is required');
+      }
+      const description = nk(payload.description);
+      const icon = nk(payload.icon);
+      const order = Number(payload.order);
+      const active = payload.active !== false;
+      const color = nk(payload.color);
+      const tags = Array.isArray(payload.tags)
+        ? Array.from(new Set(payload.tags.map((item) => nk(item)).filter(Boolean)))
+        : [];
+      return {
+        slug,
+        label,
+        description,
+        icon,
+        order: Number.isFinite(order) ? order : null,
+        active,
+        color,
+        tags,
+      };
+    }
+
+    async function saveMode(env, mode) {
+      const key = `${MODE_MASTER_PREFIX}${mode.slug}`;
+      const payload = { ...mode };
+      delete payload.slug;
+      await env.SETTINGS.put(key, JSON.stringify(payload));
+      return { id: mode.slug, ...payload };
+    }
+
+    async function deleteMode(env, slug) {
+      const key = `${MODE_MASTER_PREFIX}${slug}`;
+      const existing = await env.SETTINGS.get(key);
+      if (!existing) {
+        throw new Error('mode not found');
+      }
+      await env.SETTINGS.delete(key);
+    }
 
     function inferExtension(contentType) {
       switch (contentType) {
@@ -670,6 +745,75 @@ export default {
           "Content-Type": "application/json",
         },
       });
+    }
+
+    if (routeMatch(url, 'GET', 'modes')) {
+      try {
+        const modes = await listModes(env);
+        return new Response(JSON.stringify({ ok: true, modes }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ ok: false, error: err.message }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    if (routeMatch(url, 'POST', 'modes/add')) {
+      try {
+        const payload = await request.json();
+        const sanitized = sanitizeModePayload(payload || {});
+        sanitized.slug = sanitized.slug || crypto.randomUUID();
+        const saved = await saveMode(env, sanitized);
+        return new Response(JSON.stringify({ ok: true, mode: saved }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      } catch (err) {
+        const status = /required|Unsupported/.test(err.message) ? 400 : 500;
+        return new Response(JSON.stringify({ ok: false, error: err.message }), {
+          status,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    if (routeMatch(url, 'POST', 'modes/update')) {
+      try {
+        const payload = await request.json();
+        const sanitized = sanitizeModePayload(payload || {});
+        const mode = await saveMode(env, sanitized);
+        return new Response(JSON.stringify({ ok: true, mode }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      } catch (err) {
+        const status = /required|Unsupported/.test(err.message) ? 400 : 500;
+        return new Response(JSON.stringify({ ok: false, error: err.message }), {
+          status,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    if (routeMatch(url, 'POST', 'modes/delete')) {
+      try {
+        const payload = await request.json();
+        const slug = nk(payload?.id || payload?.slug);
+        if (!slug) {
+          throw new Error('id is required');
+        }
+        await deleteMode(env, slug);
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      } catch (err) {
+        const status = err.message === 'mode not found' ? 404 : /required/.test(err.message) ? 400 : 500;
+        return new Response(JSON.stringify({ ok: false, error: err.message }), {
+          status,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
     }
 
     function normalizeTodoEntry(raw) {
