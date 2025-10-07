@@ -289,8 +289,7 @@ function updateServiceSelect(selectedValue = "") {
       samples: Array.isArray(item.desc_samples) ? item.desc_samples : [],
       slug
     });
-    const labelDesc = item.desc ? `（${item.desc}）` : (item.canonical_name ? `（別名: ${item.canonical_name}）` : "");
-    option.textContent = `${item.name}${labelDesc}`;
+    option.textContent = item.name || '';
     if (selectedValue && option.value === selectedValue) {
       option.selected = true;
     }

@@ -54,9 +54,23 @@
           </div>
         </div>
 
-        <div>
-          <label for="testDesc" class="block text-sm text-gray-700">検査の説明</label>
-          <textarea id="testDesc" rows="4" class="w-full border rounded px-3 py-2" placeholder="検査の目的や流れ、注意点などを入力"></textarea>
+        <div class="space-y-3">
+          <div>
+            <div class="flex items-center justify-between">
+              <label class="block text-sm font-semibold text-gray-700">説明テンプレート</label>
+              <button type="button" id="testTemplateReload" class="text-xs text-blue-600 hover:text-blue-800">テンプレートを再取得</button>
+            </div>
+            <p class="mt-1 text-xs text-gray-500">選択した検査に紐づく公開テンプレートから本文へ挿入できます。複数選択で組み合わせも可能です。</p>
+          </div>
+          <div id="testTemplateEmpty" class="rounded border border-dashed border-slate-300 bg-slate-100 px-3 py-2 text-xs text-slate-500 hidden">
+            公開中のテンプレートがまだありません。保存時に加筆した本文は候補として登録されます。
+          </div>
+          <div id="testTemplateList" class="space-y-3"></div>
+          <div id="testSelectedTemplates" class="hidden flex flex-wrap gap-2"></div>
+          <div>
+            <label for="testDesc" class="block text-sm text-gray-700">検査の説明（編集後）</label>
+            <textarea id="testDesc" rows="6" class="w-full border rounded px-3 py-2" placeholder="テンプレートを挿入して加筆・修正できます"></textarea>
+          </div>
         </div>
 
         <div class="flex flex-wrap gap-3">
@@ -93,6 +107,11 @@ let currentTests = [];
 let editingIndex = null;
 const collator = new Intl.Collator('ja');
 
+let testTemplateCache = [];
+let testTemplateSlug = '';
+let testSelectedTemplateIds = new Set();
+let testSelectedTemplateMeta = {};
+
 const els = {
   selectedClinicName: document.getElementById("selectedClinicName"),
   category: document.getElementById("testCategory"),
@@ -103,8 +122,25 @@ const els = {
   submit: document.getElementById("testSubmit"),
   clear: document.getElementById("testClear"),
   list: document.getElementById("testList"),
-  overlay: document.getElementById("loadingOverlay")
+  overlay: document.getElementById("loadingOverlay"),
+  templateReload: document.getElementById('testTemplateReload'),
+  templateList: document.getElementById('testTemplateList'),
+  templateEmpty: document.getElementById('testTemplateEmpty'),
+  selectedTemplates: document.getElementById('testSelectedTemplates')
 };
+
+function nk(value) {
+  return (value || '').trim();
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 function setLoading(show) {
   els.overlay.classList.toggle("hidden", !show);
@@ -147,7 +183,12 @@ async function loadTestMaster() {
     url.searchParams.set("status", "approved");
     const res = await fetch(url.toString());
     const data = await res.json();
-    masterTests = Array.isArray(data?.items) ? data.items : [];
+    masterTests = Array.isArray(data?.items)
+      ? data.items.map((item) => ({
+          ...item,
+          slug: typeof item._key === 'string' ? item._key.replace('master:test:', '') : ''
+        }))
+      : [];
   } catch (err) {
     console.error("failed to load test master", err);
     masterTests = [];
@@ -240,16 +281,17 @@ function updateTestSelect(selectedValue = "") {
 
   const filtered = masterTests.filter(item => item.category === category);
   filtered.forEach(item => {
+    const slug = typeof item._key === 'string' ? item._key.replace('master:test:', '') : `${item.category}|${item.name}`;
     const option = document.createElement("option");
     option.value = JSON.stringify({
       category: item.category || "",
       name: item.name || "",
       desc: item.desc || "",
       canonical: item.canonical_name || "",
-      samples: Array.isArray(item.desc_samples) ? item.desc_samples : []
+      samples: Array.isArray(item.desc_samples) ? item.desc_samples : [],
+      slug
     });
-    const labelDesc = item.desc ? `（${item.desc}）` : (item.canonical_name ? `（別名: ${item.canonical_name}）` : "");
-    option.textContent = `${item.name}${labelDesc}`;
+    option.textContent = item.name || '';
     if (selectedValue && option.value === selectedValue) {
       option.selected = true;
     }
