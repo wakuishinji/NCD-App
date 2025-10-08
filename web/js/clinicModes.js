@@ -1,18 +1,5 @@
 (function () {
   const DEFAULT_API_BASE = 'https://ncd-app.altry.workers.dev';
-
-  const ICON_OPTIONS = [
-    { value: '', label: '（なし）', icon: '' },
-    { value: 'fa-video', label: 'オンライン診療', icon: 'fa-solid fa-video' },
-    { value: 'fa-house-medical', label: '訪問診療', icon: 'fa-solid fa-house-medical' },
-    { value: 'fa-clock', label: '時間外', icon: 'fa-solid fa-clock' },
-    { value: 'fa-sun', label: '休日（日中）', icon: 'fa-solid fa-sun' },
-    { value: 'fa-moon', label: '夜間診療', icon: 'fa-solid fa-moon' },
-    { value: 'fa-ambulance', label: '救急対応', icon: 'fa-solid fa-ambulance' },
-    { value: 'fa-comments', label: 'オンライン相談', icon: 'fa-solid fa-comments' },
-    { value: '__custom', label: 'その他（手入力）', icon: '' },
-  ];
-
   const COLOR_OPTIONS = [
     { value: '#0ea5e9', label: 'スカイブルー' },
     { value: '#22c55e', label: 'グリーン' },
@@ -21,17 +8,12 @@
     { value: '#ec4899', label: 'ピンク' },
     { value: '#facc15', label: 'イエロー' },
     { value: '#1f2937', label: 'ダークグレー' },
-    { value: '__custom', label: 'その他（手入力）' },
   ];
-
-  const ICON_LABEL_MAP = new Map(ICON_OPTIONS.filter(opt => opt.value && opt.value !== '__custom').map(opt => [opt.value, opt.label]));
-  const COLOR_LABEL_MAP = new Map(COLOR_OPTIONS.filter(opt => opt.value && opt.value !== '__custom').map(opt => [opt.value, opt.label]));
+  const DEFAULT_COLOR = COLOR_OPTIONS[0].value;
 
   const state = {
     modes: [],
     editing: null,
-    selectedIcon: '',
-    selectedColor: '#0ea5e9',
   };
 
   const els = {
@@ -42,11 +24,7 @@
     label: null,
     slug: null,
     description: null,
-    iconOptions: null,
-    iconCustom: null,
-    iconPreview: null,
-    colorOptions: null,
-    colorCustom: null,
+    colorSelect: null,
     colorPreview: null,
     active: null,
     reset: null,
@@ -80,6 +58,14 @@
     return (value || '').trim();
   }
 
+  function buildTags(label) {
+    const normalized = nk(label).normalize('NFKC').toLowerCase();
+    const replaced = normalized.replace(/[\s\u3000]+/g, '-');
+    const cleaned = replaced.replace(/[^a-z0-9\-一-龠ぁ-んァ-ヶー]/g, '');
+    const slug = cleaned.replace(/-+/g, '-').replace(/^-|-$/g, '');
+    return slug ? [slug] : [];
+  }
+
   function showToast(message) {
     window.alert(message);
   }
@@ -100,64 +86,16 @@
     return res.json();
   }
 
-  function iconOptionTemplate(option, selected) {
-    const isCustom = option.value === '__custom';
-    const classes = [
-      'inline-flex',
-      'items-center',
-      'gap-2',
-      'rounded',
-      'border',
-      'border-slate-200',
-      'px-3',
-      'py-2',
-      'text-sm',
-      'transition',
-      selected ? 'bg-blue-50 border-blue-400 text-blue-700 shadow-sm' : 'bg-white hover:bg-slate-100',
-    ].join(' ');
-    const iconMarkup = option.icon ? `<span class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-blue-50 text-blue-700"><i class="${option.icon}"></i></span>` : '<span class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500">—</span>';
-    return `<button type="button" class="${classes}" data-icon-value="${option.value}">${iconMarkup}<span>${option.label}</span></button>`;
-  }
-
-  function colorOptionTemplate(option, selected) {
-    const isCustom = option.value === '__custom';
-    const classes = [
-      'inline-flex',
-      'items-center',
-      'gap-2',
-      'rounded',
-      'border',
-      'border-slate-200',
-      'px-3',
-      'py-2',
-      'text-sm',
-      'transition',
-      selected ? 'bg-blue-50 border-blue-400 text-blue-700 shadow-sm' : 'bg-white hover:bg-slate-100',
-    ].join(' ');
-    const swatch = option.value && option.value !== '__custom'
-      ? `<span class="inline-flex h-6 w-6 rounded-full border border-slate-200" style="background:${option.value}"></span>`
-      : '<span class="inline-flex h-6 w-6 rounded-full border border-slate-200 bg-slate-100"></span>';
-    return `<button type="button" class="${classes}" data-color-value="${option.value}">${swatch}<span>${option.label}</span></button>`;
-  }
-
-  function displayIcon(value) {
-    if (!value) return '—';
-    const label = ICON_LABEL_MAP.get(value) || value;
-    const option = ICON_OPTIONS.find(opt => opt.value === value);
-    const iconClass = option?.icon || `fa-solid ${value}`;
-    return `<span class="inline-flex items-center gap-1"><span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-blue-50 text-blue-700"><i class="${iconClass}"></i></span><span>${label}</span></span>`;
-  }
-
   function displayColor(value) {
-    if (!value) return '—';
-    const label = COLOR_LABEL_MAP.get(value) || value;
-    return `<span class="inline-flex items-center gap-2"><span class="inline-flex h-5 w-5 rounded-full border border-slate-200" style="background:${value}"></span><span>${label}</span></span>`;
+    const color = value || DEFAULT_COLOR;
+    const label = (COLOR_OPTIONS.find(opt => opt.value === color)?.label) || color;
+    return `<span class="inline-flex items-center gap-2"><span class="inline-flex h-5 w-5 rounded-full border border-slate-200" style="background:${color}"></span><span>${label}</span></span>`;
   }
 
   function renderTable() {
     if (!els.tableBody) return;
     if (!Array.isArray(state.modes) || !state.modes.length) {
-      els.tableBody.innerHTML = '<tr><td colspan="7" class="px-3 py-4 text-center text-sm text-slate-500">まだ登録されていません</td></tr>';
+      els.tableBody.innerHTML = '<tr><td colspan="6" class="px-3 py-4 text-center text-sm text-slate-500">まだ登録されていません</td></tr>';
       return;
     }
     els.tableBody.innerHTML = state.modes.map((mode, index) => {
@@ -167,13 +105,13 @@
       const orderDisplay = Number.isFinite(mode.order) ? mode.order : index;
       const disableUp = index === 0;
       const disableDown = index === state.modes.length - 1;
-     return `
+      const tagsText = Array.isArray(mode.tags) && mode.tags.length ? mode.tags.join(', ') : '—';
+      return `
         <tr class="${mode.active !== false ? '' : 'bg-slate-50'}">
           <td class="px-3 py-2 align-top">
             <div class="flex items-center gap-2 text-sm text-blue-900 font-semibold">${statusDot}<span>${mode.label || ''}</span></div>
           </td>
           <td class="px-3 py-2 text-xs text-slate-600 align-top">${mode.description || '—'}</td>
-          <td class="px-3 py-2 text-xs text-slate-600 align-top">${displayIcon(mode.icon)}</td>
           <td class="px-3 py-2 text-xs text-slate-600 align-top">${displayColor(mode.color)}</td>
           <td class="px-3 py-2 text-xs text-slate-600 align-top">
             <div class="flex items-center gap-2">
@@ -182,7 +120,7 @@
               <span>${orderDisplay}</span>
             </div>
           </td>
-          <td class="px-3 py-2 text-xs text-slate-600 align-top">${Array.isArray(mode.tags) && mode.tags.length ? mode.tags.join(', ') : '—'}</td>
+          <td class="px-3 py-2 text-xs text-slate-600 align-top">${tagsText}</td>
           <td class="px-3 py-2 text-xs text-blue-700 align-top">
             <button type="button" data-mode-edit="${mode.id}" class="rounded bg-blue-50 px-3 py-1 font-semibold text-blue-700 hover:bg-blue-100">編集</button>
             <button type="button" data-mode-delete="${mode.id}" class="ml-2 rounded bg-red-50 px-3 py-1 font-semibold text-red-600 hover:bg-red-100">削除</button>
@@ -192,105 +130,40 @@
     }).join('');
   }
 
-  function renderIconOptions() {
-    if (!els.iconOptions) return;
-    els.iconOptions.innerHTML = ICON_OPTIONS.map(opt => iconOptionTemplate(opt, state.selectedIcon === opt.value)).join('');
-    updateIconPreview();
-  }
-
-  function renderColorOptions() {
-    if (!els.colorOptions) return;
-    els.colorOptions.innerHTML = COLOR_OPTIONS.map(opt => colorOptionTemplate(opt, state.selectedColor === opt.value)).join('');
-    updateColorPreview();
-  }
-
-  function updateIconPreview() {
-    if (!els.iconPreview) return;
-    const span = els.iconPreview.querySelector('span');
-    if (!span) return;
-    span.innerHTML = '';
-    const iconValue = getIconValue();
-    if (iconValue) {
-      const option = ICON_OPTIONS.find(opt => opt.value === iconValue);
-      const iconClass = option?.icon || `fa-solid ${iconValue}`;
-      span.innerHTML = `<i class="${iconClass}"></i>`;
-    } else {
-      span.textContent = '—';
-    }
-  }
-
-  function updateColorPreview() {
-    if (!els.colorPreview) return;
-    const span = els.colorPreview.querySelector('span');
-    if (!span) return;
-    const colorValue = getColorValue();
-    span.style.background = colorValue || '#e5e7eb';
-  }
-
-  function setIconValue(value) {
-    state.selectedIcon = value || '';
-    renderIconOptions();
-    if (value && !ICON_OPTIONS.some(opt => opt.value === value)) {
-      state.selectedIcon = '__custom';
-      renderIconOptions();
-      if (els.iconCustom) {
-        els.iconCustom.value = value;
-        els.iconCustom.classList.remove('hidden');
-      }
-    } else if (els.iconCustom) {
-      els.iconCustom.value = '';
-      if (state.selectedIcon !== '__custom') {
-        els.iconCustom.classList.add('hidden');
-      }
-    }
-    updateIconPreview();
-  }
-
-  function getIconValue() {
-    if (state.selectedIcon === '__custom') {
-      return nk(els.iconCustom?.value);
-    }
-    return state.selectedIcon;
+  function populateColorSelect() {
+    if (!els.colorSelect) return;
+    els.colorSelect.innerHTML = COLOR_OPTIONS.map(opt => `<option value="${opt.value}">${opt.label}</option>`).join('');
   }
 
   function setColorValue(value) {
-    state.selectedColor = value || '#0ea5e9';
-    renderColorOptions();
-    if (value && !COLOR_OPTIONS.some(opt => opt.value === value)) {
-      state.selectedColor = '__custom';
-      renderColorOptions();
-      if (els.colorCustom) {
-        els.colorCustom.value = value;
-        els.colorCustom.classList.remove('hidden');
-      }
-    } else if (els.colorCustom) {
-      els.colorCustom.value = '';
-      if (state.selectedColor !== '__custom') {
-        els.colorCustom.classList.add('hidden');
-      }
-    }
-    updateColorPreview();
+    if (!els.colorSelect) return;
+    const color = COLOR_OPTIONS.some(opt => opt.value === value) ? value : DEFAULT_COLOR;
+    els.colorSelect.value = color;
+    updateColorPreview(color);
   }
 
   function getColorValue() {
-    if (state.selectedColor === '__custom') {
-      return nk(els.colorCustom?.value);
-    }
-    return state.selectedColor;
+    if (!els.colorSelect) return DEFAULT_COLOR;
+    const selected = els.colorSelect.value;
+    return selected || DEFAULT_COLOR;
+  }
+
+  function updateColorPreview(colorValue) {
+    if (!els.colorPreview) return;
+    const span = els.colorPreview.querySelector('span');
+    if (!span) return;
+    span.style.background = colorValue || DEFAULT_COLOR;
   }
 
   function resetForm() {
     state.editing = null;
-    state.selectedIcon = '';
-    state.selectedColor = '#0ea5e9';
     if (!els.form) return;
     els.form.reset();
     if (els.id) els.id.value = '';
     if (els.slug) els.slug.value = '';
     if (els.description) els.description.value = '';
     if (els.active) els.active.checked = true;
-    setIconValue('');
-    setColorValue('#0ea5e9');
+    setColorValue(DEFAULT_COLOR);
     if (els.label) els.label.focus();
   }
 
@@ -300,8 +173,7 @@
     if (els.label) els.label.value = mode.label || '';
     if (els.slug) els.slug.value = mode.id || '';
     if (els.description) els.description.value = mode.description || '';
-    setIconValue(mode.icon || '');
-    setColorValue(mode.color || '#0ea5e9');
+    setColorValue(mode.color || DEFAULT_COLOR);
     if (els.active) els.active.checked = mode.active !== false;
     if (els.label) els.label.focus();
   }
@@ -312,7 +184,7 @@
       const editBtn = event.target.closest('[data-mode-edit]');
       if (editBtn) {
         const slug = editBtn.getAttribute('data-mode-edit');
-        const mode = state.modes.find((item) => item.id === slug);
+        const mode = state.modes.find(item => item.id === slug);
         if (mode) {
           fillForm(mode);
         }
@@ -340,20 +212,25 @@
     });
   }
 
-  async function loadModes(opts = {}) {
+  async function loadModes({ silent = false } = {}) {
     const runner = async () => {
       const data = await fetchJson('/api/modes');
       const modes = Array.isArray(data?.modes) ? data.modes : [];
-      modes.sort((a, b) => {
+      const normalized = modes.map((mode) => {
+        const color = typeof mode.color === 'string' && mode.color ? mode.color : DEFAULT_COLOR;
+        const tags = Array.isArray(mode.tags) && mode.tags.length ? mode.tags : buildTags(mode.label || '');
+        return { ...mode, color, tags };
+      });
+      normalized.sort((a, b) => {
         const ao = Number.isFinite(a.order) ? a.order : 999;
         const bo = Number.isFinite(b.order) ? b.order : 999;
         if (ao !== bo) return ao - bo;
         return (a.label || '').localeCompare(b.label || '', 'ja');
       });
-      state.modes = modes;
+      state.modes = normalized;
       renderTable();
     };
-    if (opts.silent) {
+    if (silent) {
       return runner();
     }
     await withLoading('診療形態を読み込み中...', runner);
@@ -397,7 +274,7 @@
   }
 
   async function reorderMode(slug, delta) {
-    const index = state.modes.findIndex((item) => item.id === slug);
+    const index = state.modes.findIndex(item => item.id === slug);
     if (index === -1) return;
     const targetIndex = index + delta;
     if (targetIndex < 0 || targetIndex >= state.modes.length) return;
@@ -418,10 +295,9 @@
             id: mode.id,
             label: mode.label || '',
             description: mode.description || '',
-            icon: mode.icon || '',
-            color: mode.color || '',
+            color: mode.color || DEFAULT_COLOR,
             order: Number.isFinite(mode.order) ? mode.order : null,
-            tags: Array.isArray(mode.tags) ? mode.tags : [],
+            tags: Array.isArray(mode.tags) ? mode.tags : buildTags(mode.label || ''),
             active: mode.active !== false,
           };
           const res = await fetch(apiUrl('/api/modes/update'), {
@@ -454,16 +330,13 @@
 
     const slugInput = nk(els.slug?.value);
     const description = nk(els.description?.value);
-    const icon = getIconValue();
     const color = getColorValue();
+    const tags = buildTags(label);
     const active = Boolean(els.active?.checked);
-    const normalizedTag = label ? normalizeTag(label) : '';
-    const tags = normalizedTag ? [normalizedTag] : [];
 
     const payload = {
       label,
       description,
-      icon,
       color,
       tags,
       active,
@@ -471,7 +344,7 @@
 
     if (state.editing) {
       payload.id = state.editing;
-      const current = state.modes.find((item) => item.id === state.editing);
+      const current = state.modes.find(item => item.id === state.editing);
       if (current && Number.isFinite(current.order)) {
         payload.order = current.order;
       }
@@ -496,60 +369,17 @@
     els.label = document.getElementById('modeLabel');
     els.slug = document.getElementById('modeSlug');
     els.description = document.getElementById('modeDescription');
-    els.iconOptions = document.getElementById('modeIconOptions');
-    els.iconCustom = document.getElementById('modeIconCustom');
-    els.iconPreview = document.getElementById('modeIconPreview');
-    els.colorOptions = document.getElementById('modeColorOptions');
-    els.colorCustom = document.getElementById('modeColorCustom');
+    els.colorSelect = document.getElementById('modeColorSelect');
     els.colorPreview = document.getElementById('modeColorPreview');
     els.active = document.getElementById('modeActive');
     els.reset = document.getElementById('modeReset');
 
-    renderIconOptions();
-    renderColorOptions();
+    populateColorSelect();
+    setColorValue(DEFAULT_COLOR);
 
-    if (els.iconOptions) {
-      els.iconOptions.addEventListener('click', (event) => {
-        const button = event.target.closest('[data-icon-value]');
-        if (!button) return;
-        const value = button.getAttribute('data-icon-value');
-        state.selectedIcon = value;
-        if (value === '__custom') {
-          els.iconCustom?.classList.remove('hidden');
-          els.iconCustom?.focus();
-        } else if (els.iconCustom) {
-          els.iconCustom.classList.add('hidden');
-          els.iconCustom.value = '';
-        }
-        renderIconOptions();
-      });
-    }
-
-    if (els.colorOptions) {
-      els.colorOptions.addEventListener('click', (event) => {
-        const button = event.target.closest('[data-color-value]');
-        if (!button) return;
-        const value = button.getAttribute('data-color-value');
-        state.selectedColor = value;
-        if (value === '__custom') {
-          els.colorCustom?.classList.remove('hidden');
-          els.colorCustom?.focus();
-        } else if (els.colorCustom) {
-          els.colorCustom.classList.add('hidden');
-          els.colorCustom.value = '';
-        }
-        renderColorOptions();
-      });
-    }
-
-    if (els.iconCustom) {
-      els.iconCustom.addEventListener('input', () => {
-        updateIconPreview();
-      });
-    }
-    if (els.colorCustom) {
-      els.colorCustom.addEventListener('input', () => {
-        updateColorPreview();
+    if (els.colorSelect) {
+      els.colorSelect.addEventListener('change', () => {
+        updateColorPreview(getColorValue());
       });
     }
 
@@ -564,15 +394,6 @@
       console.error(err);
       showToast(`診療形態の取得に失敗しました: ${err.message}`);
     });
-  }
-
-  function normalizeTag(label) {
-    return label
-      .normalize('NFKC')
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, '-')
-      .replace(/[^a-z0-9\-ぁ-んァ-ヶ一-龠]/g, '');
   }
 
   if (document.readyState === 'loading') {

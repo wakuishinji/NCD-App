@@ -5,7 +5,6 @@
   <title>診療形態マスター管理 - NCD</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha512-ZoNq6SmHg56k97X3CJidFG8sRP/6IDdnh3oX1N1pAVccahJgN9zeps2sonMSKcwk3Y8ZndKyGKoV8pD+XY6Fdw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
   <script src="../js/loading.js" defer></script>
   <script src="../js/header.js" defer></script>
   <script src="../js/clinicModes.js" defer></script>
@@ -70,24 +69,13 @@
             <textarea id="modeDescription" rows="3" class="w-full rounded border px-3 py-2 text-sm" placeholder="公開ページでの補足テキスト"></textarea>
           </div>
           <div class="md:col-span-1">
-            <label class="block text-sm text-slate-600 mb-1">アイコン</label>
-            <div id="modeIconOptions" class="grid grid-cols-2 gap-2"></div>
-            <input id="modeIconCustom" class="mt-2 hidden w-full rounded border px-3 py-2" placeholder="Font Awesome のクラス名" />
-            <div id="modeIconPreview" class="mt-2 flex items-center gap-2 text-slate-600">
-              <span class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-base">—</span>
-              <span class="text-xs">選択したアイコンのプレビュー</span>
-            </div>
-            <p class="mt-1 text-xs text-slate-400">バッジに表示するアイコンを選択します。必要に応じて Font Awesome のクラスを直接入力できます。</p>
-          </div>
-          <div class="md:col-span-1">
-            <label class="block text-sm text-slate-600 mb-1">カラー</label>
-            <div id="modeColorOptions" class="grid grid-cols-2 gap-2"></div>
-            <input id="modeColorCustom" class="mt-2 hidden w-full rounded border px-3 py-2" placeholder="#0ea5e9" />
+            <label for="modeColorSelect" class="block text-sm text-slate-600 mb-1">カラー</label>
+            <select id="modeColorSelect" class="w-full rounded border px-3 py-2"></select>
             <div id="modeColorPreview" class="mt-2 flex items-center gap-2 text-slate-600">
               <span class="inline-flex h-6 w-6 rounded-full border border-slate-300 bg-slate-100"></span>
               <span class="text-xs">選択したカラーのプレビュー</span>
             </div>
-            <p class="mt-1 text-xs text-slate-400">バッジ色を選択します。必要に応じてカスタム指定も可能です。</p>
+            <p class="mt-1 text-xs text-slate-400">バッジに使うカラーを選択してください。</p>
           </div>
           <div class="md:col-span-1">
             <label class="block text-sm text-slate-600 mb-1">タグ</label>
