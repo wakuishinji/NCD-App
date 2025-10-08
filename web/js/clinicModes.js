@@ -2,15 +2,15 @@
   const DEFAULT_API_BASE = 'https://ncd-app.altry.workers.dev';
 
   const ICON_OPTIONS = [
-    { value: '', label: '（なし）' },
-    { value: 'fa-video', label: 'オンライン診療（fa-video）' },
-    { value: 'fa-house-medical', label: '在宅・訪問（fa-house-medical）' },
-    { value: 'fa-clock', label: '時間外（fa-clock）' },
-    { value: 'fa-sun', label: '休日（日中）（fa-sun）' },
-    { value: 'fa-moon', label: '夜間（fa-moon）' },
-    { value: 'fa-ambulance', label: '救急対応（fa-ambulance）' },
-    { value: 'fa-comments', label: 'オンライン相談（fa-comments）' },
-    { value: '__custom', label: 'その他（手入力）' },
+    { value: '', label: '（なし）', icon: '' },
+    { value: 'fa-video', label: 'オンライン診療', icon: 'fa-solid fa-video' },
+    { value: 'fa-house-medical', label: '訪問診療', icon: 'fa-solid fa-house-medical' },
+    { value: 'fa-clock', label: '時間外', icon: 'fa-solid fa-clock' },
+    { value: 'fa-sun', label: '休日（日中）', icon: 'fa-solid fa-sun' },
+    { value: 'fa-moon', label: '夜間診療', icon: 'fa-solid fa-moon' },
+    { value: 'fa-ambulance', label: '救急対応', icon: 'fa-solid fa-ambulance' },
+    { value: 'fa-comments', label: 'オンライン相談', icon: 'fa-solid fa-comments' },
+    { value: '__custom', label: 'その他（手入力）', icon: '' },
   ];
 
   const COLOR_OPTIONS = [
@@ -41,6 +41,9 @@
   const state = {
     modes: [],
     editing: null,
+    selectedIcon: '',
+    selectedColor: '#0ea5e9',
+    selectedTags: [],
   };
 
   const els = {
@@ -51,10 +54,12 @@
     label: null,
     slug: null,
     description: null,
-    iconSelect: null,
+    iconOptions: null,
     iconCustom: null,
-    colorSelect: null,
+    iconPreview: null,
+    colorOptions: null,
     colorCustom: null,
+    colorPreview: null,
     tagsSelect: null,
     active: null,
     reset: null,
@@ -108,14 +113,58 @@
     return res.json();
   }
 
+  function iconOptionTemplate(option, selected) {
+    const isCustom = option.value === '__custom';
+    const classes = [
+      'inline-flex',
+      'items-center',
+      'gap-2',
+      'rounded',
+      'border',
+      'border-slate-200',
+      'px-3',
+      'py-2',
+      'text-sm',
+      'transition',
+      selected ? 'bg-blue-50 border-blue-400 text-blue-700 shadow-sm' : 'bg-white hover:bg-slate-100',
+    ].join(' ');
+    const iconMarkup = option.icon ? `<span class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-blue-50 text-blue-700"><i class="${option.icon}"></i></span>` : '<span class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500">—</span>';
+    return `<button type="button" class="${classes}" data-icon-value="${option.value}">${iconMarkup}<span>${option.label}</span></button>`;
+  }
+
+  function colorOptionTemplate(option, selected) {
+    const isCustom = option.value === '__custom';
+    const classes = [
+      'inline-flex',
+      'items-center',
+      'gap-2',
+      'rounded',
+      'border',
+      'border-slate-200',
+      'px-3',
+      'py-2',
+      'text-sm',
+      'transition',
+      selected ? 'bg-blue-50 border-blue-400 text-blue-700 shadow-sm' : 'bg-white hover:bg-slate-100',
+    ].join(' ');
+    const swatch = option.value && option.value !== '__custom'
+      ? `<span class="inline-flex h-6 w-6 rounded-full border border-slate-200" style="background:${option.value}"></span>`
+      : '<span class="inline-flex h-6 w-6 rounded-full border border-slate-200 bg-slate-100"></span>';
+    return `<button type="button" class="${classes}" data-color-value="${option.value}">${swatch}<span>${option.label}</span></button>`;
+  }
+
   function displayIcon(value) {
     if (!value) return '—';
-    return ICON_LABEL_MAP.get(value) || value;
+    const label = ICON_LABEL_MAP.get(value) || value;
+    const option = ICON_OPTIONS.find(opt => opt.value === value);
+    const iconClass = option?.icon || `fa-solid ${value}`;
+    return `<span class="inline-flex items-center gap-1"><span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-blue-50 text-blue-700"><i class="${iconClass}"></i></span><span>${label}</span></span>`;
   }
 
   function displayColor(value) {
     if (!value) return '—';
-    return COLOR_LABEL_MAP.get(value) || value;
+    const label = COLOR_LABEL_MAP.get(value) || value;
+    return `<span class="inline-flex items-center gap-2"><span class="inline-flex h-5 w-5 rounded-full border border-slate-200" style="background:${value}"></span><span>${label}</span></span>`;
   }
 
   function renderTable() {
@@ -128,27 +177,26 @@
       const statusDot = mode.active !== false
         ? '<span class="inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>'
         : '<span class="inline-flex h-2 w-2 rounded-full bg-slate-400"></span>';
-      const colorPreview = mode.color ? `<span class="inline-flex h-4 w-4 rounded-full border border-slate-200" style="background:${mode.color}"></span>` : '';
-      const tags = Array.isArray(mode.tags) && mode.tags.length ? mode.tags.join(', ') : '';
       const orderDisplay = Number.isFinite(mode.order) ? mode.order : index;
-      const disableUp = index === 0 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-slate-100';
-      const disableDown = index === state.modes.length - 1 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-slate-100';
+      const disableUp = index === 0;
+      const disableDown = index === state.modes.length - 1;
       return `
         <tr class="${mode.active !== false ? '' : 'bg-slate-50'}">
           <td class="px-3 py-2 align-top">
             <div class="flex items-center gap-2 text-sm text-blue-900 font-semibold">${statusDot}<span>${mode.label || ''}</span></div>
+            ${mode.description ? `<div class="mt-1 text-xs text-slate-500">${mode.description}</div>` : ''}
           </td>
-          <td class="px-3 py-2 text-xs text-slate-600 align-top">${mode.description || ''}</td>
+          <td class="px-3 py-2 text-xs text-slate-600 align-top">${mode.description || '—'}</td>
           <td class="px-3 py-2 text-xs text-slate-600 align-top">${displayIcon(mode.icon)}</td>
-          <td class="px-3 py-2 text-xs text-slate-600 align-top">${colorPreview} ${displayColor(mode.color)}</td>
+          <td class="px-3 py-2 text-xs text-slate-600 align-top">${displayColor(mode.color)}</td>
           <td class="px-3 py-2 text-xs text-slate-600 align-top">
             <div class="flex items-center gap-2">
-              <button type="button" data-mode-up="${mode.id}" class="inline-flex items-center justify-center rounded border border-slate-200 bg-white px-2 text-xs ${disableUp}">▲</button>
-              <button type="button" data-mode-down="${mode.id}" class="inline-flex items-center justify-center rounded border border-slate-200 bg-white px-2 text-xs ${disableDown}">▼</button>
+              <button type="button" data-mode-up="${mode.id}" class="inline-flex items-center justify-center rounded border border-slate-200 bg-white px-2 text-xs ${disableUp ? 'opacity-30 cursor-not-allowed' : 'hover:bg-slate-100'}" ${disableUp ? 'disabled' : ''}>▲</button>
+              <button type="button" data-mode-down="${mode.id}" class="inline-flex items-center justify-center rounded border border-slate-200 bg-white px-2 text-xs ${disableDown ? 'opacity-30 cursor-not-allowed' : 'hover:bg-slate-100'}" ${disableDown ? 'disabled' : ''}>▼</button>
               <span>${orderDisplay}</span>
             </div>
           </td>
-          <td class="px-3 py-2 text-xs text-slate-600 align-top">${tags}</td>
+          <td class="px-3 py-2 text-xs text-slate-600 align-top">${Array.isArray(mode.tags) && mode.tags.length ? mode.tags.join(', ') : '—'}</td>
           <td class="px-3 py-2 text-xs text-blue-700 align-top">
             <button type="button" data-mode-edit="${mode.id}" class="rounded bg-blue-50 px-3 py-1 font-semibold text-blue-700 hover:bg-blue-100">編集</button>
             <button type="button" data-mode-delete="${mode.id}" class="ml-2 rounded bg-red-50 px-3 py-1 font-semibold text-red-600 hover:bg-red-100">削除</button>
@@ -158,121 +206,131 @@
     }).join('');
   }
 
-  function populateSelect(selectEl, options) {
-    if (!selectEl) return;
-    selectEl.innerHTML = options.map(opt => `<option value="${opt.value}">${opt.label}</option>`).join('');
+  function renderIconOptions() {
+    if (!els.iconOptions) return;
+    els.iconOptions.innerHTML = ICON_OPTIONS.map(opt => iconOptionTemplate(opt, state.selectedIcon === opt.value)).join('');
+    updateIconPreview();
   }
 
-  function toggleIconCustom(show) {
-    if (!els.iconCustom) return;
-    if (show) {
-      els.iconCustom.classList.remove('hidden');
+  function renderColorOptions() {
+    if (!els.colorOptions) return;
+    els.colorOptions.innerHTML = COLOR_OPTIONS.map(opt => colorOptionTemplate(opt, state.selectedColor === opt.value)).join('');
+    updateColorPreview();
+  }
+
+  function updateIconPreview() {
+    if (!els.iconPreview) return;
+    const span = els.iconPreview.querySelector('span');
+    if (!span) return;
+    span.innerHTML = '';
+    const iconValue = getIconValue();
+    if (iconValue) {
+      const option = ICON_OPTIONS.find(opt => opt.value === iconValue);
+      const iconClass = option?.icon || `fa-solid ${iconValue}`;
+      span.innerHTML = `<i class="${iconClass}"></i>`;
     } else {
-      els.iconCustom.classList.add('hidden');
-      els.iconCustom.value = '';
+      span.textContent = '—';
     }
   }
 
-  function toggleColorCustom(show) {
-    if (!els.colorCustom) return;
-    if (show) {
-      els.colorCustom.classList.remove('hidden');
-    } else {
-      els.colorCustom.classList.add('hidden');
-      els.colorCustom.value = '';
-    }
+  function updateColorPreview() {
+    if (!els.colorPreview) return;
+    const span = els.colorPreview.querySelector('span');
+    if (!span) return;
+    const colorValue = getColorValue();
+    span.style.background = colorValue || '#e5e7eb';
   }
 
   function setIconValue(value) {
-    if (!els.iconSelect) return;
-    const optionValues = ICON_OPTIONS.map(opt => opt.value);
-    if (value && !optionValues.includes(value)) {
-      els.iconSelect.value = '__custom';
+    state.selectedIcon = value || '';
+    renderIconOptions();
+    if (value && !ICON_OPTIONS.some(opt => opt.value === value)) {
+      state.selectedIcon = '__custom';
+      renderIconOptions();
       if (els.iconCustom) {
         els.iconCustom.value = value;
-        toggleIconCustom(true);
+        els.iconCustom.classList.remove('hidden');
       }
-    } else {
-      els.iconSelect.value = value || '';
-      toggleIconCustom(false);
+    } else if (els.iconCustom) {
+      els.iconCustom.value = '';
+      if (state.selectedIcon !== '__custom') {
+        els.iconCustom.classList.add('hidden');
+      }
     }
+    updateIconPreview();
   }
 
   function getIconValue() {
-    if (!els.iconSelect) return '';
-    if (els.iconSelect.value === '__custom') {
+    if (state.selectedIcon === '__custom') {
       return nk(els.iconCustom?.value);
     }
-    return nk(els.iconSelect.value);
+    return state.selectedIcon;
   }
 
   function setColorValue(value) {
-    if (!els.colorSelect) return;
-    const optionValues = COLOR_OPTIONS.map(opt => opt.value);
-    if (value && !optionValues.includes(value)) {
-      els.colorSelect.value = '__custom';
+    state.selectedColor = value || '#0ea5e9';
+    renderColorOptions();
+    if (value && !COLOR_OPTIONS.some(opt => opt.value === value)) {
+      state.selectedColor = '__custom';
+      renderColorOptions();
       if (els.colorCustom) {
         els.colorCustom.value = value;
-        toggleColorCustom(true);
+        els.colorCustom.classList.remove('hidden');
       }
-    } else {
-      els.colorSelect.value = value && optionValues.includes(value) ? value : '#0ea5e9';
-      toggleColorCustom(false);
+    } else if (els.colorCustom) {
+      els.colorCustom.value = '';
+      if (state.selectedColor !== '__custom') {
+        els.colorCustom.classList.add('hidden');
+      }
     }
+    updateColorPreview();
   }
 
   function getColorValue() {
-    if (!els.colorSelect) return '';
-    if (els.colorSelect.value === '__custom') {
+    if (state.selectedColor === '__custom') {
       return nk(els.colorCustom?.value);
     }
-    return nk(els.colorSelect.value);
+    return state.selectedColor;
   }
 
   function setTagsValue(tags) {
     if (!els.tagsSelect) return;
-    const existing = new Set(Array.from(els.tagsSelect.options).map(opt => opt.value));
+    const existingValues = new Set(Array.from(els.tagsSelect.options).map(opt => opt.value));
     tags.forEach((tag) => {
-      if (tag && !existing.has(tag)) {
+      if (tag && !existingValues.has(tag)) {
         const option = document.createElement('option');
         option.value = tag;
         option.textContent = tag;
         option.selected = true;
         els.tagsSelect.appendChild(option);
-        existing.add(tag);
+        existingValues.add(tag);
       }
     });
     Array.from(els.tagsSelect.options).forEach((option) => {
       option.selected = tags.includes(option.value);
     });
+    state.selectedTags = tags.slice();
   }
 
   function getSelectedTags() {
     if (!els.tagsSelect) return [];
-    return Array.from(els.tagsSelect.selectedOptions).map(option => option.value).filter(Boolean);
+    return Array.from(els.tagsSelect.selectedOptions).map(opt => opt.value).filter(Boolean);
   }
 
   function resetForm() {
     state.editing = null;
+    state.selectedIcon = '';
+    state.selectedColor = '#0ea5e9';
+    state.selectedTags = [];
     if (!els.form) return;
     els.form.reset();
     if (els.id) els.id.value = '';
-    if (els.active) els.active.checked = true;
-    if (els.iconSelect) {
-      els.iconSelect.value = '';
-      toggleIconCustom(false);
-    }
-    if (els.colorSelect) {
-      els.colorSelect.value = '#0ea5e9';
-      toggleColorCustom(false);
-    }
-    if (els.tagsSelect) {
-      Array.from(els.tagsSelect.options).forEach(option => {
-        option.selected = false;
-      });
-    }
     if (els.slug) els.slug.value = '';
     if (els.description) els.description.value = '';
+    if (els.active) els.active.checked = true;
+    setIconValue('');
+    setColorValue('#0ea5e9');
+    setTagsValue([]);
     if (els.label) els.label.focus();
   }
 
@@ -283,7 +341,7 @@
     if (els.slug) els.slug.value = mode.id || '';
     if (els.description) els.description.value = mode.description || '';
     setIconValue(mode.icon || '');
-    setColorValue(mode.color || '');
+    setColorValue(mode.color || '#0ea5e9');
     setTagsValue(Array.isArray(mode.tags) ? mode.tags : []);
     if (els.active) els.active.checked = mode.active !== false;
     if (els.label) els.label.focus();
@@ -323,7 +381,7 @@
     });
   }
 
-  async function loadModes({ silent = false } = {}) {
+  async function loadModes(opts = {}) {
     const runner = async () => {
       const data = await fetchJson('/api/modes');
       const modes = Array.isArray(data?.modes) ? data.modes : [];
@@ -336,7 +394,7 @@
       state.modes = modes;
       renderTable();
     };
-    if (silent) {
+    if (opts.silent) {
       return runner();
     }
     await withLoading('診療形態を読み込み中...', runner);
@@ -357,7 +415,6 @@
       showToast('保存しました');
       resetForm();
       await loadModes({ silent: true });
-      renderTable();
     });
   }
 
@@ -377,7 +434,6 @@
         resetForm();
       }
       await loadModes({ silent: true });
-      renderTable();
     });
   }
 
@@ -421,12 +477,10 @@
         }
       });
       await loadModes({ silent: true });
-      renderTable();
     } catch (err) {
       console.error(err);
       showToast(`表示順の更新に失敗しました: ${err.message}`);
       await loadModes({ silent: true });
-      renderTable();
     }
   }
 
@@ -482,39 +536,64 @@
     els.label = document.getElementById('modeLabel');
     els.slug = document.getElementById('modeSlug');
     els.description = document.getElementById('modeDescription');
-    els.iconSelect = document.getElementById('modeIconSelect');
+    els.iconOptions = document.getElementById('modeIconOptions');
     els.iconCustom = document.getElementById('modeIconCustom');
-    els.colorSelect = document.getElementById('modeColorSelect');
+    els.iconPreview = document.getElementById('modeIconPreview');
+    els.colorOptions = document.getElementById('modeColorOptions');
     els.colorCustom = document.getElementById('modeColorCustom');
+    els.colorPreview = document.getElementById('modeColorPreview');
     els.tagsSelect = document.getElementById('modeTagsSelect');
     els.active = document.getElementById('modeActive');
     els.reset = document.getElementById('modeReset');
 
-    populateSelect(els.iconSelect, ICON_OPTIONS);
-    populateSelect(els.colorSelect, COLOR_OPTIONS);
+    renderIconOptions();
+    renderColorOptions();
     if (els.tagsSelect) {
       els.tagsSelect.innerHTML = TAG_OPTIONS.map(opt => `<option value="${opt.value}">${opt.label}</option>`).join('');
     }
 
-    if (els.iconSelect) {
-      els.iconSelect.addEventListener('change', () => {
-        if (els.iconSelect.value === '__custom') {
-          toggleIconCustom(true);
+    if (els.iconOptions) {
+      els.iconOptions.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-icon-value]');
+        if (!button) return;
+        const value = button.getAttribute('data-icon-value');
+        state.selectedIcon = value;
+        if (value === '__custom') {
+          els.iconCustom?.classList.remove('hidden');
           els.iconCustom?.focus();
-        } else {
-          toggleIconCustom(false);
+        } else if (els.iconCustom) {
+          els.iconCustom.classList.add('hidden');
+          els.iconCustom.value = '';
         }
+        renderIconOptions();
       });
     }
 
-    if (els.colorSelect) {
-      els.colorSelect.addEventListener('change', () => {
-        if (els.colorSelect.value === '__custom') {
-          toggleColorCustom(true);
+    if (els.colorOptions) {
+      els.colorOptions.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-color-value]');
+        if (!button) return;
+        const value = button.getAttribute('data-color-value');
+        state.selectedColor = value;
+        if (value === '__custom') {
+          els.colorCustom?.classList.remove('hidden');
           els.colorCustom?.focus();
-        } else {
-          toggleColorCustom(false);
+        } else if (els.colorCustom) {
+          els.colorCustom.classList.add('hidden');
+          els.colorCustom.value = '';
         }
+        renderColorOptions();
+      });
+    }
+
+    if (els.iconCustom) {
+      els.iconCustom.addEventListener('input', () => {
+        updateIconPreview();
+      });
+    }
+    if (els.colorCustom) {
+      els.colorCustom.addEventListener('input', () => {
+        updateColorPreview();
       });
     }
 
