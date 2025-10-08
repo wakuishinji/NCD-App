@@ -24,17 +24,6 @@
     { value: '__custom', label: 'その他（手入力）' },
   ];
 
-  const TAG_OPTIONS = [
-    { value: 'telemedicine', label: 'オンライン診療' },
-    { value: 'night', label: '夜間対応' },
-    { value: 'holiday', label: '休日診療' },
-    { value: 'home-visit', label: '訪問診療' },
-    { value: 'emergency', label: '救急対応' },
-    { value: 'pediatrics', label: '小児対応' },
-    { value: 'chronic-care', label: '慢性疾患フォロー' },
-    { value: 'specialized', label: '専門外来' },
-  ];
-
   const ICON_LABEL_MAP = new Map(ICON_OPTIONS.filter(opt => opt.value && opt.value !== '__custom').map(opt => [opt.value, opt.label]));
   const COLOR_LABEL_MAP = new Map(COLOR_OPTIONS.filter(opt => opt.value && opt.value !== '__custom').map(opt => [opt.value, opt.label]));
 
@@ -43,7 +32,6 @@
     editing: null,
     selectedIcon: '',
     selectedColor: '#0ea5e9',
-    selectedTags: [],
   };
 
   const els = {
@@ -60,7 +48,6 @@
     colorOptions: null,
     colorCustom: null,
     colorPreview: null,
-    tagsSelect: null,
     active: null,
     reset: null,
   };
@@ -180,11 +167,10 @@
       const orderDisplay = Number.isFinite(mode.order) ? mode.order : index;
       const disableUp = index === 0;
       const disableDown = index === state.modes.length - 1;
-      return `
+     return `
         <tr class="${mode.active !== false ? '' : 'bg-slate-50'}">
           <td class="px-3 py-2 align-top">
             <div class="flex items-center gap-2 text-sm text-blue-900 font-semibold">${statusDot}<span>${mode.label || ''}</span></div>
-            ${mode.description ? `<div class="mt-1 text-xs text-slate-500">${mode.description}</div>` : ''}
           </td>
           <td class="px-3 py-2 text-xs text-slate-600 align-top">${mode.description || '—'}</td>
           <td class="px-3 py-2 text-xs text-slate-600 align-top">${displayIcon(mode.icon)}</td>
@@ -293,35 +279,10 @@
     return state.selectedColor;
   }
 
-  function setTagsValue(tags) {
-    if (!els.tagsSelect) return;
-    const existingValues = new Set(Array.from(els.tagsSelect.options).map(opt => opt.value));
-    tags.forEach((tag) => {
-      if (tag && !existingValues.has(tag)) {
-        const option = document.createElement('option');
-        option.value = tag;
-        option.textContent = tag;
-        option.selected = true;
-        els.tagsSelect.appendChild(option);
-        existingValues.add(tag);
-      }
-    });
-    Array.from(els.tagsSelect.options).forEach((option) => {
-      option.selected = tags.includes(option.value);
-    });
-    state.selectedTags = tags.slice();
-  }
-
-  function getSelectedTags() {
-    if (!els.tagsSelect) return [];
-    return Array.from(els.tagsSelect.selectedOptions).map(opt => opt.value).filter(Boolean);
-  }
-
   function resetForm() {
     state.editing = null;
     state.selectedIcon = '';
     state.selectedColor = '#0ea5e9';
-    state.selectedTags = [];
     if (!els.form) return;
     els.form.reset();
     if (els.id) els.id.value = '';
@@ -330,7 +291,6 @@
     if (els.active) els.active.checked = true;
     setIconValue('');
     setColorValue('#0ea5e9');
-    setTagsValue([]);
     if (els.label) els.label.focus();
   }
 
@@ -342,7 +302,6 @@
     if (els.description) els.description.value = mode.description || '';
     setIconValue(mode.icon || '');
     setColorValue(mode.color || '#0ea5e9');
-    setTagsValue(Array.isArray(mode.tags) ? mode.tags : []);
     if (els.active) els.active.checked = mode.active !== false;
     if (els.label) els.label.focus();
   }
@@ -497,8 +456,9 @@
     const description = nk(els.description?.value);
     const icon = getIconValue();
     const color = getColorValue();
-    const tags = getSelectedTags();
     const active = Boolean(els.active?.checked);
+    const normalizedTag = label ? normalizeTag(label) : '';
+    const tags = normalizedTag ? [normalizedTag] : [];
 
     const payload = {
       label,
@@ -542,15 +502,11 @@
     els.colorOptions = document.getElementById('modeColorOptions');
     els.colorCustom = document.getElementById('modeColorCustom');
     els.colorPreview = document.getElementById('modeColorPreview');
-    els.tagsSelect = document.getElementById('modeTagsSelect');
     els.active = document.getElementById('modeActive');
     els.reset = document.getElementById('modeReset');
 
     renderIconOptions();
     renderColorOptions();
-    if (els.tagsSelect) {
-      els.tagsSelect.innerHTML = TAG_OPTIONS.map(opt => `<option value="${opt.value}">${opt.label}</option>`).join('');
-    }
 
     if (els.iconOptions) {
       els.iconOptions.addEventListener('click', (event) => {
@@ -608,6 +564,15 @@
       console.error(err);
       showToast(`診療形態の取得に失敗しました: ${err.message}`);
     });
+  }
+
+  function normalizeTag(label) {
+    return label
+      .normalize('NFKC')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9\-ぁ-んァ-ヶ一-龠]/g, '');
   }
 
   if (document.readyState === 'loading') {
