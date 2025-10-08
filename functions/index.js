@@ -524,18 +524,15 @@ export default {
       const keys = await env.SETTINGS.list({ prefix: "clinic:id:" });
       const ids = keys.keys.map(k => k.name.replace("clinic:id:",""));
       const page = ids.slice(offset, offset+limit);
-      const out = [];
-      for (const id of page) {
-        const c = await getClinicById(env, id);
-        if (c) out.push(c);
-      }
+      const values = await Promise.all(page.map(id => getClinicById(env, id)));
+      const out = values.filter(Boolean);
       return { items: out, total: ids.length };
     }
     // <<< END: UTILS >>>
 
     const TODO_KEY = "todo:list";
     const MASTER_CACHE_PREFIX = 'mastercache:';
-    const MASTER_CACHE_TTL_SECONDS = 60;
+    const MASTER_CACHE_TTL_SECONDS = 300;
     const PERSONAL_QUAL_CLASSIFICATIONS = ["医師", "看護", "コメディカル", "事務", "その他"];
     const FACILITY_ACCREDITATION_TYPES = ["学会認定", "行政・公費", "地域・在宅"];
 
@@ -895,16 +892,26 @@ export default {
       const prefix = masterPrefix(type);
       const keys = await env.SETTINGS.list({ prefix });
       const map = new Map();
-      for (const entry of keys.keys) {
-        const keyName = entry.name;
-        if (!keyName) continue;
+      const keyEntries = keys.keys || [];
+      const keyNames = keyEntries.map(entry => entry.name).filter(Boolean);
+      const rawValues = await Promise.all(keyNames.map(name => env.SETTINGS.get(name)));
+
+      for (let i = 0; i < keyNames.length; i++) {
+        const keyName = keyNames[i];
+        const raw = rawValues[i];
+        if (!keyName || !raw) continue;
+
         if (keyName.includes('|')) {
-          const raw = await env.SETTINGS.get(keyName);
-          if (!raw) continue;
           try {
             const parsed = JSON.parse(raw);
             if (isLegacyPointer(parsed)) {
               await migrateLegacyPointer(env, keyName, raw);
+              if (parsed.id) {
+                const promotedRecord = await loadMasterById(env, type, parsed.id);
+                if (promotedRecord && promotedRecord.id) {
+                  map.set(promotedRecord.id, promotedRecord);
+                }
+              }
             } else {
               const promoted = await promoteLegacyMasterRecord(env, type, keyName, parsed);
               if (promoted && promoted.id) {
@@ -917,30 +924,26 @@ export default {
           continue;
         }
 
-        const raw = await env.SETTINGS.get(keyName);
-        if (!raw) continue;
-        let obj = null;
         try {
-          obj = JSON.parse(raw);
+          const obj = JSON.parse(raw);
+          const id = keyName.slice(prefix.length);
+          if (!obj || typeof obj !== 'object') continue;
+          obj.id = obj.id || id;
+          obj.type = obj.type || type;
+          if (!Array.isArray(obj.legacyAliases)) {
+            obj.legacyAliases = [];
+          }
+          if (!obj.legacyKey && obj.category && obj.name) {
+            obj.legacyKey = normalizeKey(type, obj.category, obj.name);
+          }
+          if (obj.legacyKey) {
+            ensureLegacyAlias(obj, obj.legacyKey);
+          }
+          normalizeItemExplanations(obj, { fallbackStatus: obj.status === 'approved' ? 'published' : 'draft' });
+          map.set(obj.id, obj);
         } catch (err) {
           console.warn('failed to parse master record', keyName, err);
-          continue;
         }
-        const id = keyName.slice(prefix.length);
-        if (!obj || typeof obj !== 'object') continue;
-        obj.id = obj.id || id;
-        obj.type = obj.type || type;
-        if (!Array.isArray(obj.legacyAliases)) {
-          obj.legacyAliases = [];
-        }
-        if (!obj.legacyKey && obj.category && obj.name) {
-          obj.legacyKey = normalizeKey(type, obj.category, obj.name);
-        }
-        if (obj.legacyKey) {
-          ensureLegacyAlias(obj, obj.legacyKey);
-        }
-        normalizeItemExplanations(obj, { fallbackStatus: obj.status === 'approved' ? 'published' : 'draft' });
-        map.set(obj.id, obj);
       }
       return Array.from(map.values());
     }
