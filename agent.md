@@ -77,7 +77,10 @@
 ## 運用ルール
 - 本ファイルは日本語で記述し、合意事項を確定版として反映する。
 - 重要な設定変更・運用上の方針は本ファイルに追記していく。
-- 本番で作業しているとき以外にコードを変更した場合は毎回プッシュし、本番側が自動でプルしている状態でブラウザ確認を行う。
+- 作業開始時（セッションが変わるたび）には Codex が必ず `agent.md` を読み直し、ルールを再確認する。
+- 変更を加えた場合は、内容に応じて `agent.md` を更新し、やったこと/決まったことをここへ追記する。
+- 本番以外でコードを変更した場合も基本的に毎回 `git push` まで行い、自動 `git pull`（ncd.altry.net 上の仕組み）で本番へ反映させる。push が難しい事情があるときは事前に相談する。
+- 本番確認は `https://ncd.altry.net/` を優先し、必要に応じて Cloudflare Workers のテストドメイン（`https://ncd-app.altry.workers.dev/`）も併用する。
 - ローカルで実行できる作業（ビルド・デプロイ・移行スクリプトなど）は原則 Codex が担当し、結果を共有する。
 
 ## 本日確認・決定事項（2025-09-25）
@@ -247,20 +250,35 @@
 - **派生（inherit）**: 施設固有のカスタム説明は `inheritFrom` で親テンプレートを参照し、差分のみ保持。親更新時に派生へ通知する仕組みも検討。
 - **重複検出**: 新テンプレート登録時に既存テンプレートとテキスト類似度を比較し、類似候補を提示して再利用を促す。
 
+### マスターID再設計（進行中）
+- 目的: すべてのマスターで表示名や分類を変更しても参照が壊れないよう、安定した内部 ID（`stableId`）を導入する。
+- 主キー: `master:{type}:{stableId}` 形式で保存。`stableId` は Worker 側で英数字+ハイフンのユニーク値を自動採番し、衝突時はサフィックス（`-2` など）や UUID fallback を付与する。
+- 互換キー: これまでの `master:{type}:{normalizedCategory}|{normalizedName}` は `legacyKey` として併存させ、旧データ・CSV・参照用に保持する。必要に応じて `legacyAliases[]` へ複数登録し、表記揺れの吸収に使う。
+- レコード構成: `{ id: stableId, legacyKey, legacyAliases: [], name, category, ... }` とし、今後追加するメタ情報（`synonyms`, `canonical_name` など）と合わせて保存。
+- 既存データ移行フロー:
+  1. KV の現行マスターを全走査し `stableId` を採番して新主キーへ書き込み。
+  2. `legacyKey -> stableId` のマッピングを `masterLegacy:{type}:{hash}` などに保存して逆引き可能にする。
+  3. クリニックレコードに含まれるマスター参照（services/tests/qualifications/facility/departments 等）を一括更新するスクリプト（`scripts/migrateMasterIds.mjs`）を実行。
+     - 実行例: `npm run migrate:master-ids -- --api-base https://ncd-app.altry.workers.dev --dry-run`
+  4. API/フロントは `stableId` を基本としつつ、旧キーでリクエストが来た場合は互換マップで解決して保存時に `stableId` へ置き換える。
+- 新規マスター登録: UI で表示名・カテゴリなどを入力 → Worker が `stableId` を自動生成。管理画面には ID を参照用に表示するが編集は任意。`legacyKey` と `legacyAliases` は自動生成し、AI による案出しや CSV 取り込み時の照合に活用する。
+- マスター案管理: `docs/master-proposals/` 以下に種別別の候補リスト（Markdown/CSV）を作成・共有し、Codex が案を追記→人間が確認→`scripts/bulkUpsertMaster.js`（新規作成予定）で一括登録する運用とする。提案履歴は Git で残し、必要に応じてコメントでディスカッション。
+- 新規マスターもこの方式を必須ルールとし、表示名変更時は `legacyAliases` を更新して互換性を維持する。
+
 ### 診療形態マスター化（新規作業計画）
 1. データモデル
-   - KV キー: `master:mode:{slug}`。フィールド例: `{ label, description, icon, order, active, tags }`。
-   - 互換性のため既存 `clinic.modes` はオブジェクト → `modes.selected`（スラッグ配列）+ `modes.meta`（label などキャッシュ）へ移行。
+   - 主キー: `master:mode:{stableId}`。フィールド例: `{ id, label, description, icon, color, order, active, tags, legacyKey, legacyAliases }`。
+   - 互換性のため `clinic.modes` は `modes.selected`（`stableId` 配列）+ `modes.meta`（キャッシュ）に移行し、旧スラッグや表示名は `modes.legacy` に保持する。
 2. API
-   - Workers に `/api/listModes`, `/api/addMode`, `/api/updateMode`, `/api/deleteMode` を追加（既存 master API を拡張しても可）。
-   - `listClinics`, `clinicDetail`, `updateClinic` で新フィールドへ対応。
+   - Workers に `/api/listModes`, `/api/modes/add`, `/api/modes/update`, `/api/modes/delete` を実装。保存時は `stableId` を自動採番し、`legacyKey` を更新。
+   - `listClinics`, `clinicDetail`, `updateClinic` で新フィールドへ対応し、リクエストの旧キーを互換解決する。
 3. 管理UI
-   - `web/admin/clinicModes.html` を新設。`masterPage.js` の共通ロジックを再利用し、ラベル・説明・表示順・公開ステータスのCRUDを提供。
-   - `clinicDetail.html` はチェックボックスからモード一覧を読み込み、選択を保存。
+   - `web/admin/clinicModes.html` は ID 入力を不要にし、表示名変更時も `stableId` を維持。必要に応じて ID をコピーできるよう表示のみ行う。
+   - `clinicDetail.html` はチェックボックスで `stableId` を扱い、`legacy` 情報をメタに保持する。
 4. 公開側
-   - `clinicSummary.js` `searchMap.js` でマスター情報を参照し表示名/色/アイコンを統一。
+   - `clinicSummary.js` / `searchMap.js` で `stableId` を参照しつつ、互換表示名も考慮。表示ラベル・カラー・アイコンをマスターに合わせて統一。
 5. 運用
-   - `agent.md` にモードマスターの運用手順（追加・表示制御）を追記。
+   - マスター追加時は `docs/master-proposals/modes.md` に案を追記 → 承認後に一括登録スクリプトを実行 → `agent.md` へ反映する。
 
 ## 今後の方針（データテーブル別）
 

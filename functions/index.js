@@ -1,3 +1,8 @@
+import { ensureUniqueId, normalizeSlug, randomSlug } from './idUtils.js';
+
+const MASTER_TYPE_LIST = ['test', 'service', 'qual', 'department', 'facility', 'symptom', 'bodySite'];
+const MASTER_ALLOWED_TYPES = new Set(MASTER_TYPE_LIST);
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -256,10 +261,6 @@ export default {
       const clean = (s) =>
         zenkakuToHankaku((s || "").trim().toLowerCase().replace(/\s+/g, ""));
       return `master:${type}:${clean(category)}|${clean(name)}`;
-    }
-
-    function legacyKey(type, category, name) {
-      return `master:${type}:${nk(category)}:${nk(name)}`;
     }
 
     function normalizeForSimilarity(s) {
@@ -613,8 +614,15 @@ export default {
 
     const MEDIA_SLOTS = new Set(["logoSmall", "logoLarge", "facade"]);
     const MODE_MASTER_PREFIX = 'master:mode:';
+    const MODE_ID_MAX_LENGTH = 64;
+    const MASTER_ID_MAX_LENGTH = 80;
+    const LEGACY_POINTER_PREFIX = 'legacyPointer:';
+
+    const normalizeModeId = (value) => normalizeSlug(value, { maxLength: MODE_ID_MAX_LENGTH });
     const SERVICE_EXPLANATION_PREFIX = 'master:serviceExplanation:';
     const TEST_EXPLANATION_PREFIX = 'master:testExplanation:';
+
+    const legacyPointerKey = (alias) => `${LEGACY_POINTER_PREFIX}${alias}`;
 
     async function listModes(env) {
       const prefix = MODE_MASTER_PREFIX;
@@ -641,7 +649,7 @@ export default {
       return out;
     }
 
-    function sanitizeModePayload(payload) {
+    async function sanitizeModePayload(env, payload = {}) {
       if (!payload || typeof payload !== 'object') {
         throw new Error('payload is required');
       }
@@ -649,28 +657,292 @@ export default {
       if (!label) {
         throw new Error('label is required');
       }
-      const slug = nk(payload.id || payload.slug || label).toLowerCase().replace(/[^a-z0-9_-]+/g, '-');
-      if (!slug) {
-        throw new Error('id is required');
-      }
       const description = nk(payload.description);
       const icon = nk(payload.icon);
-      const order = Number(payload.order);
+      const orderValue = Number(payload.order);
       const active = payload.active !== false;
       const color = nk(payload.color);
       const tags = Array.isArray(payload.tags)
         ? Array.from(new Set(payload.tags.map((item) => nk(item)).filter(Boolean)))
         : [];
+
+      const providedIdRaw = nk(payload.id || payload.slug);
+      const normalizedProvidedId = normalizeModeId(providedIdRaw);
+      const isUpdate = Boolean(payload.id);
+      let slug = normalizedProvidedId;
+
+      if (isUpdate) {
+        if (!slug) {
+          throw new Error('id is required');
+        }
+      } else {
+        const baseCandidate = slug || normalizeModeId(label) || normalizeModeId(payload.slug);
+        slug = await ensureUniqueId({
+          kv: env.SETTINGS,
+          prefix: MODE_MASTER_PREFIX,
+          candidate: baseCandidate,
+          normalize: normalizeModeId,
+          fallback: () => normalizeModeId(randomSlug(MODE_ID_MAX_LENGTH)),
+          randomLength: MODE_ID_MAX_LENGTH,
+        });
+      }
+
+      if (!slug) {
+        slug = await ensureUniqueId({
+          kv: env.SETTINGS,
+          prefix: MODE_MASTER_PREFIX,
+          candidate: normalizeModeId(randomSlug(MODE_ID_MAX_LENGTH)),
+          normalize: normalizeModeId,
+          randomLength: MODE_ID_MAX_LENGTH,
+        });
+      }
+
       return {
         slug,
         label,
         description,
         icon,
-        order: Number.isFinite(order) ? order : null,
+        order: Number.isFinite(orderValue) ? orderValue : null,
         active,
         color,
         tags,
       };
+    }
+
+    const masterPrefix = (type) => `master:${type}:`;
+
+    const masterIdKey = (type, id) => `${masterPrefix(type)}${id}`;
+
+    async function migrateLegacyPointer(env, alias, pointerRaw) {
+      if (!alias) return;
+      await env.SETTINGS.put(legacyPointerKey(alias), pointerRaw);
+      await env.SETTINGS.delete(alias).catch(() => {});
+    }
+
+    async function getLegacyPointer(env, alias) {
+      if (!alias) return null;
+      const raw = await env.SETTINGS.get(legacyPointerKey(alias));
+      if (!raw) return null;
+      try {
+        const obj = JSON.parse(raw);
+        return isLegacyPointer(obj) ? obj : null;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function ensureLegacyAlias(record, alias) {
+      if (!alias) return;
+      if (!Array.isArray(record.legacyAliases)) {
+        record.legacyAliases = [];
+      }
+      if (!record.legacyAliases.includes(alias)) {
+        record.legacyAliases.push(alias);
+      }
+    }
+
+    async function writeLegacyPointer(env, type, alias, record) {
+      if (!alias) return;
+      const pointer = {
+        legacy: true,
+        type,
+        id: record.id,
+        name: record.name,
+        category: record.category,
+        updatedAt: record.updated_at || Math.floor(Date.now() / 1000),
+      };
+      await migrateLegacyPointer(env, alias, JSON.stringify(pointer));
+    }
+
+    async function writeMasterRecord(env, type, record) {
+      if (!record || typeof record !== 'object' || !record.id) {
+        throw new Error('record id is required');
+      }
+      const key = masterIdKey(type, record.id);
+      const aliasSet = new Set();
+      if (record.legacyKey) aliasSet.add(record.legacyKey);
+      if (Array.isArray(record.legacyAliases)) {
+        for (const alias of record.legacyAliases) {
+          if (alias) aliasSet.add(alias);
+        }
+      }
+      const aliases = Array.from(aliasSet);
+      const payload = { ...record, type, legacyAliases: aliases };
+      record.legacyAliases = aliases;
+      await env.SETTINGS.put(key, JSON.stringify(payload));
+      for (const alias of aliases) {
+        await writeLegacyPointer(env, type, alias, payload);
+      }
+    }
+
+    async function loadMasterById(env, type, id) {
+      if (!id) return null;
+      const raw = await env.SETTINGS.get(masterIdKey(type, id));
+      if (!raw) return null;
+      try {
+        const obj = JSON.parse(raw);
+        if (obj && !obj.id) {
+          obj.id = id;
+        }
+        return obj;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function isLegacyPointer(obj) {
+      return obj && typeof obj === 'object' && obj.legacy === true && typeof obj.id === 'string';
+    }
+
+    function masterIdCandidate(category, name) {
+      const parts = [
+        normalizeSlug(category, { maxLength: 32 }),
+        normalizeSlug(name, { maxLength: 48 }),
+      ].filter(Boolean);
+      return parts.join('-');
+    }
+
+    async function promoteLegacyMasterRecord(env, type, legacyKey, legacyRecord) {
+      if (!legacyRecord || typeof legacyRecord !== 'object') {
+        return null;
+      }
+      const candidate = masterIdCandidate(legacyRecord.category, legacyRecord.name);
+      const stableId = await ensureUniqueId({
+        kv: env.SETTINGS,
+        prefix: masterPrefix(type),
+        candidate,
+        normalize: (value) => normalizeSlug(value, { maxLength: MASTER_ID_MAX_LENGTH }),
+        fallback: () => normalizeSlug(randomSlug(16), { maxLength: MASTER_ID_MAX_LENGTH }),
+        randomLength: MASTER_ID_MAX_LENGTH,
+      });
+      const now = Math.floor(Date.now() / 1000);
+      const record = {
+        ...legacyRecord,
+        id: stableId,
+        type: legacyRecord.type || type,
+        legacyKey,
+        legacyAliases: Array.isArray(legacyRecord.legacyAliases)
+          ? Array.from(new Set([...legacyRecord.legacyAliases, legacyKey]))
+          : (legacyKey ? [legacyKey] : []),
+      };
+      if (!record.created_at) {
+        record.created_at = now;
+      }
+      record.updated_at = now;
+      await writeMasterRecord(env, type, record);
+      return record;
+    }
+
+    async function getMasterRecordByLegacy(env, type, legacyKey) {
+      if (!legacyKey) return null;
+      const pointerNew = await getLegacyPointer(env, legacyKey);
+      if (pointerNew) {
+        return loadMasterById(env, type, pointerNew.id);
+      }
+      const raw = await env.SETTINGS.get(legacyKey);
+      if (!raw) return null;
+      let parsed = null;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (_) {
+        return null;
+      }
+      if (isLegacyPointer(parsed)) {
+        await migrateLegacyPointer(env, legacyKey, raw);
+        return loadMasterById(env, type, parsed.id);
+      }
+      return promoteLegacyMasterRecord(env, type, legacyKey, parsed);
+    }
+
+    async function getOrCreateMasterRecord(env, { type, category, name }) {
+      const legacyKeyCurrent = normalizeKey(type, category, name);
+      let record = await getMasterRecordByLegacy(env, type, legacyKeyCurrent);
+      let created = false;
+      if (!record) {
+        const candidate = masterIdCandidate(category, name);
+        const id = await ensureUniqueId({
+          kv: env.SETTINGS,
+          prefix: masterPrefix(type),
+          candidate,
+          normalize: (value) => normalizeSlug(value, { maxLength: MASTER_ID_MAX_LENGTH }),
+          fallback: () => normalizeSlug(randomSlug(16), { maxLength: MASTER_ID_MAX_LENGTH }),
+          randomLength: MASTER_ID_MAX_LENGTH,
+        });
+        const now = Math.floor(Date.now() / 1000);
+        record = {
+          id,
+          type,
+          category,
+          name,
+          legacyKey: legacyKeyCurrent,
+          legacyAliases: legacyKeyCurrent ? [legacyKeyCurrent] : [],
+          desc_samples: [],
+          sources: [],
+          count: 0,
+          status: 'candidate',
+          canonical_name: null,
+          created_at: now,
+          updated_at: now,
+        };
+        await writeMasterRecord(env, type, record);
+        created = true;
+      }
+      ensureLegacyAlias(record, legacyKeyCurrent);
+      return { record, legacyKey: legacyKeyCurrent, created };
+    }
+
+    async function loadMastersByType(env, type) {
+      const prefix = masterPrefix(type);
+      const keys = await env.SETTINGS.list({ prefix });
+      const map = new Map();
+      for (const entry of keys.keys) {
+        const keyName = entry.name;
+        if (!keyName) continue;
+        if (keyName.includes('|')) {
+          const raw = await env.SETTINGS.get(keyName);
+          if (!raw) continue;
+          try {
+            const parsed = JSON.parse(raw);
+            if (isLegacyPointer(parsed)) {
+              await migrateLegacyPointer(env, keyName, raw);
+            } else {
+              const promoted = await promoteLegacyMasterRecord(env, type, keyName, parsed);
+              if (promoted && promoted.id) {
+                map.set(promoted.id, promoted);
+              }
+            }
+          } catch (err) {
+            console.warn('failed to migrate legacy master record', keyName, err);
+          }
+          continue;
+        }
+
+        const raw = await env.SETTINGS.get(keyName);
+        if (!raw) continue;
+        let obj = null;
+        try {
+          obj = JSON.parse(raw);
+        } catch (err) {
+          console.warn('failed to parse master record', keyName, err);
+          continue;
+        }
+        const id = keyName.slice(prefix.length);
+        if (!obj || typeof obj !== 'object') continue;
+        obj.id = obj.id || id;
+        obj.type = obj.type || type;
+        if (!Array.isArray(obj.legacyAliases)) {
+          obj.legacyAliases = [];
+        }
+        if (!obj.legacyKey && obj.category && obj.name) {
+          obj.legacyKey = normalizeKey(type, obj.category, obj.name);
+        }
+        if (obj.legacyKey) {
+          ensureLegacyAlias(obj, obj.legacyKey);
+        }
+        normalizeItemExplanations(obj, { fallbackStatus: obj.status === 'approved' ? 'published' : 'draft' });
+        map.set(obj.id, obj);
+      }
+      return Array.from(map.values());
     }
 
     async function saveMode(env, mode) {
@@ -1124,8 +1396,7 @@ export default {
     if (routeMatch(url, 'POST', 'modes/add')) {
       try {
         const payload = await request.json();
-        const sanitized = sanitizeModePayload(payload || {});
-        sanitized.slug = sanitized.slug || crypto.randomUUID();
+        const sanitized = await sanitizeModePayload(env, payload || {});
         const saved = await saveMode(env, sanitized);
         return new Response(JSON.stringify({ ok: true, mode: saved }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -1142,13 +1413,24 @@ export default {
     if (routeMatch(url, 'POST', 'modes/update')) {
       try {
         const payload = await request.json();
-        const sanitized = sanitizeModePayload(payload || {});
+        const sanitized = await sanitizeModePayload(env, payload || {});
+        const originalSlug = normalizeModeId(nk(payload?.id || payload?.slug));
+        if (!originalSlug) {
+          throw new Error('id is required');
+        }
+        if (originalSlug !== sanitized.slug) {
+          throw new Error('changing id is not supported');
+        }
+        const existing = await env.SETTINGS.get(`${MODE_MASTER_PREFIX}${sanitized.slug}`);
+        if (!existing) {
+          throw new Error('mode not found');
+        }
         const mode = await saveMode(env, sanitized);
         return new Response(JSON.stringify({ ok: true, mode }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       } catch (err) {
-        const status = /required|Unsupported/.test(err.message) ? 400 : 500;
+        const status = /required|Unsupported|not found/.test(err.message) ? (/not found/.test(err.message) ? 404 : 400) : 500;
         return new Response(JSON.stringify({ ok: false, error: err.message }), {
           status,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -1552,146 +1834,132 @@ if (routeMatch(url, "GET", "listClinics")) {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        if (!["test", "service", "qual", "department", "facility", "symptom", "bodySite"].includes(type)) {
+        if (!MASTER_ALLOWED_TYPES.has(type)) {
           return new Response(JSON.stringify({ error: "type は test / service / qual / department / facility / symptom / bodySite" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
 
-        const key = normalizeKey(type, category, name);
-        const existing = await env.SETTINGS.get(key);
+        const normalizedCategory = nk(category);
+        const normalizedName = nk(name);
+        const { record } = await getOrCreateMasterRecord(env, { type, category: normalizedCategory, name: normalizedName });
         const now = Math.floor(Date.now() / 1000);
 
-        let item = existing
-          ? JSON.parse(existing)
-          : {
-              type, category, name,
-              desc_samples: [],
-              sources: [],
-              count: 0,
-              status: "candidate", // candidate | approved | archived
-              canonical_name: null,
-              created_at: now,
-              updated_at: now,
-            };
+        record.category = normalizedCategory;
+        record.name = normalizedName;
+        record.legacyKey = normalizeKey(type, normalizedCategory, normalizedName);
+        ensureLegacyAlias(record, record.legacyKey);
 
-        if (item && item.issuer && !item.notes) {
-          item.notes = item.issuer;
-        }
-        if (item && item.notes && !item.desc) {
-          item.desc = item.notes;
+        record.count = Number(record.count || 0) + 1;
+        record.updated_at = now;
+        if (!record.created_at) {
+          record.created_at = now;
         }
 
         const classification = nk(body?.classification);
         const notes = nk(body?.notes);
 
-        item.count += 1;
-        item.updated_at = now;
-
-        if (type === "qual") {
-          const fallback = item.classification || classification || PERSONAL_QUAL_CLASSIFICATIONS[0];
-          item.classification = classification || fallback;
+        if (type === 'qual') {
+          const fallback = record.classification || classification || PERSONAL_QUAL_CLASSIFICATIONS[0];
+          record.classification = classification || fallback;
         } else if (classification) {
-          item.classification = classification;
+          record.classification = classification;
         }
 
-        if (status && ["candidate","approved","archived"].includes(status)) {
-          item.status = status;
+        if (status && ["candidate", "approved", "archived"].includes(status)) {
+          record.status = status;
         }
 
-        normalizeItemExplanations(item, { fallbackStatus: item.status === 'approved' ? 'published' : 'draft' });
+        normalizeItemExplanations(record, { fallbackStatus: record.status === 'approved' ? 'published' : 'draft' });
 
         if (desc) {
-          item.desc_samples = Array.from(new Set([desc, ...(item.desc_samples || [])])).slice(0, 5);
-          item.desc = desc;
-          addExplanationToItem(item, {
+          record.desc_samples = Array.from(new Set([desc, ...(record.desc_samples || [])])).slice(0, 5);
+          record.desc = desc;
+          addExplanationToItem(record, {
             text: desc,
-            status: item.status === 'approved' ? 'published' : 'draft',
+            status: record.status === 'approved' ? 'published' : 'draft',
             source,
           });
         }
         if (source) {
-          item.sources = Array.from(new Set([...(item.sources || []), source]));
+          record.sources = Array.from(new Set([...(record.sources || []), source]));
         }
 
         if (notes) {
-          item.notes = notes;
-          item.desc = notes; // maintain legacy desc compatibility
-        } else if (item.desc && !item.notes) {
-          item.notes = item.desc;
+          record.notes = notes;
+          record.desc = notes;
+        } else if (record.desc && !record.notes) {
+          record.notes = record.desc;
         }
 
-        if (typeof body?.canonical_name === "string") {
-          item.canonical_name = optionalString(body.canonical_name);
+        if (typeof body?.canonical_name === 'string') {
+          record.canonical_name = optionalString(body.canonical_name);
         }
-        if (Object.prototype.hasOwnProperty.call(body || {}, "sortGroup")) {
+        if (Object.prototype.hasOwnProperty.call(body || {}, 'sortGroup')) {
           const trimmed = optionalString(body.sortGroup);
-          item.sortGroup = trimmed;
+          record.sortGroup = trimmed;
         }
-        if (Object.prototype.hasOwnProperty.call(body || {}, "sortOrder")) {
+        if (Object.prototype.hasOwnProperty.call(body || {}, 'sortOrder')) {
           const num = Number(body.sortOrder);
-          item.sortOrder = Number.isFinite(num) ? num : null;
+          record.sortOrder = Number.isFinite(num) ? num : null;
         }
 
-        if (type === "symptom") {
-          if (Object.prototype.hasOwnProperty.call(body, "patientLabel")) {
-            item.patientLabel = optionalString(body.patientLabel);
+        if (type === 'symptom') {
+          if (Object.prototype.hasOwnProperty.call(body, 'patientLabel')) {
+            record.patientLabel = optionalString(body.patientLabel);
           }
-          if (Object.prototype.hasOwnProperty.call(body, "bodySiteRefs")) {
-            const refs = normalizeStringArray(body.bodySiteRefs);
-            item.bodySiteRefs = refs;
+          if (Object.prototype.hasOwnProperty.call(body, 'bodySiteRefs')) {
+            record.bodySiteRefs = normalizeStringArray(body.bodySiteRefs);
           }
-          if (Object.prototype.hasOwnProperty.call(body, "severityTags")) {
-            item.severityTags = normalizeStringArray(body.severityTags);
+          if (Object.prototype.hasOwnProperty.call(body, 'severityTags')) {
+            record.severityTags = normalizeStringArray(body.severityTags);
           }
-          if (Object.prototype.hasOwnProperty.call(body, "icd10")) {
-            const codes = normalizeStringArray(body.icd10).map(code => code.toUpperCase());
-            item.icd10 = codes;
+          if (Object.prototype.hasOwnProperty.call(body, 'icd10')) {
+            record.icd10 = normalizeStringArray(body.icd10).map(code => code.toUpperCase());
           }
-          if (Object.prototype.hasOwnProperty.call(body, "synonyms")) {
-            item.synonyms = normalizeStringArray(body.synonyms);
+          if (Object.prototype.hasOwnProperty.call(body, 'synonyms')) {
+            record.synonyms = normalizeStringArray(body.synonyms);
           }
-          if (Object.prototype.hasOwnProperty.call(body, "defaultServices")) {
-            item.defaultServices = normalizeStringArray(body.defaultServices);
+          if (Object.prototype.hasOwnProperty.call(body, 'defaultServices')) {
+            record.defaultServices = normalizeStringArray(body.defaultServices);
           }
-          if (Object.prototype.hasOwnProperty.call(body, "defaultTests")) {
-            item.defaultTests = normalizeStringArray(body.defaultTests);
+          if (Object.prototype.hasOwnProperty.call(body, 'defaultTests')) {
+            record.defaultTests = normalizeStringArray(body.defaultTests);
           }
-          if (Object.prototype.hasOwnProperty.call(body, "thesaurusRefs")) {
-            item.thesaurusRefs = normalizeStringArray(body.thesaurusRefs);
-          }
-        }
-
-        if (type === "bodySite") {
-          if (Object.prototype.hasOwnProperty.call(body, "anatomicalSystem")) {
-            item.anatomicalSystem = optionalString(body.anatomicalSystem);
-          }
-          if (Object.prototype.hasOwnProperty.call(body, "patientLabel")) {
-            item.patientLabel = optionalString(body.patientLabel);
-          }
-          if (Object.prototype.hasOwnProperty.call(body, "canonical_name")) {
-            item.canonical_name = optionalString(body.canonical_name);
-          }
-          if (Object.prototype.hasOwnProperty.call(body, "parentKey")) {
-            const value = optionalString(body.parentKey);
-            item.parentKey = value;
-          }
-          if (Object.prototype.hasOwnProperty.call(body, "laterality")) {
-            item.laterality = optionalString(body.laterality);
-          }
-          if (Object.prototype.hasOwnProperty.call(body, "aliases")) {
-            item.aliases = normalizeStringArray(body.aliases);
-          }
-          if (Object.prototype.hasOwnProperty.call(body, "thesaurusRefs")) {
-            item.thesaurusRefs = normalizeStringArray(body.thesaurusRefs);
+          if (Object.prototype.hasOwnProperty.call(body, 'thesaurusRefs')) {
+            record.thesaurusRefs = normalizeStringArray(body.thesaurusRefs);
           }
         }
 
-        syncExplanationDerivedFields(item);
+        if (type === 'bodySite') {
+          if (Object.prototype.hasOwnProperty.call(body, 'anatomicalSystem')) {
+            record.anatomicalSystem = optionalString(body.anatomicalSystem);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, 'patientLabel')) {
+            record.patientLabel = optionalString(body.patientLabel);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, 'canonical_name')) {
+            record.canonical_name = optionalString(body.canonical_name);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, 'parentKey')) {
+            record.parentKey = optionalString(body.parentKey);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, 'laterality')) {
+            record.laterality = optionalString(body.laterality);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, 'aliases')) {
+            record.aliases = normalizeStringArray(body.aliases);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, 'thesaurusRefs')) {
+            record.thesaurusRefs = normalizeStringArray(body.thesaurusRefs);
+          }
+        }
 
-        await env.SETTINGS.put(key, JSON.stringify(item));
+        syncExplanationDerivedFields(record);
+
+        await writeMasterRecord(env, type, record);
         await invalidateMasterCache(env, type);
-        return new Response(JSON.stringify({ ok: true, item }), {
+        return new Response(JSON.stringify({ ok: true, item: record }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       } catch (err) {
@@ -1708,115 +1976,35 @@ if (routeMatch(url, "GET", "listClinics")) {
       let items = await getMasterCache(env, type, status);
 
       if (!items) {
-        const prefix = type ? `master:${type}:` : "master:";
-        const keys = await env.SETTINGS.list({ prefix });
-        const keyNames = keys.keys.map(k => k.name);
-        const values = await Promise.all(keyNames.map(name => env.SETTINGS.get(name)));
-        const collator = new Intl.Collator('ja');
-
-        items = [];
-        for (let i = 0; i < keyNames.length; i++) {
-          const raw = values[i];
-          if (!raw) continue;
-          try {
-            const obj = JSON.parse(raw);
-            const originalKey = keyNames[i];
-            const isLegacyKey = originalKey.includes(':') && !originalKey.includes('|');
-
-            if (status && obj.status !== status) {
-              continue;
-            }
-
-            const { base: extractedName, note: noteFromName } = extractNameAndNote(obj.name);
-            let targetName = extractedName || nk(obj.name);
-            if (!targetName) {
-              targetName = nk(obj.name);
-            }
-
-            const mergedNotes = mergeNotes(obj.notes, obj.issuer, noteFromName);
-            const normalizedKeyCurrent = normalizeKey(obj.type || type, obj.category, obj.name);
-            let renameRequested = targetName && targetName !== nk(obj.name);
-            let needsRewrite = isLegacyKey;
-
-            if (mergedNotes && mergedNotes !== nk(obj.notes)) {
-              obj.notes = mergedNotes;
-              if (!obj.desc) {
-                obj.desc = mergedNotes;
-              }
-              if (Array.isArray(obj.desc_samples)) {
-                obj.desc_samples = Array.from(new Set([mergedNotes, ...obj.desc_samples])).slice(0, 5);
-              } else {
-                obj.desc_samples = [mergedNotes];
-              }
-              needsRewrite = true;
-            } else if (!obj.notes && typeof obj.desc === 'string') {
-              obj.notes = obj.desc;
-            }
-
-            const inferredClass = inferQualClassification(obj.category, obj.classification);
-            if (inferredClass !== nk(obj.classification)) {
-              obj.classification = inferredClass;
-              needsRewrite = true;
-            }
-
-            let newKeyCandidate = normalizeKey(obj.type || type, obj.category, targetName);
-            if (renameRequested && newKeyCandidate !== normalizedKeyCurrent) {
-              const targetExists = await env.SETTINGS.get(newKeyCandidate);
-              if (targetExists) {
-                renameRequested = false;
-                targetName = nk(obj.name);
-                newKeyCandidate = normalizedKeyCurrent;
-              }
-            }
-
-            if (renameRequested) {
-              obj.name = targetName;
-              needsRewrite = true;
-            }
-
-            if (typeof obj.desc !== 'string' && Array.isArray(obj.desc_samples) && obj.desc_samples.length) {
-              obj.desc = obj.desc_samples[0];
-            }
-
-            let finalKey = renameRequested ? newKeyCandidate : normalizedKeyCurrent;
-
-            if (needsRewrite) {
-              obj.updated_at = Math.floor(Date.now() / 1000);
-              finalKey = normalizeKey(obj.type || type, obj.category, obj.name);
-              await env.SETTINGS.put(finalKey, JSON.stringify(obj));
-              if (finalKey !== originalKey) {
-                await env.SETTINGS.delete(originalKey);
-              }
-            }
-
-            obj._key = finalKey || originalKey;
-            normalizeItemExplanations(obj, { fallbackStatus: obj.status === 'approved' ? 'published' : 'draft' });
-            items.push(obj);
-          } catch (err) {
-            console.warn('failed to parse master item', keyNames[i], err);
-          }
+        const typesToLoad = type ? [type] : Array.from(MASTER_ALLOWED_TYPES);
+        const aggregated = [];
+        for (const t of typesToLoad) {
+          const subset = await loadMastersByType(env, t);
+          aggregated.push(...subset);
         }
-
-        items.sort((a, b) => {
-          const ao = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER;
-          const bo = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER;
-          if (ao !== bo) return ao - bo;
-          const ag = a.sortGroup || '';
-          const bg = b.sortGroup || '';
-          const gcmp = collator.compare(ag, bg);
-          if (gcmp !== 0) return gcmp;
-          return collator.compare(a.name || '', b.name || '');
-        });
-
+        items = aggregated;
+        if (status) {
+          items = items.filter(item => item.status === status);
+        }
         await setMasterCache(env, type, status, items);
       } else {
-        // clone to avoid mutating cached array when enriching below
         items = items.map(item => ({ ...item }));
       }
 
-      let collected = [];
+      const collator = new Intl.Collator('ja');
+      items.sort((a, b) => {
+        const ao = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER;
+        const bo = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER;
+        if (ao !== bo) return ao - bo;
+        const ag = a.sortGroup || '';
+        const bg = b.sortGroup || '';
+        const gcmp = collator.compare(ag, bg);
+        if (gcmp !== 0) return gcmp;
+        return collator.compare(a.name || '', b.name || '');
+      });
+
       if (includeSimilar && items.length > 1) {
-        collected = items.map(obj => ({ obj, norm: normalizeForSimilarity(obj.canonical_name || obj.name) }));
+        const collected = items.map(obj => ({ obj, norm: normalizeForSimilarity(obj.canonical_name || obj.name) }));
         for (const entry of collected) {
           if (!entry.norm) continue;
           const matches = [];
@@ -1829,7 +2017,7 @@ if (routeMatch(url, "GET", "listClinics")) {
                 name: other.obj.name,
                 canonical_name: other.obj.canonical_name || null,
                 status: other.obj.status || null,
-                similarity: Number(score.toFixed(3))
+                similarity: Number(score.toFixed(3)),
               });
             }
           }
@@ -1841,7 +2029,7 @@ if (routeMatch(url, "GET", "listClinics")) {
         }
       }
 
-      items.sort((a,b)=> (b.count||0)-(a.count||0));
+      items.sort((a, b) => (b.count || 0) - (a.count || 0));
       return new Response(JSON.stringify({ ok: true, items }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -1858,72 +2046,79 @@ if (routeMatch(url, "GET", "listClinics")) {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        const key = normalizeKey(type, category, name);
-        let existing = await env.SETTINGS.get(key);
-        const legacy = legacyKey(type, category, name);
-        let legacyFound = false;
-        if (!existing) {
-          const legacyValue = await env.SETTINGS.get(legacy);
-          if (legacyValue) {
-            existing = legacyValue;
-            legacyFound = true;
-          }
+        if (!MASTER_ALLOWED_TYPES.has(type)) {
+          return new Response(JSON.stringify({ error: "type は test / service / qual / department / facility / symptom / bodySite" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         }
-        if (!existing) {
+
+        const legacyKeyCurrent = normalizeKey(type, category, name);
+        let record = await getMasterRecordByLegacy(env, type, legacyKeyCurrent);
+        if (!record) {
           return new Response(JSON.stringify({ error: "対象が見つかりません" }), {
             status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        const obj = JSON.parse(existing);
-        if (status) obj.status = status;
-        if (typeof canonical_name === "string") {
-          obj.canonical_name = canonical_name || null;
+
+        const now = Math.floor(Date.now() / 1000);
+        const targetCategory = nk(newCategory) || nk(category);
+        const targetName = nk(newName) || nk(name);
+        record.category = targetCategory;
+        record.name = targetName;
+        record.legacyKey = normalizeKey(type, targetCategory, targetName);
+        ensureLegacyAlias(record, record.legacyKey);
+
+        if (status) {
+          record.status = status;
         }
-        if (typeof sortGroup === "string") {
+        if (typeof canonical_name === 'string') {
+          record.canonical_name = canonical_name || null;
+        }
+        if (typeof sortGroup === 'string') {
           const trimmed = sortGroup.trim();
-          obj.sortGroup = trimmed || null;
+          record.sortGroup = trimmed || null;
         }
-        if (Object.prototype.hasOwnProperty.call(body, "sortOrder")) {
+        if (Object.prototype.hasOwnProperty.call(body, 'sortOrder')) {
           const num = Number(sortOrder);
-          obj.sortOrder = Number.isFinite(num) ? num : null;
+          record.sortOrder = Number.isFinite(num) ? num : null;
         }
-        if (typeof desc === "string") {
-          obj.desc = desc;
+        if (typeof desc === 'string') {
+          record.desc = desc;
           if (desc) {
-            obj.desc_samples = Array.from(new Set([desc, ...(obj.desc_samples || [])])).slice(0, 5);
-            addExplanationToItem(obj, {
+            record.desc_samples = Array.from(new Set([desc, ...(record.desc_samples || [])])).slice(0, 5);
+            addExplanationToItem(record, {
               text: desc,
-              status: obj.status === 'approved' ? 'published' : 'draft',
+              status: record.status === 'approved' ? 'published' : 'draft',
             });
-          } else if (Array.isArray(obj.desc_samples) && obj.desc_samples.length && !obj.desc) {
-            obj.desc = obj.desc_samples[0];
+          } else if (Array.isArray(record.desc_samples) && record.desc_samples.length && !record.desc) {
+            record.desc = record.desc_samples[0];
           }
         }
-        if (typeof notes === "string") {
+        if (typeof notes === 'string') {
           const trimmedNotes = notes.trim();
-          obj.notes = trimmedNotes || null;
+          record.notes = trimmedNotes || null;
           if (!desc && trimmedNotes) {
-            obj.desc = trimmedNotes;
+            record.desc = trimmedNotes;
           }
         }
-        if (typeof classification === "string") {
+        if (typeof classification === 'string') {
           const trimmedClass = classification.trim();
           if (trimmedClass) {
-            obj.classification = trimmedClass;
-          } else if (obj.type === "qual") {
-            obj.classification = PERSONAL_QUAL_CLASSIFICATIONS[0];
+            record.classification = trimmedClass;
+          } else if (record.type === 'qual') {
+            record.classification = PERSONAL_QUAL_CLASSIFICATIONS[0];
           } else {
-            obj.classification = null;
+            record.classification = null;
           }
         }
 
-        if (Array.isArray(body.explanations)) {
-          const fallbackStatus = obj.status === 'approved' ? 'published' : 'draft';
+        if (Array.isArray(body?.explanations)) {
+          const fallbackStatus = record.status === 'approved' ? 'published' : 'draft';
           const next = [];
           const seenText = new Set();
           const existingMap = new Map();
-          if (Array.isArray(obj.explanations)) {
-            for (const entry of obj.explanations) {
+          if (Array.isArray(record.explanations)) {
+            for (const entry of record.explanations) {
               const sanitized = sanitizeExistingExplanation(entry, fallbackStatus);
               if (sanitized) {
                 existingMap.set(sanitized.id, sanitized);
@@ -1962,101 +2157,69 @@ if (routeMatch(url, "GET", "listClinics")) {
             next.push(merged);
           }
 
-          obj.explanations = next;
+          record.explanations = next;
         }
 
-        if (type === "symptom") {
-          if (Object.prototype.hasOwnProperty.call(body, "patientLabel")) {
-            obj.patientLabel = optionalString(body.patientLabel);
+        if (type === 'symptom') {
+          if (Object.prototype.hasOwnProperty.call(body, 'patientLabel')) {
+            record.patientLabel = optionalString(body.patientLabel);
           }
-          if (Object.prototype.hasOwnProperty.call(body, "bodySiteRefs")) {
-            obj.bodySiteRefs = normalizeStringArray(body.bodySiteRefs);
+          if (Object.prototype.hasOwnProperty.call(body, 'bodySiteRefs')) {
+            record.bodySiteRefs = normalizeStringArray(body.bodySiteRefs);
           }
-          if (Object.prototype.hasOwnProperty.call(body, "severityTags")) {
-            obj.severityTags = normalizeStringArray(body.severityTags);
+          if (Object.prototype.hasOwnProperty.call(body, 'severityTags')) {
+            record.severityTags = normalizeStringArray(body.severityTags);
           }
-          if (Object.prototype.hasOwnProperty.call(body, "icd10")) {
-            obj.icd10 = normalizeStringArray(body.icd10).map(code => code.toUpperCase());
+          if (Object.prototype.hasOwnProperty.call(body, 'icd10')) {
+            record.icd10 = normalizeStringArray(body.icd10).map(code => code.toUpperCase());
           }
-          if (Object.prototype.hasOwnProperty.call(body, "synonyms")) {
-            obj.synonyms = normalizeStringArray(body.synonyms);
+          if (Object.prototype.hasOwnProperty.call(body, 'synonyms')) {
+            record.synonyms = normalizeStringArray(body.synonyms);
           }
-          if (Object.prototype.hasOwnProperty.call(body, "defaultServices")) {
-            obj.defaultServices = normalizeStringArray(body.defaultServices);
+          if (Object.prototype.hasOwnProperty.call(body, 'defaultServices')) {
+            record.defaultServices = normalizeStringArray(body.defaultServices);
           }
-          if (Object.prototype.hasOwnProperty.call(body, "defaultTests")) {
-            obj.defaultTests = normalizeStringArray(body.defaultTests);
+          if (Object.prototype.hasOwnProperty.call(body, 'defaultTests')) {
+            record.defaultTests = normalizeStringArray(body.defaultTests);
           }
-          if (Object.prototype.hasOwnProperty.call(body, "thesaurusRefs")) {
-            obj.thesaurusRefs = normalizeStringArray(body.thesaurusRefs);
-          }
-        }
-
-        if (type === "bodySite") {
-          if (Object.prototype.hasOwnProperty.call(body, "anatomicalSystem")) {
-            obj.anatomicalSystem = optionalString(body.anatomicalSystem);
-          }
-          if (Object.prototype.hasOwnProperty.call(body, "patientLabel")) {
-            obj.patientLabel = optionalString(body.patientLabel);
-          }
-          if (Object.prototype.hasOwnProperty.call(body, "canonical_name")) {
-            obj.canonical_name = optionalString(body.canonical_name);
-          }
-          if (Object.prototype.hasOwnProperty.call(body, "parentKey")) {
-            obj.parentKey = optionalString(body.parentKey);
-          }
-          if (Object.prototype.hasOwnProperty.call(body, "laterality")) {
-            obj.laterality = optionalString(body.laterality);
-          }
-          if (Object.prototype.hasOwnProperty.call(body, "aliases")) {
-            obj.aliases = normalizeStringArray(body.aliases);
-          }
-          if (Object.prototype.hasOwnProperty.call(body, "thesaurusRefs")) {
-            obj.thesaurusRefs = normalizeStringArray(body.thesaurusRefs);
+          if (Object.prototype.hasOwnProperty.call(body, 'thesaurusRefs')) {
+            record.thesaurusRefs = normalizeStringArray(body.thesaurusRefs);
           }
         }
 
-        syncExplanationDerivedFields(obj);
-
-        let targetCategory = category;
-        let targetName = name;
-        if (typeof newCategory === "string" && newCategory.trim()) {
-          targetCategory = newCategory.trim();
-        }
-        if (typeof newName === "string" && newName.trim()) {
-          targetName = newName.trim();
-        }
-
-        const newKey = normalizeKey(type, targetCategory, targetName);
-        const renaming = newKey !== key;
-        if (renaming) {
-          const existsNew = await env.SETTINGS.get(newKey);
-          if (existsNew) {
-            return new Response(JSON.stringify({ error: "同じ分類・名称の項目が既に存在します" }), {
-              status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
+        if (type === 'bodySite') {
+          if (Object.prototype.hasOwnProperty.call(body, 'anatomicalSystem')) {
+            record.anatomicalSystem = optionalString(body.anatomicalSystem);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, 'patientLabel')) {
+            record.patientLabel = optionalString(body.patientLabel);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, 'canonical_name')) {
+            record.canonical_name = optionalString(body.canonical_name);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, 'parentKey')) {
+            record.parentKey = optionalString(body.parentKey);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, 'laterality')) {
+            record.laterality = optionalString(body.laterality);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, 'aliases')) {
+            record.aliases = normalizeStringArray(body.aliases);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, 'thesaurusRefs')) {
+            record.thesaurusRefs = normalizeStringArray(body.thesaurusRefs);
           }
         }
 
-        obj.category = targetCategory;
-        obj.name = targetName;
-        obj.updated_at = Math.floor(Date.now() / 1000);
-
-        if (renaming) {
-          if (legacyFound) {
-            await env.SETTINGS.delete(legacy);
-          } else {
-            await env.SETTINGS.delete(key);
-          }
-          await env.SETTINGS.put(newKey, JSON.stringify(obj));
-        } else {
-          await env.SETTINGS.put(newKey, JSON.stringify(obj));
-          if (legacyFound && legacy !== newKey) {
-            await env.SETTINGS.delete(legacy);
-          }
+        syncExplanationDerivedFields(record);
+        record.updated_at = now;
+        if (!record.created_at) {
+          record.created_at = now;
         }
+
+        await writeMasterRecord(env, type, record);
         await invalidateMasterCache(env, type);
-        return new Response(JSON.stringify({ ok: true, item: obj }), {
+        return new Response(JSON.stringify({ ok: true, item: record }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       } catch (err) {
@@ -2075,26 +2238,22 @@ if (routeMatch(url, "GET", "listClinics")) {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        const key = normalizeKey(type, category, name);
-        let raw = await env.SETTINGS.get(key);
-        let actualKey = key;
-        if (!raw) {
-          const legacy = legacyKey(type, category, name);
-          raw = await env.SETTINGS.get(legacy);
-          if (raw) {
-            actualKey = legacy;
-          }
+        if (!MASTER_ALLOWED_TYPES.has(type)) {
+          return new Response(JSON.stringify({ ok: false, error: "type は test / service / qual / department / facility / symptom / bodySite" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         }
-        if (!raw) {
+        const record = await getMasterRecordByLegacy(env, type, normalizeKey(type, category, name));
+        if (!record) {
           return new Response(JSON.stringify({ ok: false, error: "対象が見つかりません" }), {
             status: 404,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
 
-        const item = JSON.parse(raw);
-        const defaultStatus = item.status === 'approved' ? 'published' : 'draft';
-        const entry = addExplanationToItem(item, {
+        const defaultStatus = record.status === 'approved' ? 'published' : 'draft';
+        const entry = addExplanationToItem(record, {
           text,
           status: status || defaultStatus,
           audience,
@@ -2108,18 +2267,14 @@ if (routeMatch(url, "GET", "listClinics")) {
           });
         }
 
-        item.updated_at = Math.floor(Date.now() / 1000);
-        syncExplanationDerivedFields(item);
+        record.updated_at = Math.floor(Date.now() / 1000);
+        syncExplanationDerivedFields(record);
 
-        const normalizedKey = normalizeKey(type, item.category, item.name);
-        await env.SETTINGS.put(normalizedKey, JSON.stringify(item));
-        if (normalizedKey !== actualKey) {
-          await env.SETTINGS.delete(actualKey).catch(() => {});
-        }
+        await writeMasterRecord(env, type, record);
         await invalidateMasterCache(env, type);
 
         const sanitizedEntry = sanitizeExistingExplanation(entry, defaultStatus);
-        return new Response(JSON.stringify({ ok: true, explanation: sanitizedEntry, item }), {
+        return new Response(JSON.stringify({ ok: true, explanation: sanitizedEntry, item: record }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       } catch (err) {
@@ -2140,25 +2295,23 @@ if (routeMatch(url, "GET", "listClinics")) {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        if (!["test", "service", "qual", "department", "facility", "symptom", "bodySite"].includes(type)) {
+        if (!MASTER_ALLOWED_TYPES.has(type)) {
           return new Response(JSON.stringify({ error: "type は test / service / qual / department / facility / symptom / bodySite" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        const key = normalizeKey(type, category, name);
-        const legacy = legacyKey(type, category, name);
-        const existing = await env.SETTINGS.get(key);
-        const legacyExisting = existing ? null : await env.SETTINGS.get(legacy);
-        if (!existing && !legacyExisting) {
+        const legacyKeyCurrent = normalizeKey(type, category, name);
+        const record = await getMasterRecordByLegacy(env, type, legacyKeyCurrent);
+        if (!record) {
           return new Response(JSON.stringify({ error: "対象が見つかりません" }), {
             status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        if (existing) {
-          await env.SETTINGS.delete(key);
-        }
-        if (legacyExisting) {
-          await env.SETTINGS.delete(legacy);
+        await env.SETTINGS.delete(masterIdKey(type, record.id));
+        if (Array.isArray(record.legacyAliases)) {
+          await Promise.all(record.legacyAliases.map(alias => env.SETTINGS.delete(alias).catch(() => {})));
+        } else {
+          await env.SETTINGS.delete(legacyKeyCurrent).catch(() => {});
         }
         await invalidateMasterCache(env, type);
         return new Response(JSON.stringify({ ok: true }), {
@@ -2174,12 +2327,17 @@ if (routeMatch(url, "GET", "listClinics")) {
     if (routeMatch(url, "GET", "exportMaster")) {
       const type = url.searchParams.get("type"); // 任意
       const format = (url.searchParams.get("format") || "json").toLowerCase();
-      const prefix = type ? `master:${type}:` : "master:";
-      const keys = await env.SETTINGS.list({ prefix });
-      const items = [];
-      for (const k of keys.keys) {
-        const val = await env.SETTINGS.get(k.name);
-        if (val) items.push(JSON.parse(val));
+      if (type && !MASTER_ALLOWED_TYPES.has(type)) {
+        return new Response(JSON.stringify({ ok: false, error: "unknown master type" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const typesToLoad = type ? [type] : Array.from(MASTER_ALLOWED_TYPES);
+      let items = [];
+      for (const t of typesToLoad) {
+        const subset = await loadMastersByType(env, t);
+        items = items.concat(subset);
       }
 
       if (format === "csv") {
@@ -2796,21 +2954,26 @@ function normalizeJP(s) {
  * 既存の /api/listMaster と同じ構造を返すことを想定
  */
 async function loadMasterAll(env, type) {
-  // 先生の既存実装に合わせて prefix は "master:test:" / "master:service:" を想定
-  // もし別のキー設計ならここだけ合わせてください
+  if (!MASTER_ALLOWED_TYPES.has(type)) {
+    return [];
+  }
   const prefix = `master:${type}:`;
   const list = await env.SETTINGS.list({ prefix });
-  const out = [];
-  for (const k of list.keys) {
-    const val = await env.SETTINGS.get(k.name);
-    if (!val) continue;
+  const results = [];
+  for (const entry of list.keys) {
+    const keyName = entry.name;
+    if (keyName.includes('|')) continue;
+    const raw = await env.SETTINGS.get(keyName);
+    if (!raw) continue;
     try {
-      const item = JSON.parse(val);
-      // item: { type, category, name, canonical_name, status, desc, sources, count, updated_at, ... }
-      out.push(item);
-    } catch(_) {}
+      const obj = JSON.parse(raw);
+      if (obj && typeof obj === 'object') {
+        obj.id = obj.id || keyName.slice(prefix.length);
+        results.push(obj);
+      }
+    } catch (_) {}
   }
-  return out;
+  return results;
 }
 
 /**

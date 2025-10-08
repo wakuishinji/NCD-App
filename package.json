@@ -1,4 +1,8 @@
 {
+  "scripts": {
+    "test": "vitest",
+    "migrate:master-ids": "node ./scripts/migrateMasterIds.mjs"
+  },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.8",
     "vitest": "^3.2.4",
