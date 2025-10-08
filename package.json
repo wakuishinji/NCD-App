@@ -1,7 +1,8 @@
 {
   "scripts": {
     "test": "vitest",
-    "migrate:master-ids": "node ./scripts/migrateMasterIds.mjs"
+    "migrate:master-ids": "node ./scripts/migrateMasterIds.mjs",
+    "cleanup:legacy-masters": "node ./scripts/cleanupLegacyMasters.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.8",

@@ -82,6 +82,8 @@
 - 本番以外でコードを変更した場合も基本的に毎回 `git push` まで行い、自動 `git pull`（ncd.altry.net 上の仕組み）で本番へ反映させる。push が難しい事情があるときは事前に相談する。
 - 本番確認は `https://ncd.altry.net/` を優先し、必要に応じて Cloudflare Workers のテストドメイン（`https://ncd-app.altry.workers.dev/`）も併用する。
 - 2025-10-09: Cloudflare Worker の `/api/listMaster` `/api/listClinics` を並列取得＋キャッシュ延長で高速化済み。初回呼び出し後は100ms前後で応答する想定。
+- 2025-10-09: 旧 `master:type:category|name` キーを整理するクリーナー（`npm run cleanup:legacy-masters`）を追加。初回は `--dry-run` で内容を確認し、問題なければ `--no-dry-run` で実行する。
+- 2025-10-09: 現時点で残存する legacy マスターキーは 0 件（クリーナー実行結果より）。
 - ローカルで実行できる作業（ビルド・デプロイ・移行スクリプトなど）は原則 Codex が担当し、結果を共有する。
 
 ## 本日確認・決定事項（2025-09-25）

@@ -948,6 +948,81 @@ export default {
       return Array.from(map.values());
     }
 
+    async function cleanupLegacyMasterKeys(env, types, { dryRun = false, batchSize = 1000 } = {}) {
+      const summary = {
+        types: [],
+        totalLegacyKeys: 0,
+        migratedRecords: 0,
+        migratedPointers: 0,
+        deletedLegacyKeys: 0,
+        errors: [],
+        dryRun,
+      };
+
+      for (const type of types) {
+        if (!MASTER_ALLOWED_TYPES.has(type)) continue;
+        const typeSummary = {
+          type,
+          legacyKeys: 0,
+          migratedRecords: 0,
+          migratedPointers: 0,
+          deleted: 0,
+        };
+        let cursor;
+        do {
+          const list = await env.SETTINGS.list({ prefix: masterPrefix(type), cursor, limit: batchSize });
+          cursor = list.cursor;
+          const keyEntries = list.keys || [];
+          const legacyEntries = keyEntries.filter(entry => entry.name && entry.name.includes('|'));
+          if (!legacyEntries.length) continue;
+
+          const valuePromises = legacyEntries.map(entry => env.SETTINGS.get(entry.name));
+          const values = await Promise.all(valuePromises);
+
+          for (let i = 0; i < legacyEntries.length; i++) {
+            const keyName = legacyEntries[i].name;
+            const raw = values[i];
+            typeSummary.legacyKeys += 1;
+            summary.totalLegacyKeys += 1;
+
+            if (!raw) {
+              if (!dryRun) {
+                await env.SETTINGS.delete(keyName).catch(() => {});
+              }
+              typeSummary.deleted += 1;
+              summary.deletedLegacyKeys += 1;
+              continue;
+            }
+
+            try {
+              const parsed = JSON.parse(raw);
+              if (isLegacyPointer(parsed)) {
+                if (!dryRun) {
+                  await migrateLegacyPointer(env, keyName, raw);
+                }
+                typeSummary.migratedPointers += 1;
+                summary.migratedPointers += 1;
+                continue;
+              }
+
+              if (!dryRun) {
+                const promoted = await promoteLegacyMasterRecord(env, type, keyName, parsed);
+                if (promoted && promoted.id) {
+                  await env.SETTINGS.delete(keyName).catch(() => {});
+                }
+              }
+              typeSummary.migratedRecords += 1;
+              summary.migratedRecords += 1;
+            } catch (err) {
+              summary.errors.push({ key: keyName, error: err.message || String(err) });
+            }
+          }
+        } while (cursor);
+        summary.types.push(typeSummary);
+      }
+      return summary;
+    }
+
     async function saveMode(env, mode) {
       const key = `${MODE_MASTER_PREFIX}${mode.slug}`;
       const payload = { ...mode };
@@ -2359,6 +2434,31 @@ if (routeMatch(url, "GET", "listClinics")) {
       });
     }
     // <<< END: MASTER_EXPORT >>>
+
+    if (routeMatch(url, 'POST', 'maintenance/masterCleanup')) {
+      try {
+        let body = {};
+        try {
+          body = await request.json();
+        } catch (_) {}
+        let types = Array.isArray(body?.types) ? body.types.filter(t => MASTER_ALLOWED_TYPES.has(t)) : [];
+        if (!types.length) {
+          types = MASTER_TYPE_LIST.slice();
+        }
+        const dryRun = body?.dryRun !== false && body?.dryRun !== 'false';
+        const batchSizeRaw = Number(body?.batchSize);
+        const batchSize = Number.isFinite(batchSizeRaw) && batchSizeRaw > 0 ? Math.min(batchSizeRaw, 1000) : 1000;
+        const summary = await cleanupLegacyMasterKeys(env, types, { dryRun, batchSize });
+        return new Response(JSON.stringify({ ok: true, summary }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ ok: false, error: err.message || 'unexpected error' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
 
     // ============================================================
     // 分類マスター（検査/診療 別管理）
