@@ -38,11 +38,10 @@
             <thead class="bg-slate-50 text-slate-600">
               <tr>
                 <th class="px-3 py-2 text-left">表示名</th>
-                <th class="px-3 py-2 text-left">スラッグ</th>
                 <th class="px-3 py-2 text-left">説明</th>
                 <th class="px-3 py-2 text-left">アイコン</th>
                 <th class="px-3 py-2 text-left">カラー</th>
-                <th class="px-3 py-2 text-left">order</th>
+                <th class="px-3 py-2 text-left">表示順</th>
                 <th class="px-3 py-2 text-left">タグ</th>
                 <th class="px-3 py-2 text-left">操作</th>
               </tr>
@@ -62,30 +61,29 @@
           </div>
           <div class="md:col-span-1">
             <label for="modeSlug" class="block text-sm text-slate-600 mb-1">スラッグ (任意)</label>
-            <input id="modeSlug" class="w-full rounded border px-3 py-2" placeholder="例: online" />
-            <p class="mt-1 text-xs text-slate-400">未入力の場合は自動生成します。半角英数字とハイフンのみ。</p>
+            <input id="modeSlug" class="w-full rounded border px-3 py-2" placeholder="自動生成" />
+            <p class="mt-1 text-xs text-slate-400">通常は自動生成に任せてください。</p>
           </div>
           <div class="md:col-span-2">
             <label for="modeDescription" class="block text-sm text-slate-600 mb-1">説明</label>
             <textarea id="modeDescription" rows="3" class="w-full rounded border px-3 py-2 text-sm" placeholder="公開ページでの補足テキスト"></textarea>
           </div>
           <div class="md:col-span-1">
-            <label for="modeIcon" class="block text-sm text-slate-600 mb-1">アイコン (任意)</label>
-            <input id="modeIcon" class="w-full rounded border px-3 py-2" placeholder="例: fa-video" />
-            <p class="mt-1 text-xs text-slate-400">Font Awesome のクラスなど。未入力でも可。</p>
+            <label for="modeIconSelect" class="block text-sm text-slate-600 mb-1">アイコン</label>
+            <select id="modeIconSelect" class="w-full rounded border px-3 py-2"></select>
+            <input id="modeIconCustom" class="mt-2 hidden w-full rounded border px-3 py-2" placeholder="Font Awesome のクラス名" />
+            <p class="mt-1 text-xs text-slate-400">バッジに表示するアイコンを選択します。</p>
           </div>
           <div class="md:col-span-1">
-            <label for="modeColor" class="block text-sm text-slate-600 mb-1">カラーコード</label>
-            <input id="modeColor" class="w-full rounded border px-3 py-2" placeholder="#0ea5e9" />
-            <p class="mt-1 text-xs text-slate-400">バッジ表示の背景色 (CSS色指定)。例: #0ea5e9</p>
+            <label for="modeColorSelect" class="block text-sm text-slate-600 mb-1">カラー</label>
+            <select id="modeColorSelect" class="w-full rounded border px-3 py-2"></select>
+            <input id="modeColorCustom" class="mt-2 hidden w-full rounded border px-3 py-2" placeholder="#0ea5e9" />
+            <p class="mt-1 text-xs text-slate-400">バッジ色を選択します。必要に応じてカスタム指定も可能です。</p>
           </div>
-          <div>
-            <label for="modeOrder" class="block text-sm text-slate-600 mb-1">order</label>
-            <input id="modeOrder" type="number" class="w-full rounded border px-3 py-2" placeholder="0" />
-          </div>
-          <div>
-            <label for="modeTags" class="block text-sm text-slate-600 mb-1">タグ (カンマ区切り)</label>
-            <input id="modeTags" class="w-full rounded border px-3 py-2" placeholder="例: telemedicine,remote" />
+          <div class="md:col-span-1">
+            <label for="modeTagsSelect" class="block text-sm text-slate-600 mb-1">タグ</label>
+            <select id="modeTagsSelect" class="w-full rounded border px-3 py-2" multiple size="4"></select>
+            <p class="mt-1 text-xs text-slate-400">該当するものを選択してください（複数選択可）。</p>
           </div>
           <div class="flex items-center gap-2 md:col-span-2">
             <input id="modeActive" type="checkbox" class="h-4 w-4 text-blue-600" checked />
