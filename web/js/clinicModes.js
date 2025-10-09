@@ -139,21 +139,33 @@
     }).join('');
   }
 
-  function populateColorDropdown() {
+  function populateColorDropdown(selectedColor) {
     if (!els.colorOptions) return;
-    els.colorOptions.innerHTML = COLOR_OPTIONS.map(opt => `
-      <li>
-        <button type="button" data-color-option="${opt.value}" class="flex w-full items-center justify-start gap-2 px-3 py-2 text-left text-sm hover:bg-slate-100">
-          <span class="inline-flex h-5 w-5 rounded-full border border-slate-200" style="background:${opt.value}"></span>
-          <span>${opt.label}</span>
-        </button>
-      </li>
-    `).join('');
+    els.colorOptions.innerHTML = COLOR_OPTIONS.map(opt => {
+      const active = opt.value === selectedColor;
+      const base = 'flex w-full items-center justify-start gap-2 px-3 py-2 text-left text-sm rounded';
+      const classes = active
+        ? `${base} bg-blue-50 text-blue-700 border border-blue-200`
+        : `${base} hover:bg-slate-100`;
+      const status = active ? '<span class="ml-auto text-xs text-blue-600">選択中</span>' : '';
+      return `
+        <li>
+          <button type="button" data-color-option="${opt.value}" class="${classes}">
+            <span class="inline-flex h-5 w-5 rounded-full border border-slate-200" style="background:${opt.value}"></span>
+            <span class="flex-1">${opt.label}</span>
+            ${status}
+          </button>
+        </li>
+      `;
+    }).join('');
   }
 
   function setColorValue(value) {
     const color = COLOR_OPTIONS.some(opt => opt.value === value) ? value : DEFAULT_COLOR;
     updateColorPreview(color);
+    if (state.colorOpen) {
+      populateColorDropdown(color);
+    }
   }
 
   function getColorValue() {
@@ -162,15 +174,19 @@
 
   function updateColorPreview(colorValue) {
     if (!els.colorPreview) return;
-    els.colorPreview.dataset.color = colorValue || DEFAULT_COLOR;
+    const value = colorValue || DEFAULT_COLOR;
+    els.colorPreview.dataset.color = value;
     const swatch = els.colorPreview.querySelector('[data-color-swatch]');
     const label = els.colorPreview.querySelector('[data-color-name]');
     if (swatch) {
-      swatch.style.background = colorValue || DEFAULT_COLOR;
+      swatch.style.background = value;
     }
     if (label) {
-      const option = COLOR_OPTIONS.find(opt => opt.value === colorValue);
-      label.textContent = option ? option.label : colorValue;
+      const option = COLOR_OPTIONS.find(opt => opt.value === value);
+      label.textContent = option ? option.label : value;
+      label.classList.remove('text-slate-400');
+      label.classList.add('text-slate-700', 'font-medium');
+      label.removeAttribute('data-color-placeholder');
     }
   }
 
@@ -179,6 +195,7 @@
     const next = typeof force === 'boolean' ? force : !state.colorOpen;
     state.colorOpen = next;
     if (next) {
+      populateColorDropdown(getColorValue());
       els.colorDropdown.classList.remove('hidden');
     } else {
       els.colorDropdown.classList.add('hidden');
@@ -404,7 +421,7 @@
     els.active = document.getElementById('modeActive');
     els.reset = document.getElementById('modeReset');
 
-    populateColorDropdown();
+    populateColorDropdown(DEFAULT_COLOR);
     setColorValue(DEFAULT_COLOR);
 
     if (els.colorToggle) {
