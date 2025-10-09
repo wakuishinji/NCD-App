@@ -431,7 +431,7 @@
       if (els.colorDropdown && !els.colorDropdown.contains(event.target) && !els.colorToggle.contains(event.target)) {
         closeColorDropdown();
       }
-    }
+    });
 
     if (els.form) {
       els.form.addEventListener('submit', handleSubmit);
