@@ -1,13 +1,20 @@
 (function () {
   const DEFAULT_API_BASE = 'https://ncd-app.altry.workers.dev';
-  const COLOR_OPTIONS = [
-    { value: '#0ea5e9', label: 'スカイブルー' },
-    { value: '#22c55e', label: 'グリーン' },
-    { value: '#f97316', label: 'オレンジ' },
-    { value: '#6366f1', label: 'インディゴ' },
-    { value: '#ec4899', label: 'ピンク' },
-    { value: '#facc15', label: 'イエロー' },
+ const COLOR_OPTIONS = [
+   { value: '#0ea5e9', label: 'スカイブルー' },
+   { value: '#22c55e', label: 'グリーン' },
+   { value: '#f97316', label: 'オレンジ' },
+   { value: '#6366f1', label: 'インディゴ' },
+   { value: '#ec4899', label: 'ピンク' },
+   { value: '#facc15', label: 'イエロー' },
     { value: '#1f2937', label: 'ダークグレー' },
+    { value: '#0d9488', label: 'ティール' },
+    { value: '#ef4444', label: 'レッド' },
+    { value: '#8b5cf6', label: 'バイオレット' },
+    { value: '#f472b6', label: 'ローズ' },
+    { value: '#14b8a6', label: 'エメラルド' },
+    { value: '#94a3b8', label: 'スレート' },
+    { value: '#3f6212', label: 'オリーブ' },
   ];
   const DEFAULT_COLOR = COLOR_OPTIONS[0].value;
 
@@ -328,7 +335,6 @@
       return;
     }
 
-    const slugInput = nk(els.slug?.value);
     const description = nk(els.description?.value);
     const color = getColorValue();
     const tags = buildTags(label);
@@ -350,9 +356,6 @@
       }
     } else {
       payload.order = state.modes.length;
-      if (slugInput) {
-        payload.id = slugInput.toLowerCase().replace(/[^a-z0-9_-]+/g, '-');
-      }
     }
 
     saveMode(payload).catch((err) => {
