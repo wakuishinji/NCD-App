@@ -23,10 +23,6 @@ export default {
       if (!env.MEDIA) {
         return new Response('R2 bucket is not configured.', { status: 500 });
       }
-
-      for (const item of items) {
-        normalizeItemExplanations(item, { fallbackStatus: item.status === 'approved' ? 'published' : 'draft' });
-      }
       const key = decodeURIComponent(url.pathname.replace(/^\/assets\//, ''));
       if (!key) {
         return new Response('Bad Request', { status: 400 });
