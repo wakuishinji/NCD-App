@@ -21,7 +21,6 @@
   const state = {
     modes: [],
     editing: null,
-    isColorOpen: false,
   };
 
   const els = {
@@ -30,12 +29,8 @@
     form: null,
     id: null,
     label: null,
-    slug: null,
     description: null,
-    colorToggle: null,
-    colorDropdown: null,
-    colorOptions: null,
-    colorLabel: null,
+    colorSelect: null,
     active: null,
     reset: null,
   };
@@ -140,28 +135,21 @@
     }).join('');
   }
 
+  function populateColorSelect() {
+    if (!els.colorSelect) return;
+    els.colorSelect.innerHTML = COLOR_OPTIONS.map(opt => `<option value="${opt.value}">${opt.label}</option>`).join('');
+  }
+
   function setColorValue(value) {
+    if (!els.colorSelect) return;
     const color = COLOR_OPTIONS.some(opt => opt.value === value) ? value : DEFAULT_COLOR;
-    updateColorPreview(color);
+    els.colorSelect.value = color;
   }
 
   function getColorValue() {
-    const current = els.colorLabel?.dataset?.color;
-    return current || DEFAULT_COLOR;
-  }
-
-  function updateColorPreview(colorValue) {
-    if (!els.colorLabel) return;
-    const labelSpan = els.colorLabel.querySelector('[data-color-swatch]');
-    const textSpan = els.colorLabel.querySelector('[data-color-name]');
-    if (labelSpan) {
-      labelSpan.style.background = colorValue || DEFAULT_COLOR;
-    }
-    if (textSpan) {
-      const option = COLOR_OPTIONS.find(opt => opt.value === colorValue);
-      textSpan.textContent = option ? option.label : colorValue;
-    }
-    els.colorLabel.dataset.color = colorValue || DEFAULT_COLOR;
+    if (!els.colorSelect) return DEFAULT_COLOR;
+    const value = els.colorSelect.value;
+    return value || DEFAULT_COLOR;
   }
 
   function resetForm() {
@@ -169,10 +157,8 @@
     if (!els.form) return;
     els.form.reset();
     if (els.id) els.id.value = '';
-    if (els.slug) els.slug.value = '';
     if (els.description) els.description.value = '';
     if (els.active) els.active.checked = true;
-    closeColorDropdown();
     setColorValue(DEFAULT_COLOR);
     if (els.label) els.label.focus();
   }
@@ -181,7 +167,6 @@
     state.editing = mode.id;
     if (els.id) els.id.value = mode.id || '';
     if (els.label) els.label.value = mode.label || '';
-    if (els.slug) els.slug.value = mode.id || '';
     if (els.description) els.description.value = mode.description || '';
     setColorValue(mode.color || DEFAULT_COLOR);
     if (els.active) els.active.checked = mode.active !== false;
@@ -367,71 +352,19 @@
     });
   }
 
-  function populateColorDropdown() {
-    if (!els.colorOptions) return;
-    els.colorOptions.innerHTML = COLOR_OPTIONS.map(opt => `
-      <li>
-        <button type="button" data-color-option="${opt.value}" class="flex w-full items-center justify-start gap-2 px-3 py-2 text-left text-sm hover:bg-slate-100">
-          <span class="inline-flex h-5 w-5 rounded-full border border-slate-200" style="background:${opt.value}"></span>
-          <span>${opt.label}</span>
-        </button>
-      </li>
-    `).join('');
-  }
-
-  function toggleColorDropdown(force) {
-    if (!els.colorDropdown) return;
-    const shouldOpen = typeof force === 'boolean' ? force : !state.isColorOpen;
-    state.isColorOpen = shouldOpen;
-    if (shouldOpen) {
-      els.colorDropdown.classList.remove('hidden');
-    } else {
-      els.colorDropdown.classList.add('hidden');
-    }
-  }
-
-  function closeColorDropdown() {
-    toggleColorDropdown(false);
-  }
-
   function init() {
     els.panel = document.getElementById('modePanel');
     els.tableBody = document.getElementById('modeTableBody');
     els.form = document.getElementById('modeForm');
     els.id = document.getElementById('modeId');
     els.label = document.getElementById('modeLabel');
-    els.slug = document.getElementById('modeSlug');
     els.description = document.getElementById('modeDescription');
-    els.colorToggle = document.getElementById('modeColorDropdownToggle');
-    els.colorDropdown = document.getElementById('modeColorDropdown');
-    els.colorOptions = document.getElementById('modeColorOptions');
-    els.colorLabel = document.getElementById('modeColorDropdownLabel');
+    els.colorSelect = document.getElementById('modeColorSelect');
     els.active = document.getElementById('modeActive');
     els.reset = document.getElementById('modeReset');
 
-    populateColorDropdown();
+    populateColorSelect();
     setColorValue(DEFAULT_COLOR);
-
-    if (els.colorToggle) {
-      els.colorToggle.addEventListener('click', () => {
-        toggleColorDropdown();
-      });
-    }
-    if (els.colorOptions) {
-      els.colorOptions.addEventListener('click', (event) => {
-        const button = event.target.closest('[data-color-option]');
-        if (!button) return;
-        const value = button.getAttribute('data-color-option');
-        setColorValue(value);
-        closeColorDropdown();
-      });
-    }
-    document.addEventListener('click', (event) => {
-      if (!state.isColorOpen) return;
-      if (els.colorDropdown && !els.colorDropdown.contains(event.target) && !els.colorToggle.contains(event.target)) {
-        closeColorDropdown();
-      }
-    });
 
     if (els.form) {
       els.form.addEventListener('submit', handleSubmit);
