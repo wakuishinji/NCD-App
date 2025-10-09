@@ -46,7 +46,8 @@
       { value: "test", label: "検査分類" },
       { value: "service", label: "診療分類" },
       { value: "qual", label: "個人資格分野" },
-      { value: "facility", label: "施設認定の種類" }
+      { value: "facility", label: "施設認定の種類" },
+      { value: "department", label: "標榜診療科" }
     ];
 
     function populateTypeOptions(initial) {
@@ -59,9 +60,6 @@
 
     const params = new URLSearchParams(location.search);
     const requestedType = params.get("type");
-    if (requestedType === 'department') {
-      window.location.href = 'admin/departmentMaster.html';
-    }
     const validTypes = TYPE_OPTIONS.map(opt => opt.value);
     const initialType = validTypes.includes(requestedType) ? requestedType : validTypes[0];
     window.addEventListener('DOMContentLoaded', () => {
