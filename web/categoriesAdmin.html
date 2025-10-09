@@ -5,6 +5,7 @@
   <title>分類マスター管理 - NCD</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="js/loading.js" defer></script>
+  <script src="js/masterPage.js" defer></script>
 </head>
 <body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col">
   <header class="bg-blue-600 text-white shadow">
@@ -15,14 +16,16 @@
   </header>
 
   <main class="flex-1 max-w-4xl mx-auto p-6 space-y-6">
-    <div class="bg-white rounded shadow p-4">
-      <div class="flex items-center gap-4 mb-4">
+    <div class="bg-white rounded shadow p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div class="flex items-center gap-3">
         <label class="font-medium">対象</label>
         <select id="typeSel" class="border rounded px-2 py-1"></select>
-        <button id="reloadBtn" class="bg-gray-200 px-3 py-1 rounded">再読み込み</button>
       </div>
+      <button id="reloadBtn" class="self-start sm:self-auto bg-gray-200 px-3 py-1 rounded whitespace-nowrap">再読み込み</button>
+    </div>
 
-      <div class="flex items-center gap-2 mb-3">
+    <div id="categoryPanel" class="bg-white rounded shadow p-4 space-y-3">
+      <div class="flex items-center gap-2">
         <input id="newCat" class="border rounded px-2 py-1 flex-1" placeholder="新しい分類名を追加">
         <button id="addBtn" class="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700">追加</button>
       </div>
@@ -33,6 +36,64 @@
         </thead>
         <tbody id="catTbody"></tbody>
       </table>
+    </div>
+    <div id="departmentPanel" class="hidden space-y-4">
+      <section class="bg-white rounded shadow p-4 space-y-4">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 class="text-base font-semibold text-blue-900">標榜診療科マスター</h2>
+            <p class="text-xs text-gray-500">分類・名称・ステータスを管理し、CSV入出力も利用できます。</p>
+          </div>
+          <div class="flex flex-wrap gap-2 text-sm">
+            <button id="departmentExportCsv" class="rounded bg-slate-700 px-3 py-2 font-semibold text-white transition hover:bg-slate-800">CSV出力</button>
+            <button id="departmentExportJson" class="rounded bg-slate-700 px-3 py-2 font-semibold text-white transition hover:bg-slate-800">JSON出力</button>
+            <button id="departmentCsvButton" class="rounded bg-blue-600 px-3 py-2 font-semibold text-white transition hover:bg-blue-700">CSV取込</button>
+            <input type="file" id="departmentCsvInput" accept=".csv,text/csv" class="hidden" />
+          </div>
+        </div>
+
+        <form id="departmentAddForm" class="grid gap-3 rounded-lg border border-gray-200 bg-gray-50/90 p-4">
+          <div class="grid gap-3 md:grid-cols-[2fr,1fr]">
+            <div>
+              <label class="block text-xs text-gray-600">分類</label>
+              <select id="departmentAddCategory" class="w-full rounded border px-2 py-1"></select>
+            </div>
+            <div>
+              <label class="block text-xs text-gray-600">ステータス</label>
+              <select id="departmentAddStatus" class="w-full rounded border px-2 py-1">
+                <option value="approved">approved</option>
+                <option value="candidate">candidate</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600">診療科名称</label>
+            <input id="departmentAddName" class="w-full rounded border px-2 py-1" placeholder="例: 内科" required />
+          </div>
+          <div class="flex justify-end">
+            <button class="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700">新規登録</button>
+          </div>
+        </form>
+
+        <div class="flex flex-col gap-2 rounded-lg border border-gray-200 bg-white/90 p-3 shadow-sm md:flex-row md:items-center md:justify-between">
+          <div class="flex flex-wrap gap-2 text-sm">
+            <label class="flex items-center gap-2"><span>ステータス</span>
+              <select id="departmentStatus" class="rounded border px-2 py-1">
+                <option value="">すべて</option>
+                <option value="approved">approved</option>
+                <option value="candidate">candidate</option>
+                <option value="archived">archived</option>
+              </select>
+            </label>
+          </div>
+          <div class="flex flex-wrap gap-2 text-sm">
+            <input id="departmentSearch" class="w-48 rounded border px-2 py-1" placeholder="キーワード検索" />
+            <button id="departmentReload" class="rounded bg-gray-200 px-3 py-1 font-semibold text-gray-700 transition hover:bg-gray-300">再読み込み</button>
+          </div>
+        </div>
+
+        <div id="departmentList" class="space-y-4"></div>
+      </section>
     </div>
   </main>
 
@@ -50,129 +111,203 @@
       { value: "department", label: "標榜診療科" }
     ];
 
+    const typeSelect = document.getElementById('typeSel');
+    const reloadBtn = document.getElementById('reloadBtn');
+    const categoryPanel = document.getElementById('categoryPanel');
+    const departmentPanel = document.getElementById('departmentPanel');
+    const catTbody = document.getElementById('catTbody');
+    const newCategoryInput = document.getElementById('newCat');
+    const addCategoryButton = document.getElementById('addBtn');
+
+    let departmentMasterPage = null;
+    let departmentInitialized = false;
+
     function populateTypeOptions(initial) {
-      const sel = document.getElementById('typeSel');
-      sel.innerHTML = TYPE_OPTIONS.map(opt => `<option value="${opt.value}">${opt.label}</option>`).join('');
+      typeSelect.innerHTML = TYPE_OPTIONS.map(opt => `<option value="${opt.value}">${opt.label}</option>`).join('');
       if (TYPE_OPTIONS.some(opt => opt.value === initial)) {
-        sel.value = initial;
+        typeSelect.value = initial;
       }
     }
 
-    const params = new URLSearchParams(location.search);
-    const requestedType = params.get("type");
-    const validTypes = TYPE_OPTIONS.map(opt => opt.value);
-    const initialType = validTypes.includes(requestedType) ? requestedType : validTypes[0];
-    window.addEventListener('DOMContentLoaded', () => {
-      populateTypeOptions(initialType);
-      loadCats(true);
-    });
+    function togglePanels(showDepartment) {
+      categoryPanel.classList.toggle('hidden', showDepartment);
+      departmentPanel.classList.toggle('hidden', !showDepartment);
+      newCategoryInput.disabled = showDepartment;
+      addCategoryButton.disabled = showDepartment;
+      addCategoryButton.classList.toggle('bg-green-600', !showDepartment);
+      addCategoryButton.classList.toggle('bg-gray-400', showDepartment);
+      newCategoryInput.placeholder = showDepartment
+        ? '標榜診療科は下のフォームで追加してください'
+        : '新しい分類名を追加';
+      if (showDepartment) {
+        newCategoryInput.value = '';
+      }
+    }
 
-    async function loadCats(withOverlay = false) {
-      const executor = async () => {
-        try {
-          const type = document.getElementById('typeSel').value;
-          const r = await fetch(`${BASE}/api/listCategories?type=${type}`);
-          if (!r.ok) {
-            throw new Error(`HTTP ${r.status}`);
-          }
-          const d = await r.json();
-          const tbody = document.getElementById('catTbody');
-          tbody.innerHTML = "";
-          (d.categories || []).forEach((c,i) => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-              <td class="border px-2 py-1 text-center">${i+1}</td>
-              <td class="border px-2 py-1"><input value="${c}" class="border rounded px-2 py-1 w-full" data-old="${c}"></td>
-              <td class="border px-2 py-1">
-                <button class="bg-blue-600 text-white px-2 py-1 rounded mr-2 renameBtn">改名</button>
-                <button class="bg-red-600 text-white px-2 py-1 rounded delBtn">削除</button>
-              </td>`;
-            tbody.appendChild(tr);
-          });
-
-          tbody.querySelectorAll('.renameBtn').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-              const row = e.target.closest('tr');
-              const input = row.querySelector('input');
-              const oldName = input.getAttribute('data-old');
-              const newName = input.value.trim();
-              if (!newName) return alert("分類名を入力してください");
-              try {
-                const res = await fetch(`${BASE}/api/renameCategory`, {
-                  method: "POST", headers: { "Content-Type":"application/json" },
-                  body: JSON.stringify({ type: document.getElementById('typeSel').value, oldName, newName })
-                });
-                if (!res.ok) throw new Error();
-                await loadCats(true);
-              } catch (err) {
-                console.error('rename failed', err);
-                alert("改名に失敗しました");
-              }
-            });
-          });
-          tbody.querySelectorAll('.delBtn').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-              const row = e.target.closest('tr');
-              const name = row.querySelector('input').value.trim();
-              if (!confirm(`「${name}」を削除しますか？`)) return;
-              try {
-                const res = await fetch(`${BASE}/api/deleteCategory`, {
-                  method: "POST", headers: { "Content-Type":"application/json" },
-                  body: JSON.stringify({ type: document.getElementById('typeSel').value, name })
-                });
-                if (!res.ok) throw new Error();
-                await loadCats(true);
-              } catch (err) {
-                console.error('delete failed', err);
-                alert("削除に失敗しました");
-              }
-            });
-          });
-        } catch (error) {
-          console.error('failed to load categories', error);
-          alert('分類の取得に失敗しました');
-          throw error;
+    function initDepartmentMaster() {
+      if (departmentInitialized) return false;
+      departmentMasterPage = initMasterPage({
+        type: 'department',
+        enableCategoryFilter: false,
+        enableCsvImport: true,
+        showDescription: false,
+        showNotes: false,
+        showClassification: false,
+        enableManualAdd: true,
+        allowFreeCategory: false,
+        loadingMessage: '標榜診療科マスターを読み込み中...',
+        elements: {
+          panel: departmentPanel,
+          list: document.getElementById('departmentList'),
+          reloadButton: document.getElementById('departmentReload'),
+          statusSelect: document.getElementById('departmentStatus'),
+          categorySelect: null,
+          searchInput: document.getElementById('departmentSearch'),
+          csvButton: document.getElementById('departmentCsvButton'),
+          csvInput: document.getElementById('departmentCsvInput'),
+          addForm: document.getElementById('departmentAddForm'),
+          addCategory: document.getElementById('departmentAddCategory'),
+          addCategoryManual: null,
+          addStatus: document.getElementById('departmentAddStatus'),
+          addName: document.getElementById('departmentAddName')
         }
+      });
+
+      document.getElementById('departmentExportCsv').addEventListener('click', () => {
+        window.open(`${BASE}/api/exportMaster?type=department&format=csv`, '_blank');
+      });
+      document.getElementById('departmentExportJson').addEventListener('click', () => {
+        window.open(`${BASE}/api/exportMaster?type=department&format=json`, '_blank');
+      });
+      departmentInitialized = true;
+      return true;
+    }
+
+    async function loadCategoryList(withOverlay = false) {
+      const type = typeSelect.value;
+      const executor = async () => {
+        const res = await fetch(`${BASE}/api/listCategories?type=${type}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const categories = Array.isArray(data.categories) ? data.categories : [];
+        catTbody.innerHTML = '';
+        categories.forEach((name, index) => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td class="border px-2 py-1 text-center">${index + 1}</td>
+            <td class="border px-2 py-1"><input value="${name}" class="border rounded px-2 py-1 w-full" data-old="${name}"></td>
+            <td class="border px-2 py-1">
+              <button class="bg-blue-600 text-white px-2 py-1 rounded mr-2 renameBtn">改名</button>
+              <button class="bg-red-600 text-white px-2 py-1 rounded delBtn">削除</button>
+            </td>`;
+          catTbody.appendChild(tr);
+        });
+
+        catTbody.querySelectorAll('.renameBtn').forEach(btn => {
+          btn.addEventListener('click', async (event) => {
+            const row = event.currentTarget.closest('tr');
+            const input = row.querySelector('input');
+            const oldName = input.getAttribute('data-old');
+            const newName = input.value.trim();
+            if (!newName) {
+              alert('分類名を入力してください');
+              return;
+            }
+            try {
+              const res = await fetch(`${BASE}/api/renameCategory`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: typeSelect.value, oldName, newName })
+              });
+              if (!res.ok) throw new Error();
+              await loadCategoryList(true);
+            } catch (err) {
+              console.error('rename failed', err);
+              alert('改名に失敗しました');
+            }
+          });
+        });
+
+        catTbody.querySelectorAll('.delBtn').forEach(btn => {
+          btn.addEventListener('click', async (event) => {
+            const row = event.currentTarget.closest('tr');
+            const name = row.querySelector('input').value.trim();
+            if (!confirm(`「${name}」を削除しますか？`)) return;
+            try {
+              const res = await fetch(`${BASE}/api/deleteCategory`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: typeSelect.value, name })
+              });
+              if (!res.ok) throw new Error();
+              await loadCategoryList(true);
+            } catch (err) {
+              console.error('delete failed', err);
+              alert('削除に失敗しました');
+            }
+          });
+        });
       };
 
       if (withOverlay && typeof wrapWithLoading === 'function') {
-        await wrapWithLoading(executor, '分類を読み込み中...', document.querySelector('main'));
+        await wrapWithLoading(executor, '分類を読み込み中...', categoryPanel);
       } else {
-        try {
-          await executor();
-        } catch (error) {
-          console.error(error);
-        }
+        await executor().catch(err => console.error(err));
       }
     }
 
-    document.getElementById('reloadBtn').addEventListener('click', () => loadCats(true));
-    document.getElementById('typeSel').addEventListener('change', () => loadCats(true));
-    document.getElementById('addBtn').addEventListener('click', async () => {
-      const name = document.getElementById('newCat').value.trim();
-      if (!name) return alert("分類名を入力してください");
-      if (typeof wrapWithLoading === 'function') {
-        await wrapWithLoading(async () => {
-          const res = await fetch(`${BASE}/api/addCategory`, {
-            method: "POST", headers: { "Content-Type":"application/json" },
-            body: JSON.stringify({ type: document.getElementById('typeSel').value, name })
-          });
-          if (!res.ok) throw new Error('追加に失敗しました');
-        }, '分類を追加しています...', document.querySelector('main'));
-      } else {
-        const res = await fetch(`${BASE}/api/addCategory`, {
-          method: "POST", headers: { "Content-Type":"application/json" },
-          body: JSON.stringify({ type: document.getElementById('typeSel').value, name })
-        });
-        if (!res.ok) {
-          alert("追加に失敗しました");
-          return;
+    async function loadCurrent(withOverlay = false) {
+      const showDepartment = typeSelect.value === 'department';
+      togglePanels(showDepartment);
+      if (showDepartment) {
+        const initializedNow = initDepartmentMaster();
+        if (departmentMasterPage && !initializedNow) {
+          await departmentMasterPage.reload({ force: true });
         }
+        return;
       }
-      document.getElementById('newCat').value = "";
-      await loadCats(true);
+      await loadCategoryList(withOverlay);
+    }
+
+    reloadBtn.addEventListener('click', () => loadCurrent(true));
+    typeSelect.addEventListener('change', () => loadCurrent(true));
+
+    addCategoryButton.addEventListener('click', async () => {
+      if (typeSelect.value === 'department') {
+        alert('診療科の追加は下のフォームから行ってください');
+        return;
+      }
+      const name = newCategoryInput.value.trim();
+      if (!name) {
+        alert('分類名を入力してください');
+        return;
+      }
+      const executor = async () => {
+        const res = await fetch(`${BASE}/api/addCategory`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: typeSelect.value, name })
+        });
+        if (!res.ok) throw new Error('追加に失敗しました');
+      };
+      if (typeof wrapWithLoading === 'function') {
+        await wrapWithLoading(executor, '分類を追加しています...', categoryPanel);
+      } else {
+        await executor().catch(() => alert('追加に失敗しました'));
+      }
+      newCategoryInput.value = '';
+      await loadCategoryList(true);
     });
-    
+
+    const params = new URLSearchParams(location.search);
+    const requestedType = params.get('type');
+    const validTypes = TYPE_OPTIONS.map(opt => opt.value);
+    const initialType = validTypes.includes(requestedType) ? requestedType : validTypes[0];
+
+    window.addEventListener('DOMContentLoaded', () => {
+      populateTypeOptions(initialType);
+      loadCurrent(true);
+    });
   </script>
 </body>
 </html>
