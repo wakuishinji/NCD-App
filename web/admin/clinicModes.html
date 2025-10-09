@@ -60,8 +60,19 @@
             <input id="modeLabel" class="w-full rounded border px-3 py-2" placeholder="例: オンライン診療" required />
           </div>
           <div class="md:col-span-1">
-            <label for="modeColorSelect" class="block text-sm text-slate-600 mb-1">カラー</label>
-            <select id="modeColorSelect" class="w-full rounded border border-slate-300 px-3 py-2 text-sm"></select>
+            <label class="block text-sm text-slate-600 mb-1">カラー</label>
+            <div class="relative">
+              <button type="button" id="modeColorDropdownToggle" class="flex w-full items-center justify-between rounded border border-slate-300 bg-white px-3 py-2 text-left text-sm">
+                <span id="modeColorPreview" class="flex items-center gap-2" data-color="">
+                  <span data-color-swatch class="inline-flex h-6 w-6 rounded-full border border-slate-200 bg-slate-100"></span>
+                  <span data-color-name class="text-slate-600" data-color-placeholder>カラーを選択</span>
+                </span>
+                <span class="text-xs text-slate-500">▼</span>
+              </button>
+              <div id="modeColorDropdown" class="absolute z-10 mt-1 hidden w-full rounded border border-slate-200 bg-white shadow">
+                <ul id="modeColorOptions" class="max-h-48 overflow-y-auto py-1 text-sm"></ul>
+              </div>
+            </div>
             <p class="mt-2 text-xs text-slate-400">バッジに使うカラーを選択してください。</p>
           </div>
           <div class="md:col-span-2">

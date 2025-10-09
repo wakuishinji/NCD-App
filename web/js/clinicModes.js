@@ -1,12 +1,12 @@
 (function () {
   const DEFAULT_API_BASE = 'https://ncd-app.altry.workers.dev';
- const COLOR_OPTIONS = [
-   { value: '#0ea5e9', label: 'スカイブルー' },
-   { value: '#22c55e', label: 'グリーン' },
-   { value: '#f97316', label: 'オレンジ' },
-   { value: '#6366f1', label: 'インディゴ' },
-   { value: '#ec4899', label: 'ピンク' },
-   { value: '#facc15', label: 'イエロー' },
+  const COLOR_OPTIONS = [
+    { value: '#0ea5e9', label: 'スカイブルー' },
+    { value: '#22c55e', label: 'グリーン' },
+    { value: '#f97316', label: 'オレンジ' },
+    { value: '#6366f1', label: 'インディゴ' },
+    { value: '#ec4899', label: 'ピンク' },
+    { value: '#facc15', label: 'イエロー' },
     { value: '#1f2937', label: 'ダークグレー' },
     { value: '#0d9488', label: 'ティール' },
     { value: '#ef4444', label: 'レッド' },
@@ -21,6 +21,7 @@
   const state = {
     modes: [],
     editing: null,
+    colorOpen: false,
   };
 
   const els = {
@@ -30,7 +31,10 @@
     id: null,
     label: null,
     description: null,
-    colorSelect: null,
+    colorToggle: null,
+    colorDropdown: null,
+    colorOptions: null,
+    colorPreview: null,
     active: null,
     reset: null,
   };
@@ -92,15 +96,15 @@
   }
 
   function displayColor(value) {
-    const color = value || DEFAULT_COLOR;
-    const label = (COLOR_OPTIONS.find(opt => opt.value === color)?.label) || color;
-    return `<span class="inline-flex items-center gap-2"><span class="inline-flex h-5 w-5 rounded-full border border-slate-200" style="background:${color}"></span><span>${label}</span></span>`;
+    const option = COLOR_OPTIONS.find(opt => opt.value === value);
+    const label = option ? option.label : value;
+    return `<span class="inline-flex items-center gap-2"><span class="inline-flex h-5 w-5 rounded-full border border-slate-200" style="background:${value}"></span><span>${label}</span></span>`;
   }
 
   function renderTable() {
     if (!els.tableBody) return;
     if (!Array.isArray(state.modes) || !state.modes.length) {
-      els.tableBody.innerHTML = '<tr><td colspan="6" class="px-3 py-4 text-center text-sm text-slate-500">まだ登録されていません</td></tr>';
+      els.tableBody.innerHTML = '<tr><td colspan="5" class="px-3 py-4 text-center text-sm text-slate-500">まだ登録されていません</td></tr>';
       return;
     }
     els.tableBody.innerHTML = state.modes.map((mode, index) => {
@@ -135,21 +139,54 @@
     }).join('');
   }
 
-  function populateColorSelect() {
-    if (!els.colorSelect) return;
-    els.colorSelect.innerHTML = COLOR_OPTIONS.map(opt => `<option value="${opt.value}">${opt.label}</option>`).join('');
+  function populateColorDropdown() {
+    if (!els.colorOptions) return;
+    els.colorOptions.innerHTML = COLOR_OPTIONS.map(opt => `
+      <li>
+        <button type="button" data-color-option="${opt.value}" class="flex w-full items-center justify-start gap-2 px-3 py-2 text-left text-sm hover:bg-slate-100">
+          <span class="inline-flex h-5 w-5 rounded-full border border-slate-200" style="background:${opt.value}"></span>
+          <span>${opt.label}</span>
+        </button>
+      </li>
+    `).join('');
   }
 
   function setColorValue(value) {
-    if (!els.colorSelect) return;
     const color = COLOR_OPTIONS.some(opt => opt.value === value) ? value : DEFAULT_COLOR;
-    els.colorSelect.value = color;
+    updateColorPreview(color);
   }
 
   function getColorValue() {
-    if (!els.colorSelect) return DEFAULT_COLOR;
-    const value = els.colorSelect.value;
-    return value || DEFAULT_COLOR;
+    return els.colorPreview?.dataset?.color || DEFAULT_COLOR;
+  }
+
+  function updateColorPreview(colorValue) {
+    if (!els.colorPreview) return;
+    els.colorPreview.dataset.color = colorValue || DEFAULT_COLOR;
+    const swatch = els.colorPreview.querySelector('[data-color-swatch]');
+    const label = els.colorPreview.querySelector('[data-color-name]');
+    if (swatch) {
+      swatch.style.background = colorValue || DEFAULT_COLOR;
+    }
+    if (label) {
+      const option = COLOR_OPTIONS.find(opt => opt.value === colorValue);
+      label.textContent = option ? option.label : colorValue;
+    }
+  }
+
+  function toggleColorDropdown(force) {
+    if (!els.colorDropdown) return;
+    const next = typeof force === 'boolean' ? force : !state.colorOpen;
+    state.colorOpen = next;
+    if (next) {
+      els.colorDropdown.classList.remove('hidden');
+    } else {
+      els.colorDropdown.classList.add('hidden');
+    }
+  }
+
+  function closeColorDropdown() {
+    toggleColorDropdown(false);
   }
 
   function resetForm() {
@@ -159,6 +196,7 @@
     if (els.id) els.id.value = '';
     if (els.description) els.description.value = '';
     if (els.active) els.active.checked = true;
+    closeColorDropdown();
     setColorValue(DEFAULT_COLOR);
     if (els.label) els.label.focus();
   }
@@ -359,12 +397,38 @@
     els.id = document.getElementById('modeId');
     els.label = document.getElementById('modeLabel');
     els.description = document.getElementById('modeDescription');
-    els.colorSelect = document.getElementById('modeColorSelect');
+    els.colorToggle = document.getElementById('modeColorDropdownToggle');
+    els.colorDropdown = document.getElementById('modeColorDropdown');
+    els.colorOptions = document.getElementById('modeColorOptions');
+    els.colorPreview = document.getElementById('modeColorPreview');
     els.active = document.getElementById('modeActive');
     els.reset = document.getElementById('modeReset');
 
-    populateColorSelect();
+    populateColorDropdown();
     setColorValue(DEFAULT_COLOR);
+
+    if (els.colorToggle) {
+      els.colorToggle.addEventListener('click', () => {
+        toggleColorDropdown();
+      });
+    }
+
+    if (els.colorOptions) {
+      els.colorOptions.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-color-option]');
+        if (!button) return;
+        const value = button.getAttribute('data-color-option');
+        setColorValue(value);
+        closeColorDropdown();
+      });
+    }
+
+    document.addEventListener('click', (event) => {
+      if (!state.colorOpen) return;
+      if (els.colorDropdown && !els.colorDropdown.contains(event.target) && !els.colorToggle.contains(event.target)) {
+        closeColorDropdown();
+      }
+    });
 
     if (els.form) {
       els.form.addEventListener('submit', handleSubmit);
