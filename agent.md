@@ -18,7 +18,7 @@
 - `admin/admin.html`: カード型の管理ハブ。診療所リスト／標榜診療科／個人資格／検査／診療／施設認定／運用補助の各カードから専用画面へ遷移。
 - `admin/clinicList.html`: 管理者向けの診療所一覧（検索・並べ替え・エクスポート・削除）。
 - `admin/personalQualifications.html`, `admin/testsMaster.html`, `admin/servicesMaster.html`, `admin/facilityAccreditations.html`: 各マスターの専用管理画面。分類フィルタ・CSV取込・ステータス変更・備考編集を共通UIで提供。
-- `admin/departmentMaster.html`: 標榜診療科マスター管理（1行カード表示）。
+- `categoriesAdmin.html?type=department`: 標榜診療科の分類ラベルを共通UIで管理（追加・改名・削除）。
 - `admin/settings.html`: AIモデル・プロンプト等の共通設定を編集。
 - `admin/todo.html`: 運用ToDoの閲覧/保存（Workersの `/api/todo/*` と連携）。
 
