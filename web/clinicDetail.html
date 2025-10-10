@@ -354,7 +354,42 @@
   </div>
 
 <script>
-const BASE = "https://ncd-app.altry.workers.dev";
+const DEFAULT_API_BASE = "https://ncd-app.altry.workers.dev";
+const DEFAULT_ASSET_BASE = "https://ncd-app.altry.workers.dev";
+const BASE = (() => {
+  if (typeof window !== 'undefined' && typeof window.NCD_API_BASE === 'string' && window.NCD_API_BASE.trim()) {
+    return window.NCD_API_BASE.trim().replace(/\/$/, '');
+  }
+  try {
+    const stored = localStorage.getItem('ncdApiBase') || localStorage.getItem('ncdApiBaseUrl');
+    if (typeof stored === 'string' && stored.trim()) {
+      return stored.trim().replace(/\/$/, '');
+    }
+  } catch (_) {}
+  return DEFAULT_API_BASE;
+})();
+const ASSET_BASE = (() => {
+  if (typeof window !== 'undefined' && typeof window.NCD_ASSET_BASE === 'string' && window.NCD_ASSET_BASE.trim()) {
+    return window.NCD_ASSET_BASE.trim().replace(/\/$/, '');
+  }
+  try {
+    const stored = localStorage.getItem('ncdAssetBase');
+    if (typeof stored === 'string' && stored.trim()) {
+      return stored.trim().replace(/\/$/, '');
+    }
+  } catch (_) {}
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const fallback = origin && BASE === origin ? DEFAULT_ASSET_BASE : BASE;
+  return fallback || DEFAULT_ASSET_BASE;
+})();
+if (typeof window !== 'undefined') {
+  if (typeof window.NCD_API_BASE !== 'string' || !window.NCD_API_BASE.trim()) {
+    window.NCD_API_BASE = BASE;
+  }
+  if (typeof window.NCD_ASSET_BASE !== 'string' || !window.NCD_ASSET_BASE.trim()) {
+    window.NCD_ASSET_BASE = ASSET_BASE;
+  }
+}
 const days = ["月曜","火曜","水曜","木曜","金曜","土曜","日曜","祝日"];
 const DEPARTMENT_CATEGORY = "標榜診療科";
 
@@ -543,6 +578,18 @@ function setMediaSlotBusy(slot, busy) {
   }
 }
 
+function buildAssetUrl(key, params = {}) {
+  if (!key) return '';
+  const base = `${ASSET_BASE}/assets/${encodeURIComponent(key)}`;
+  const query = new URLSearchParams();
+  if (params.width) query.set('w', String(params.width));
+  if (params.height) query.set('h', String(params.height));
+  if (params.fit) query.set('fit', params.fit);
+  if (params.format) query.set('format', params.format);
+  const qs = query.toString();
+  return qs ? `${base}?${qs}` : base;
+}
+
 function renderMediaSlot(slot) {
   const def = MEDIA_SLOT_DEFS.find(item => item.key === slot);
   if (!def) return;
@@ -554,8 +601,10 @@ function renderMediaSlot(slot) {
   if (!previewEl) return;
 
   if (state && state.key) {
-    const encodedKey = encodeURIComponent(state.key);
-    previewEl.innerHTML = `<img src="/assets/${encodedKey}?w=400&h=300&fit=cover" alt="" class="h-full w-full object-cover" />`;
+    const url = buildAssetUrl(state.key, { width: 400, height: 300, fit: 'cover' });
+    previewEl.innerHTML = url
+      ? `<img src="${url}" alt="" class="h-full w-full object-cover" />`
+      : '<span class="text-xs text-slate-400">画像を取得できません</span>';
     if (altInput) {
       altInput.disabled = false;
       altInput.value = state.alt || '';
