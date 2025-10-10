@@ -327,25 +327,30 @@
     });
 
     els.clinicList.innerHTML = clinics.map((clinic) => {
-      const safeAddress = clinic.address || '住所未登録';
-      const tagsMarkup = clinic.tags.map((tag) => `<span class="inline-flex items-center rounded bg-emerald-100 px-2 py-0.5 text-[11px] text-emerald-700">${tag}</span>`).join('');
+      const displayTags = clinic.tags.slice(0, 4);
+      const extraTagCount = Math.max(0, clinic.tags.length - displayTags.length);
+      const tagsMarkup = displayTags.length
+        ? `<div class="mt-1 flex flex-wrap gap-1">${displayTags.map((tag) => `<span class="inline-flex items-center rounded bg-emerald-100 px-2 py-0.5 text-[11px] text-emerald-700">${tag}</span>`).join('')}${extraTagCount ? `<span class="inline-flex items-center rounded bg-slate-200 px-2 py-0.5 text-[10px] text-slate-600">+${extraTagCount}</span>` : ''}</div>`
+        : '';
       const modesMarkup = buildModesBadges(clinic);
       const mediaRecord = clinic.media.logoSmall || clinic.media.logoLarge || clinic.media.facade;
-      const logoUrl = mediaUrl(mediaRecord, { width: 120, height: 120, fit: 'cover' });
+      const logoUrl = mediaUrl(mediaRecord, { width: 96, height: 96, fit: 'cover' });
       const logoMarkup = logoUrl
         ? `<img src="${logoUrl}" alt="" class="h-full w-full object-cover" />`
         : '<span class="text-[11px] text-slate-400">Logo</span>';
-      const accessSummary = clinic.accessSummary ? `<div class="mt-1 text-xs text-slate-500">${clinic.accessSummary}</div>` : '';
+      const indexBadge = typeof clinic._listIndex === 'number'
+        ? `<span class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[11px] font-semibold text-white">${clinic._listIndex}</span>`
+        : '';
+      const modeRow = modesMarkup ? `<div class="mt-1 flex flex-wrap gap-1 text-[11px]">${modesMarkup}</div>` : '';
       return `
-        <button class="w-full px-4 py-4 text-left hover:bg-slate-50 transition" data-clinic-id="${clinic.id}">
-          <div class="flex items-start gap-3">
-            <span class="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-full bg-emerald-500 px-2 text-xs font-semibold text-white">${clinic._listIndex}</span>
+        <button class="w-full px-4 py-3 text-left hover:bg-slate-50 transition" data-clinic-id="${clinic.id}">
+          <div class="flex items-center gap-3">
+            ${indexBadge}
             <div class="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white shadow-sm">${logoMarkup}</div>
-            <div class="flex-1">
-              <div class="text-sm font-semibold text-blue-900">${clinic.name}</div>
-              <div class="mt-1 text-xs text-slate-500">${safeAddress}</div>
-              ${accessSummary}
-              <div class="mt-2 flex flex-wrap gap-1">${modesMarkup}${tagsMarkup}</div>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-semibold text-slate-900 truncate">${clinic.name}</p>
+              ${modeRow}
+              ${tagsMarkup}
             </div>
           </div>
         </button>

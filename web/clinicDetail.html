@@ -1762,11 +1762,16 @@ async function saveClinic() {
     if (!res.ok) throw new Error("API更新エラー");
 
     const result = await res.json();
+    if (!result?.clinic) {
+      throw new Error('応答に診療所データが含まれていません');
+    }
+
     localStorage.setItem("selectedClinic", JSON.stringify(result.clinic));
-    mediaState = sanitizeMediaState(result.clinic?.media);
+    mediaState = sanitizeMediaState(result.clinic.media);
     renderAllMediaSlots();
-    applyAccessToForm(result.clinic?.access);
-    applyModesToForm(result.clinic?.modes);
+    applyAccessToForm(result.clinic.access);
+    applyModesToForm(result.clinic.modes);
+    loadClinicDetail();
     alert("診療所データを更新しました");
     await registerDepartmentCandidates(uniqueOtherDept);
     resetDirtyState();
