@@ -63,7 +63,25 @@
   </footer>
 
   <script>
-    const BASE = "https://ncd-app.altry.workers.dev";
+    const DEFAULT_API_BASE = "https://ncd-app.altry.workers.dev";
+    function resolveApiBase() {
+      if (typeof window !== 'undefined' && typeof window.API_BASE_OVERRIDE === 'string') {
+        const override = window.API_BASE_OVERRIDE.trim();
+        if (override) {
+          return override.replace(/\/$/, '');
+        }
+      }
+      try {
+        const stored = localStorage.getItem('ncdApiBase') || localStorage.getItem('ncdApiBaseUrl');
+        if (typeof stored === 'string' && stored.trim()) {
+          return stored.trim().replace(/\/$/, '');
+        }
+      } catch (_) {}
+      return DEFAULT_API_BASE;
+    }
+
+    const API_BASE = resolveApiBase();
+    window.NCD_API_BASE = window.NCD_API_BASE || API_BASE;
     const TYPE_OPTIONS = [
       { value: "test", label: "検査分類" },
       { value: "service", label: "診療分類" },
@@ -99,8 +117,15 @@
       departmentPanel.classList.toggle('hidden', !showDepartment);
     }
 
-    async function fetchJson(url, options) {
-      const res = await fetch(url, options);
+    function apiUrl(path) {
+      if (!path) return API_BASE;
+      if (/^https?:\/\//i.test(path)) return path;
+      const normalized = path.startsWith('/') ? path : `/${path}`;
+      return `${API_BASE}${normalized}`;
+    }
+
+    async function fetchJson(path, options) {
+      const res = await fetch(apiUrl(path), options);
       if (!res.ok) {
         const text = await res.text();
         throw new Error(`HTTP ${res.status} ${text}`);
@@ -126,7 +151,8 @@
 
     async function loadCategoryList(withOverlay = false) {
       const executor = async () => {
-        const data = await fetchJson(`${BASE}/api/listCategories?type=${typeSelect.value}`);
+        const type = encodeURIComponent(typeSelect.value);
+        const data = await fetchJson(`/api/listCategories?type=${type}`);
         const categories = Array.isArray(data.categories) ? data.categories : [];
         catTbody.innerHTML = '';
         categories.forEach((name, index) => {
@@ -158,7 +184,7 @@
               return;
             }
             try {
-              await fetchJson(`${BASE}/api/renameCategory`, {
+              await fetchJson('/api/renameCategory', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ type: typeSelect.value, oldName, newName })
@@ -177,7 +203,7 @@
             const name = row.querySelector('input').value.trim();
             if (!confirm(`「${name}」を削除しますか？`)) return;
             try {
-              await fetchJson(`${BASE}/api/deleteCategory`, {
+              await fetchJson('/api/deleteCategory', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ type: typeSelect.value, name })
@@ -285,7 +311,7 @@
 
     async function loadDepartmentList(withOverlay = false) {
       const executor = async () => {
-        const data = await fetchJson(`${BASE}/api/listMaster?type=department`);
+        const data = await fetchJson('/api/listMaster?type=department');
         currentDepartmentItems = Array.isArray(data.items) ? data.items : [];
         renderDepartmentTable(currentDepartmentItems);
       };
@@ -316,7 +342,7 @@
         return;
       }
       const executor = async () => {
-        await fetchJson(`${BASE}/api/addCategory`, {
+        await fetchJson('/api/addCategory', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ type: typeSelect.value, name })
@@ -343,7 +369,7 @@
       }
       const classification = deptCategorySelect.value || departmentCategories[0];
       const executor = async () => {
-        await fetchJson(`${BASE}/api/addMasterItem`, {
+        await fetchJson('/api/addMasterItem', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ type: 'department', category: classification, name })
