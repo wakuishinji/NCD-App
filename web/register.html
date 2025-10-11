@@ -46,6 +46,26 @@
   </div>
 
   <script>
+    const DEFAULT_API_BASE = "https://ncd-app.altry.workers.dev";
+    function resolveApiBase() {
+      if (typeof window !== 'undefined' && typeof window.API_BASE_OVERRIDE === 'string') {
+        const override = window.API_BASE_OVERRIDE.trim();
+        if (override) {
+          return override.replace(/\/$/, "");
+        }
+      }
+      try {
+        const stored = localStorage.getItem('ncdApiBase') || localStorage.getItem('ncdApiBaseUrl');
+        if (typeof stored === 'string' && stored.trim()) {
+          return stored.trim().replace(/\/$/, "");
+        }
+      } catch (_) {}
+      return DEFAULT_API_BASE;
+    }
+
+    const API_BASE = resolveApiBase();
+    window.NCD_API_BASE = window.NCD_API_BASE || API_BASE;
+
     async function registerClinic() {
       const name = document.getElementById("clinicName").value.trim();
       const messageEl = document.getElementById("message");
@@ -57,7 +77,7 @@
       }
 
       try {
-        const res = await fetch("https://ncd-app.altry.workers.dev/api/registerClinic", {
+        const res = await fetch(`${API_BASE}/api/registerClinic`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name })

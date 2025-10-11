@@ -100,7 +100,25 @@
   </footer>
 
   <script>
-    const BASE = "https://ncd-app.altry.workers.dev";
+    const DEFAULT_API_BASE = "https://ncd-app.altry.workers.dev";
+    function resolveApiBase() {
+      if (typeof window !== 'undefined' && typeof window.API_BASE_OVERRIDE === 'string') {
+        const override = window.API_BASE_OVERRIDE.trim();
+        if (override) {
+          return override.replace(/\/$/, '');
+        }
+      }
+      try {
+        const stored = localStorage.getItem('ncdApiBase') || localStorage.getItem('ncdApiBaseUrl');
+        if (typeof stored === 'string' && stored.trim()) {
+          return stored.trim().replace(/\/$/, '');
+        }
+      } catch (_) {}
+      return DEFAULT_API_BASE;
+    }
+
+    const BASE = resolveApiBase();
+    window.NCD_API_BASE = window.NCD_API_BASE || BASE;
     let clinicsRaw = [];
 
     function formatDate(ts) {

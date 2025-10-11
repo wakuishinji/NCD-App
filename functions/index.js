@@ -505,9 +505,25 @@ export default {
       const now = Math.floor(Date.now()/1000);
       clinic.schema_version = SCHEMA_VERSION;
       clinic.updated_at = now;
+      let existing = null;
+      if (clinic.id) {
+        existing = await getClinicById(env, clinic.id);
+      }
+      if (!clinic.id && clinic.name) {
+        existing = await getClinicByName(env, clinic.name);
+        if (existing?.id) {
+          clinic.id = existing.id;
+        }
+      }
       if (!clinic.id) {
         clinic.id = crypto.randomUUID();
         clinic.created_at = now;
+      } else if (!clinic.created_at && existing?.created_at) {
+        clinic.created_at = existing.created_at;
+      }
+      if (existing?.name && existing.name !== clinic.name) {
+        await env.SETTINGS.delete(`clinic:name:${existing.name}`).catch(() => {});
+        await env.SETTINGS.delete(`clinic:${existing.name}`).catch(() => {});
       }
       if (clinic.name) {
         await env.SETTINGS.put(`clinic:name:${clinic.name}`, clinic.id);
@@ -517,12 +533,22 @@ export default {
       return clinic;
     }
     async function listClinicsKV(env, {limit=2000, offset=0} = {}) {
-      const keys = await env.SETTINGS.list({ prefix: "clinic:id:" });
-      const ids = keys.keys.map(k => k.name.replace("clinic:id:",""));
-      const page = ids.slice(offset, offset+limit);
-      const values = await Promise.all(page.map(id => getClinicById(env, id)));
+      const prefix = "clinic:id:";
+      const ids = [];
+      let cursor;
+      do {
+        const page = await env.SETTINGS.list({ prefix, cursor });
+        const batchIds = page.keys.map(k => k.name.replace(prefix, ""));
+        ids.push(...batchIds);
+        cursor = page.cursor || null;
+      } while (cursor);
+      const total = ids.length;
+      const start = Math.max(0, offset);
+      const end = Math.max(start, start + limit);
+      const pageIds = ids.slice(start, end);
+      const values = await Promise.all(pageIds.map(id => getClinicById(env, id)));
       const out = values.filter(Boolean);
-      return { items: out, total: ids.length };
+      return { items: out, total };
     }
     // <<< END: UTILS >>>
 

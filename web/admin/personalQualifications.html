@@ -137,6 +137,13 @@
   </footer>
 
   <script>
+    function getApiBase() {
+      const base = typeof window !== 'undefined' && typeof window.NCD_API_BASE === 'string' && window.NCD_API_BASE.trim()
+        ? window.NCD_API_BASE.trim()
+        : 'https://ncd-app.altry.workers.dev';
+      return base.replace(/\/$/, '');
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
       const page = initMasterPage({
         type: 'qual',
@@ -168,10 +175,10 @@
       });
 
       document.getElementById('exportCsv').addEventListener('click', () => {
-        window.open('https://ncd-app.altry.workers.dev/api/exportMaster?type=qual&format=csv', '_blank');
+        window.open(`${getApiBase()}/api/exportMaster?type=qual&format=csv`, '_blank');
       });
       document.getElementById('exportJson').addEventListener('click', () => {
-        window.open('https://ncd-app.altry.workers.dev/api/exportMaster?type=qual&format=json', '_blank');
+        window.open(`${getApiBase()}/api/exportMaster?type=qual&format=json`, '_blank');
       });
     });
   </script>

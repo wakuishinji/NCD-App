@@ -2,6 +2,27 @@
 
 このドキュメントは、現在の本番構成・UI・APIの仕様サマリです。最新の運用で決まった事項を随時ここに反映します。
 
+## 2025-10-11 Codex 作業ログ
+### 状況サマリ
+- Git `main` は origin と一致しているが、`.dev.vars` など未追跡ファイルが残存。
+- Google Maps API キーは再発行され、Cloudflare Workers の Secret に登録済み。旧 `.dev.vars` は削除済み。
+- ローカル検証用サーバー（`simple_server.py` / `simple_test_server.py`）は修正済みで、`/admin/todo.html` まで自動で開けることを確認済み（2025-10-11）。
+- `web/web.config` の API リダイレクトが 302 のままで、POST 時にメソッドが変わるリスクあり。
+- `node_modules/` など生成物がコミット対象になっている形跡があり、今後の整理が望ましい。
+
+### 直近 ToDo（優先順）
+1. ✅ `.dev.vars` を秘匿化し、`.gitignore` に追加したうえで API キーのローテーションを促す（2025-10-11 対応済み）。
+2. ✅ テスト用サーバースクリプトを修正（CORS ヘッダー順序、Todo API モック、`Content-Length` 未指定時のハンドリング）（2025-10-11 対応済み）。
+3. ⏸ `web/web.config` のリダイレクト種別を 307 に変更するか、別途検討用メモを残す。
+4. ⏸ `node_modules/` など生成物の扱い方針を整理し、必要であれば除外設定を検討。
+
+### 作業メモ
+- [x] 2025-10-11 Codex: 現状サマリと直近 ToDo を追記。
+- [x] 2025-10-11 Codex: `.dev.vars` を削除し `.gitignore` に追加、キーのローテーションが必要である旨を把握。
+- [x] 2025-10-11 Codex: `simple_server.py` / `simple_test_server.py` を更新し、CORS・Todo API・`Content-Length` 未指定時の動作を改善。
+- [x] 2025-10-11 User: Google Maps API キーを再発行し Cloudflare Workers Secret へ登録（旧キーは無効化）。
+- [x] 2025-10-11 Codex: `scripts/launch_test_env.command admin` を実行し、ポート9000での Todo 画面表示と API 応答を確認（favicon 404 のみ残存、その後プロセス停止済み）。
+
 ## アプリ概要
 - 目的: 中野区診療所データベース（Nakano Clinic Database, NCD）を構築・更新するための入力・管理アプリ。
 - フロントエンド: `web/` 以下の静的HTML + Tailwind CSS + Font Awesome。
@@ -74,18 +95,29 @@
 - IIS アプリプール: `DefaultAppPool` から専用プールへ分離、最小権限化。
 - `/api/*` 転送方式: 現状は302リダイレクト。クライアント互換やメソッド保持の観点で必要ならARR + Rewriteへ。
 
+## ローカルテスト手順メモ
+- 自動テスト: `npm install` → `npm test`（Vitest）。
+- 手動テスト（管理画面向け）: `./scripts/launch_test_env.command admin` を実行し、ポート9000で `admin/todo.html` などを確認。終了時は `kill $(cat tmp/admin_server.pid)`。
+- 手動テスト（簡易モード）: `./scripts/launch_test_env.command simple` を実行し、ポート7000で一般ユーザー向け画面を確認。終了時は `kill $(cat tmp/simple_server.pid)`。
+- 起動中のアクセスログは `tmp/admin_server.log` に記録される。必要に応じてブラウザで任意のHTMLに直接アクセスする。
+- ユーザーから「手動テストしたい」と依頼された場合、Codex は自動的に `./scripts/launch_test_env.command admin` を実行し、確認後にサーバーを停止する。
+
 ## 運用ルール
 - 本ファイルは日本語で記述し、合意事項を確定版として反映する。
 - 重要な設定変更・運用上の方針は本ファイルに追記していく。
 - 作業開始時（セッションが変わるたび）には Codex が必ず `agent.md` を読み直し、ルールを再確認する。
 - 変更を加えた場合は、内容に応じて `agent.md` を更新し、やったこと/決まったことをここへ追記する。
 - 本番以外でコードを変更した場合も基本的に毎回 `git push` まで行い、自動 `git pull`（ncd.altry.net 上の仕組み）で本番へ反映させる。push が難しい事情があるときは事前に相談する。
-- 本番確認は `https://ncd.altry.net/` を優先し、必要に応じて Cloudflare Workers のテストドメイン（`https://ncd-app.altry.workers.dev/`）も併用する。
+  - 本番確認は `https://ncd.altry.net/` を優先し、必要に応じて Cloudflare Workers のテストドメイン（`https://ncd-app.altry.workers.dev/`）も併用する。
+  - GitHub `main` へ push すると本番サーバーが自動で `git pull` する仕組みが稼働中（これまで何度も利用実績あり）。手動コピー無しで反映されるため、この前提を維持する。
 - 2025-10-09: Cloudflare Worker の `/api/listMaster` `/api/listClinics` を並列取得＋キャッシュ延長で高速化済み。初回呼び出し後は100ms前後で応答する想定。
 - 2025-10-09: 旧 `master:type:category|name` キーを整理するクリーナー（`npm run cleanup:legacy-masters`）を追加。初回は `--dry-run` で内容を確認し、問題なければ `--no-dry-run` で実行する。
 - 2025-10-09: 現時点で残存する legacy マスターキーは 0 件（クリーナー実行結果より）。
 - 2025-10-09: 診療形態マスター管理UIを改善（スラッグ非表示・アイコン/カラー/タグのプルダウン化・表示順の上下ボタン対応）。
 - ローカルで実行できる作業（ビルド・デプロイ・移行スクリプトなど）は原則 Codex が担当し、結果を共有する。
+- Codex とユーザーの会話は必ず日本語で行い、初心者にもわかるよう丁寧に説明する。
+- ユーザーに作業をお願いする際は、ステップバイステップで手順を示し、コードはコピーしやすい形で提示する。
+- セッションが切り替わったあと、ユーザーから「はじめましょう」と言われたら、リポジトリ全体を読み込み、問題点やToDoをリストアップして報告する。
 
 ## 本日確認・決定事項（2025-09-25）
 
