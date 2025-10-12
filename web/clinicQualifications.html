@@ -57,8 +57,12 @@
             </div>
           </div>
           <div class="lg:col-span-4 space-y-2">
-            <label for="personalNotes" class="block text-sm text-gray-700">備考（学会名・発行団体など）</label>
-            <input id="personalNotes" type="text" class="w-full border rounded px-3 py-2" placeholder="例: 日本循環器学会" />
+            <label for="personalSociety" class="block text-sm text-gray-700">学会名（発行団体など）</label>
+            <select id="personalSociety" class="w-full border rounded px-3 py-2"></select>
+            <div id="personalSocietyManualWrapper" class="hidden space-y-2 mt-2">
+              <input id="personalSocietyManual" type="text" class="w-full border rounded px-3 py-2" placeholder="学会名を入力" />
+              <p class="text-xs text-gray-500">入力した学会名は学会マスター候補として保存されます。</p>
+            </div>
           </div>
         </div>
         <div class="flex flex-wrap gap-3">
@@ -156,6 +160,7 @@
     clinicData: null,
     medicalFields: [],
     personalMaster: [],
+    societyMaster: [],
     facilityMaster: [],
     personal: [],
     facility: [],
@@ -172,7 +177,9 @@
       name: document.getElementById("personalName"),
       manualWrapper: document.getElementById("personalManualWrapper"),
       manualName: document.getElementById("personalManualName"),
-      notes: document.getElementById("personalNotes"),
+      society: document.getElementById("personalSociety"),
+      societyManualWrapper: document.getElementById("personalSocietyManualWrapper"),
+      societyManual: document.getElementById("personalSocietyManual"),
       submit: document.getElementById("personalSubmit"),
       clear: document.getElementById("personalClear"),
     },
@@ -252,6 +259,39 @@
       console.warn("failed to load personal qualification master", err);
       state.personalMaster = [];
     }
+  }
+
+  async function loadSocietyMaster() {
+    state.societyMaster = [];
+    try {
+      const url = new URL(`${BASE}/api/listMaster`);
+      url.searchParams.set("type", "society");
+      url.searchParams.set("status", "approved");
+      const res = await fetch(url.toString());
+      const data = await res.json();
+      const items = Array.isArray(data?.items) ? data.items : [];
+      const unique = new Set();
+      items.forEach(item => {
+        const name = nk(item?.name);
+        if (name) unique.add(name);
+      });
+      state.societyMaster = Array.from(unique);
+    } catch (err) {
+      console.warn("failed to load society master", err);
+      state.societyMaster = [];
+    }
+    if (!state.societyMaster.length) {
+      const fallback = new Set();
+      state.personalMaster.forEach(item => {
+        const society = nk(item?.notes);
+        if (society) fallback.add(society);
+      });
+      state.societyMaster = Array.from(fallback);
+    }
+    state.societyMaster = state.societyMaster
+      .map(name => nk(name))
+      .filter(Boolean)
+      .sort((a, b) => collator.compare(a, b));
   }
 
   async function loadFacilityMaster() {
@@ -362,6 +402,34 @@
     togglePersonalManual(select.value === "__direct");
   }
 
+  function populateSocietyOptions(selectedValue = "") {
+    const select = els.personal.society;
+    select.innerHTML = "";
+
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "学会名を選択";
+    select.appendChild(placeholder);
+
+    const unique = new Set(state.societyMaster || []);
+    const options = Array.from(unique).filter(Boolean).sort((a, b) => collator.compare(a, b));
+    options.forEach(name => {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      if (name === selectedValue) option.selected = true;
+      select.appendChild(option);
+    });
+
+    const manualOption = document.createElement("option");
+    manualOption.value = "__direct";
+    manualOption.textContent = "（直接入力）";
+    if (selectedValue === "__direct") manualOption.selected = true;
+    select.appendChild(manualOption);
+
+    toggleSocietyManual(select.value === "__direct");
+  }
+
   function updateFacilityNameOptions(selectedValue = "") {
     const select = els.facility.name;
     const facilityType = els.facility.type.value;
@@ -401,6 +469,13 @@
     }
   }
 
+  function toggleSocietyManual(show) {
+    els.personal.societyManualWrapper.classList.toggle("hidden", !show);
+    if (!show) {
+      els.personal.societyManual.value = "";
+    }
+  }
+
   function toggleFacilityManual(show) {
     els.facility.manualWrapper.classList.toggle("hidden", !show);
     if (!show) {
@@ -413,12 +488,27 @@
     if (!value || value === "__direct") return;
     try {
       const parsed = JSON.parse(value);
-      if (parsed && typeof parsed.notes === "string") {
-        els.personal.notes.value = parsed.notes;
+      const society = nk(parsed?.notes);
+      if (society) {
+        const select = els.personal.society;
+        const available = new Set(Array.from(select.options).map(option => option.value));
+        if (available.has(society)) {
+          select.value = society;
+          toggleSocietyManual(false);
+        } else {
+          select.value = "__direct";
+          toggleSocietyManual(true);
+          els.personal.societyManual.value = society;
+        }
+      } else {
+        els.personal.society.value = "";
+        toggleSocietyManual(false);
+        els.personal.societyManual.value = "";
       }
     } catch (err) {
       console.warn("failed to parse personal master value", err);
     }
+    updatePersonalFormState();
   }
 
   function syncFacilityNotesFromSelection() {
@@ -441,7 +531,12 @@
     const manualName = nk(els.personal.manualName.value);
     const isManual = selected === "__direct";
     const nameOk = !isManual ? !!selected : !!manualName;
-    const ready = classification && field && nameOk;
+    const societySelectedRaw = els.personal.society.value;
+    const societyIsManual = societySelectedRaw === "__direct";
+    const societyManual = nk(els.personal.societyManual.value);
+    const societyValue = societyIsManual ? societyManual : nk(societySelectedRaw);
+    const societyOk = !!societyValue;
+    const ready = classification && field && nameOk && societyOk;
     els.personal.submit.disabled = !ready;
   }
 
@@ -461,7 +556,9 @@
     populateMedicalFieldOptions(state.medicalFields[0] || "");
     updatePersonalNameOptions();
     els.personal.manualName.value = "";
-    els.personal.notes.value = "";
+    populateSocietyOptions("");
+    els.personal.societyManual.value = "";
+    toggleSocietyManual(false);
     updatePersonalFormState();
   }
 
@@ -498,15 +595,26 @@
     const classification = sanitizeClassification(entry.classification || entry.qualType || entry.type);
     const medicalField = nk(entry.medicalField || entry.category || "");
     const { base, notes: extractedNotes } = extractParenthetical(entry.name);
-    const legacyNotes = nk(entry.notes || entry.issuer || extractedNotes);
+    const societyName = nk(entry.societyName || entry.society || entry.notes || entry.issuer || extractedNotes);
     const name = nk(base || entry.name || "");
     if (!name) return null;
+    const source = entry.source || "legacy";
+    let societySource = entry.societySource;
+    if (!societySource) {
+      if (societyName) {
+        societySource = source === "manual" ? "manual" : "master";
+      } else {
+        societySource = "legacy";
+      }
+    }
     return {
       classification,
       medicalField,
       name,
-      notes: legacyNotes,
-      source: entry.source || "legacy",
+      notes: societyName,
+      societyName,
+      source,
+      societySource,
     };
   }
 
@@ -601,7 +709,8 @@
   }
 
   function qualificationLabel(entry) {
-    const notes = entry.notes ? `（${entry.notes}）` : "";
+    const society = nk(entry.societyName || entry.notes);
+    const notes = society ? `（${society}）` : "";
     return `${entry.name}${notes}`;
   }
 
@@ -710,11 +819,12 @@
     els.personal.submit.textContent = "更新";
     populatePersonalClassificationOptions(entry.classification);
     populateMedicalFieldOptions(entry.medicalField);
+    const entrySociety = nk(entry.societyName || entry.notes);
     const match = state.personalMaster.find(item =>
       item.classification === entry.classification &&
       item.category === entry.medicalField &&
       item.name === entry.name &&
-      nk(item.notes) === nk(entry.notes)
+      nk(item.notes) === entrySociety
     );
     const preset = match ? serializePersonalMasterItem(match) : "__direct";
     updatePersonalNameOptions(preset);
@@ -722,7 +832,12 @@
       togglePersonalManual(true);
       els.personal.manualName.value = entry.name;
     }
-    els.personal.notes.value = entry.notes || "";
+    populateSocietyOptions(entrySociety || "");
+    if (entrySociety && els.personal.society.value !== entrySociety) {
+      els.personal.society.value = "__direct";
+      toggleSocietyManual(true);
+      els.personal.societyManual.value = entrySociety;
+    }
     updatePersonalFormState();
   }
 
@@ -800,15 +915,18 @@
   }
 
   function transformPersonalForSave(entry) {
+    const society = nk(entry.societyName || entry.notes || "");
     return {
       classification: entry.classification,
       medicalField: entry.medicalField,
       name: entry.name,
-      notes: entry.notes || "",
+      notes: society,
+      societyName: society,
       source: entry.source,
+      societySource: entry.societySource,
       category: entry.medicalField,
       qualType: entry.classification,
-      issuer: entry.notes || "",
+      issuer: society,
     };
   }
 
@@ -862,7 +980,11 @@
     const selected = els.personal.name.value;
     const isManual = selected === "__direct";
     const manualName = nk(els.personal.manualName.value);
-    const notes = nk(els.personal.notes.value);
+    const societySelectedRaw = els.personal.society.value;
+    const societyIsManual = societySelectedRaw === "__direct";
+    const societyManual = nk(els.personal.societyManual.value);
+    const societyName = societyIsManual ? societyManual : nk(societySelectedRaw);
+    const societySource = societyIsManual ? "manual" : "master";
 
     if (!classification) {
       alert("分類を選択してください");
@@ -872,6 +994,10 @@
       alert("医療分野を選択してください");
       return;
     }
+    if (!societyName) {
+      alert("学会名を選択するか入力してください");
+      return;
+    }
 
     let entry = null;
     if (isManual) {
@@ -879,7 +1005,15 @@
         alert("名称を入力してください");
         return;
       }
-      entry = { classification, medicalField, name: manualName, notes, source: "manual" };
+      entry = {
+        classification,
+        medicalField,
+        name: manualName,
+        notes: societyName,
+        societyName,
+        societySource,
+        source: "manual",
+      };
     } else {
       if (!selected) {
         alert("名称を選択してください");
@@ -891,7 +1025,9 @@
           classification,
           medicalField,
           name: nk(parsed.name),
-          notes: nk(notes || parsed.notes),
+          notes: societyName || nk(parsed.notes),
+          societyName: societyName || nk(parsed.notes),
+          societySource,
           source: "master",
         };
       } catch (err) {
@@ -906,7 +1042,7 @@
       item.classification === entry.classification &&
       item.medicalField === entry.medicalField &&
       item.name === entry.name &&
-      nk(item.notes) === nk(entry.notes)
+      nk(item.societyName || item.notes) === nk(entry.societyName || entry.notes)
     );
     if (duplicateIndex >= 0) {
       alert("同じ個人資格が既に登録されています。");
@@ -929,7 +1065,10 @@
       resetPersonalForm();
       alert(wasEditing ? "個人資格を更新しました" : "個人資格を登録しました");
       if (entry.source === "manual") {
-        registerPersonalMasterCandidate(entry.classification, entry.medicalField, entry.name, entry.notes);
+        registerPersonalMasterCandidate(entry.classification, entry.medicalField, entry.name, entry.societyName);
+      }
+      if (entry.societySource === "manual") {
+        registerSocietyMasterCandidate(entry.societyName);
       }
     } catch (err) {
       console.error("failed to save personal qualification", err);
@@ -1019,7 +1158,7 @@
     }
   }
 
-  async function registerPersonalMasterCandidate(classification, medicalField, name, notes) {
+  async function registerPersonalMasterCandidate(classification, medicalField, name, societyName) {
     try {
       await fetch(`${BASE}/api/addMasterItem`, {
         method: "POST",
@@ -1029,12 +1168,31 @@
           category: medicalField,
           name,
           classification,
-          notes,
+          notes: societyName,
           source: "clinicQualifications",
         }),
       });
     } catch (err) {
       console.warn("failed to register personal qualification candidate", err);
+    }
+  }
+
+  async function registerSocietyMasterCandidate(name) {
+    const value = nk(name);
+    if (!value) return;
+    try {
+      await fetch(`${BASE}/api/addMasterItem`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "society",
+          category: "global",
+          name: value,
+          source: "clinicQualifications",
+        }),
+      });
+    } catch (err) {
+      console.warn("failed to register society master candidate", err);
     }
   }
 
@@ -1072,7 +1230,14 @@
     updatePersonalFormState();
   });
   els.personal.manualName.addEventListener("input", updatePersonalFormState);
-  els.personal.notes.addEventListener("input", () => {});
+  els.personal.society.addEventListener("change", () => {
+    toggleSocietyManual(els.personal.society.value === "__direct");
+    if (els.personal.society.value !== "__direct") {
+      els.personal.societyManual.value = "";
+    }
+    updatePersonalFormState();
+  });
+  els.personal.societyManual.addEventListener("input", updatePersonalFormState);
   els.personal.submit.addEventListener("click", event => {
     event.preventDefault();
     handlePersonalSubmit();
@@ -1107,7 +1272,10 @@
     setLoading(true);
     try {
       loadSelectedClinic();
-      await Promise.all([loadMedicalFields(), loadPersonalMaster(), loadFacilityMaster()]);
+      await loadMedicalFields();
+      await loadPersonalMaster();
+      await loadSocietyMaster();
+      await loadFacilityMaster();
       resetPersonalForm();
       resetFacilityForm();
       await loadClinicData();

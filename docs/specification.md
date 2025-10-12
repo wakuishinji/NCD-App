@@ -63,7 +63,7 @@ NCD-App は診療所のマスタ管理と運用補助を行う Web アプリケ�
   - 個人資格・施設認定マスター `GET /api/listMaster?type=qual|facility`
   - 診療所データ `GET /api/clinicDetail`
 - **保存**: `POST /api/updateClinic`
-- **特徴**: マスターから選択／手入力を切り替え。分類や備考のヒントを表示。リストは分類・名称で自動整列。
+- **特徴**: マスターから選択／手入力を切り替え。分類や備考のヒントを表示。リストは分類・名称で自動整列。学会名は候補プルダウン（資格マスター備蓄値 or 学会マスター）と手入力を切り替え、手入力値は学会マスター候補として登録される（Workers 側の `society` タイプ対応までは資格マスターの備考から自動生成）。
 
 ### 2.3 診療サービス `clinicServices.html`
 - **目的**: 提供する診療サービスを管理。
@@ -130,7 +130,7 @@ NCD-App は診療所のマスタ管理と運用補助を行う Web アプリケ�
   - `GET /api/listMaster?type=qual`
   - `POST /api/addMasterItem` / `POST /api/updateMasterItem`
   - CSV インポート／エクスポート。
-- **UI**: 共通 `initMasterPage` コンポーネントを使用（カテゴリフィルタ、ステータス変更、検索）。
+- **UI**: 共通 `initMasterPage` コンポーネントを使用（カテゴリフィルタ、ステータス変更、検索）。入力フィールドは「医療分野・分類・資格名称・学会名」とし、CSV も同順で取り扱う。
 
 ### 4.4 施設認定マスター `admin/facilityAccreditations.html`
 - **目的**: 施設認定の種類・名称・備考管理。

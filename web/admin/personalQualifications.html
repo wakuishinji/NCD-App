@@ -57,8 +57,8 @@
         <div class="flex flex-col gap-4">
           <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 class="text-base font-semibold text-blue-900">分類・医療分野・資格名称・備考を整備</h2>
-              <p class="text-xs text-slate-500">CSVは「分類,名称,備考」形式に対応しています。保存後はクリニック画面の候補として利用されます。</p>
+              <h2 class="text-base font-semibold text-blue-900">分類・医療分野・資格名称・学会名を整備</h2>
+              <p class="text-xs text-slate-500">CSVは「分類,名称,学会名」形式に対応しています。保存後はクリニック画面の候補として利用されます。</p>
             </div>
             <div class="flex flex-wrap gap-2 text-sm">
               <button id="exportCsv" class="rounded bg-slate-700 px-3 py-2 font-semibold text-white transition hover:bg-slate-800">CSV出力</button>
@@ -99,7 +99,7 @@
                 <input id="addName" class="w-full rounded border px-2 py-1" placeholder="例: 消化器病専門医" required />
               </div>
               <div>
-                <label class="block text-xs text-slate-600">備考（学会・発行元 等）</label>
+                <label class="block text-xs text-slate-600">学会名（発行元 等）</label>
                 <input id="addNotes" class="w-full rounded border px-2 py-1" placeholder="例: 日本消化器病学会" />
               </div>
             </div>

@@ -1,6 +1,6 @@
 import { ensureUniqueId, normalizeSlug, randomSlug } from './idUtils.js';
 
-const MASTER_TYPE_LIST = ['test', 'service', 'qual', 'department', 'facility', 'symptom', 'bodySite'];
+const MASTER_TYPE_LIST = ['test', 'service', 'qual', 'department', 'facility', 'symptom', 'bodySite', 'society'];
 const MASTER_ALLOWED_TYPES = new Set(MASTER_TYPE_LIST);
 
 export default {
@@ -1935,7 +1935,7 @@ if (routeMatch(url, "GET", "listClinics")) {
           });
         }
         if (!MASTER_ALLOWED_TYPES.has(type)) {
-          return new Response(JSON.stringify({ error: "type は test / service / qual / department / facility / symptom / bodySite" }), {
+          return new Response(JSON.stringify({ error: "type は test / service / qual / department / facility / symptom / bodySite / society" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
