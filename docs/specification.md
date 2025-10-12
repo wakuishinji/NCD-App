@@ -132,12 +132,17 @@ NCD-App は診療所のマスタ管理と運用補助を行う Web アプリケ�
   - CSV インポート／エクスポート。
 - **UI**: 共通 `initMasterPage` コンポーネントを使用（カテゴリフィルタ、ステータス変更、検索）。入力フィールドは「医療分野・分類・資格名称・学会名」とし、CSV も同順で取り扱う。
 
-### 4.4 施設認定マスター `admin/facilityAccreditations.html`
+### 4.4 学会マスター `admin/societyMaster.html`
+- **目的**: 学会名の一覧を分類（医師/看護 等）別に管理し、個人資格入力時の候補として提供する。
+- **API**: `type=society` のマスター系エンドポイント。
+- **UI**: 分類フィルタ、ステータス変更、検索に対応。個人資格画面のプルダウンや学会マスター画面から登録された候補が利用される。
+
+### 4.5 施設認定マスター `admin/facilityAccreditations.html`
 - **目的**: 施設認定の種類・名称・備考管理。
 - **API**: `type=facility` のマスター系エンドポイント。
 - **備考**: 選択肢追加はカテゴリマスター（種類）と連携。
 
-### 4.5 分類マスター `categoriesAdmin.html`
+### 4.6 分類マスター `categoriesAdmin.html`
 - **目的**: マスターで利用する分類ラベル（検査／診療／資格／施設／標榜診療科）を編集。
 - **API**
   - `GET /api/listCategories`
@@ -146,21 +151,21 @@ NCD-App は診療所のマスタ管理と運用補助を行う Web アプリケ�
   - `POST /api/deleteCategory`
 - **特記事項**: 標榜診療科の場合はサブテーブルを表示し、個別科目を追加できる。
 
-### 4.6 診療形態マスター `admin/clinicModes.html`
+### 4.7 診療形態マスター `admin/clinicModes.html`
 - **目的**: 夜間診療・オンライン診療などのタグを管理。
 - **API**:
   - `GET /api/modes`
   - `POST /api/modes/add|update|delete`
 - **UI**: 色選択、順序変更（▲/▼ボタン）、タグ候補の自動生成。
 
-### 4.7 運用 ToDo `admin/todo.html`
+### 4.8 運用 ToDo `admin/todo.html`
 - **目的**: チーム内タスクの共有。
 - **API**:
   - `GET /api/todo/list`
   - `POST /api/todo/save`
 - **UI**: カテゴリ別セクション、優先度（P1〜P3）、完了チェックボックス、追加入力欄。
 
-### 4.8 設定画面 `admin/settings.html`
+### 4.9 設定画面 `admin/settings.html`
 - **目的**: AI 設定（モデル・プロンプト）を編集。
 - **API**:
   - `GET /api/settings`

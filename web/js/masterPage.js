@@ -143,6 +143,9 @@
       this.showNotes = Boolean(config.showNotes);
       this.manualAdd = Boolean(config.enableManualAdd);
       this.allowFreeCategory = Boolean(config.allowFreeCategory);
+      this.notesLabel = config.notesLabel || '備考';
+      this.notesPlaceholder = config.notesPlaceholder || '備考を入力';
+      this.notesDatalistId = config.notesDatalistId || null;
       this.categoryOptions = [];
       this.cache = null;
       this.inFlight = null;
@@ -182,6 +185,14 @@
           });
         }
         bindStatusAppearance(addStatus);
+      }
+      if (this.elements.addNotes) {
+        if (this.notesDatalistId) {
+          this.elements.addNotes.setAttribute('list', this.notesDatalistId);
+        }
+        if (this.notesPlaceholder) {
+          this.elements.addNotes.setAttribute('placeholder', this.notesPlaceholder);
+        }
       }
     }
 
@@ -356,6 +367,10 @@
             ? 'md:col-span-3'
             : (showDesc ? 'md:col-span-2' : 'md:col-span-4');
 
+          const notesLabel = escapeHtml(this.notesLabel);
+          const notesPlaceholder = escapeHtml(this.notesPlaceholder);
+          const notesListAttr = this.notesDatalistId ? ` list="${escapeHtml(this.notesDatalistId)}"` : '';
+
           card.innerHTML = `
             <div class="grid gap-2 ${gridCols} items-start text-sm">
               <div class="${this.type === 'department' ? 'md:col-span-1' : 'md:col-span-1'}">
@@ -388,8 +403,8 @@
               </div>` : ''}
               ${showNotes ? `
               <div class="${notesCols}">
-                <label class="block text-xs text-slate-500">備考</label>
-                <input class="w-full border rounded px-2 py-1" data-field="notes" value="${escapeHtml(item.notes || '')}" placeholder="備考を入力">
+                <label class="block text-xs text-slate-500">${notesLabel}</label>
+                <input class="w-full border rounded px-2 py-1" data-field="notes"${notesListAttr} value="${escapeHtml(item.notes || '')}" placeholder="${notesPlaceholder}">
               </div>` : ''}
             </div>
             <div class="mt-3 space-y-3" data-explanation-section></div>

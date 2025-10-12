@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>学会マスター管理 - NCD</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="../js/loading.js" defer></script>
+  <script src="../js/masterPage.js" defer></script>
+  <style>
+    :root {
+      --ncd-header-height: 64px;
+      --ncd-toolbar-gap: 8px;
+    }
+    @media (max-width: 640px) {
+      :root {
+        --ncd-header-height: 56px;
+      }
+      .ncd-header-condensed {
+        padding-top: 0.75rem;
+        padding-bottom: 0.75rem;
+      }
+      .ncd-toolbar-condensed {
+        gap: 0.5rem;
+      }
+    }
+    .ncd-sticky-header {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+    .ncd-sticky-toolbar {
+      position: sticky;
+      top: calc(var(--ncd-header-height) + var(--ncd-toolbar-gap));
+      z-index: 40;
+    }
+    .ncd-toolbar-surface {
+      background-color: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(6px);
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+  <header class="ncd-sticky-header bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 text-white shadow">
+    <div class="ncd-header-condensed max-w-5xl mx-auto px-4 py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div class="flex flex-wrap items-center gap-2">
+        <a href="/admin/admin.html" class="inline-flex items-center gap-2 rounded bg-white/10 px-3 py-2 text-sm font-semibold tracking-wide transition hover:bg-white/20">戻る</a>
+      </div>
+      <h1 class="text-lg md:text-xl font-semibold tracking-wide text-center md:text-left md:flex-1">学会マスター管理</h1>
+      <span class="self-start md:self-auto md:ml-auto text-sm text-white/80 whitespace-nowrap">Nakano Clinic Database</span>
+    </div>
+  </header>
+
+  <main class="flex-1">
+    <div class="max-w-4xl mx-auto px-4 py-8 space-y-8">
+      <section class="rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm" id="societyPanel">
+        <div class="flex flex-col gap-4">
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 class="text-base font-semibold text-blue-900">分類と学会名を整備</h2>
+              <p class="text-xs text-slate-500">学会名は個人資格マスターやクリニック入力から参照されます。分類は医師/看護などの役割です。</p>
+            </div>
+            <div class="flex flex-wrap gap-2 text-sm">
+              <button id="exportSocietyCsv" class="rounded bg-slate-700 px-3 py-2 font-semibold text-white transition hover:bg-slate-800">CSV出力</button>
+              <button id="exportSocietyJson" class="rounded bg-slate-700 px-3 py-2 font-semibold text-white transition hover:bg-slate-800">JSON出力</button>
+            </div>
+          </div>
+
+          <form id="societyAddForm" class="grid gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+            <div class="grid gap-3 md:grid-cols-[2fr,2fr,1fr]">
+              <div>
+                <label class="block text-xs text-slate-600">分類（医師/看護 等）</label>
+                <select id="addSocietyCategory" class="w-full rounded border px-2 py-1">
+                  <option value="">分類を選択</option>
+                  <option value="医師">医師</option>
+                  <option value="看護">看護</option>
+                  <option value="コメディカル">コメディカル</option>
+                  <option value="事務">事務</option>
+                  <option value="その他">その他</option>
+                  <option value="__direct">（直接入力）</option>
+                </select>
+                <input id="addSocietyCategoryManual" class="mt-2 hidden w-full rounded border px-2 py-1" placeholder="分類を入力" />
+              </div>
+              <div>
+                <label class="block text-xs text-slate-600">学会名</label>
+                <input id="addSocietyName" class="w-full rounded border px-2 py-1" placeholder="例: 日本循環器学会" required />
+              </div>
+              <div>
+                <label class="block text-xs text-slate-600">ステータス</label>
+                <select id="addSocietyStatus" class="w-full rounded border px-2 py-1">
+                  <option value="approved">approved</option>
+                  <option value="candidate">candidate</option>
+                </select>
+              </div>
+            </div>
+            <div class="flex justify-end">
+              <button class="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700">新規登録</button>
+            </div>
+          </form>
+
+          <div class="ncd-sticky-toolbar ncd-toolbar-surface rounded-lg border border-slate-200 px-3 py-3 shadow-sm flex flex-col gap-2 md:flex-row md:items-center md:justify-between ncd-toolbar-condensed">
+            <div class="flex flex-wrap gap-2 text-sm">
+              <select id="societyStatusFilter" class="rounded border px-2 py-1">
+                <option value="">全ステータス</option>
+                <option value="approved">approved</option>
+                <option value="candidate">candidate</option>
+                <option value="archived">archived</option>
+              </select>
+              <select id="societyCategoryFilter" class="rounded border px-2 py-1">
+                <option value="">全ての分類</option>
+              </select>
+            </div>
+            <div class="flex flex-wrap gap-2 text-sm">
+              <input id="societySearch" class="w-48 rounded border px-2 py-1" placeholder="キーワード検索" />
+              <button id="societyReload" class="rounded bg-slate-200 px-3 py-1 font-semibold text-slate-700 transition hover:bg-slate-300">再読込</button>
+            </div>
+          </div>
+
+          <div id="societyList" class="space-y-4"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="bg-slate-900/90 text-slate-100">
+    <div class="max-w-4xl mx-auto px-4 py-4 text-xs">© 2025 中野区医師会 Nakano Clinic Database</div>
+  </footer>
+
+  <script>
+    function getApiBase() {
+      const base = typeof window !== 'undefined' && typeof window.NCD_API_BASE === 'string' && window.NCD_API_BASE.trim()
+        ? window.NCD_API_BASE.trim()
+        : 'https://ncd-app.altry.workers.dev';
+      return base.replace(/\/$/, '');
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const page = initMasterPage({
+        type: 'society',
+        enableCategoryFilter: true,
+        enableCsvImport: false,
+        showDescription: false,
+        showNotes: false,
+        showClassification: false,
+        enableManualAdd: true,
+        allowFreeCategory: true,
+        loadingMessage: '学会マスターを読み込み中...',
+        elements: {
+          panel: document.getElementById('societyPanel'),
+          list: document.getElementById('societyList'),
+          reloadButton: document.getElementById('societyReload'),
+          statusSelect: document.getElementById('societyStatusFilter'),
+          categorySelect: document.getElementById('societyCategoryFilter'),
+          searchInput: document.getElementById('societySearch'),
+          addForm: document.getElementById('societyAddForm'),
+          addCategory: document.getElementById('addSocietyCategory'),
+          addCategoryManual: document.getElementById('addSocietyCategoryManual'),
+          addName: document.getElementById('addSocietyName'),
+          addStatus: document.getElementById('addSocietyStatus')
+        }
+      });
+
+      const exportCsv = document.getElementById('exportSocietyCsv');
+      const exportJson = document.getElementById('exportSocietyJson');
+      exportCsv.addEventListener('click', () => {
+        window.open(`${getApiBase()}/api/exportMaster?type=society&format=csv`, '_blank');
+      });
+      exportJson.addEventListener('click', () => {
+        window.open(`${getApiBase()}/api/exportMaster?type=society&format=json`, '_blank');
+      });
+    });
+  </script>
+</body>
+</html>

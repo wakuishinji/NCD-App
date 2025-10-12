@@ -29,11 +29,13 @@
 | `account` | `account:<uuid>` | ログイン情報（メール/電話、パスワードハッシュ or 外部ID）、アカウント種別（`clinicAdmin`/`clinicStaff`/`systemAdmin`/`physician`）、`clinicRoles` | 認証/認可テーブル。Workers KV でも運用できるが、D1 等 RDB 検討余地。 |
 | `invitation` | `invite:<uuid>` | 招待先メール、招待者、ロール、期限、状態 | クリニック管理者が所属医師・スタッフを招待するフロー向け。 |
 | `physicianProfileDraft` | `physician:draft:<uuid>` | 医師本人だけが編集可能な下書き情報（履歴書メモ、公開前データ） | 公開情報と非公開メモを分離するためのストレージ候補。 |
+| `society` | `master:society:<classification>|<name>` | 分類（医師/看護/コメディカル 等）と学会名、承認ステータス、ソース | 学会候補を一元管理し、個人資格・医師プロフィール登録時のプルダウンへ供給する。 |
 
 ### 3.2 リレーション設計メモ
 - `clinic.managerAccounts` に clinicAdmin の `accountId` を保持。所属スタッフは `clinic.staffAccounts` or `clinicMembers` 配列で管理。
 - `physician.clinicIds` と `clinic.physicianRefs` を双方向で張り、検索時に整合性チェックを行う。
-- 医師プロフィールと資格マスター（`master:qual:*`）、学会マスター（追加予定）を紐付け、`physician.qualifications`、`physician.societyMemberships` を `masterKey` ベースで保持。
+- 医師プロフィールと資格マスター（`master:qual:*`）、学会マスターを紐付け、`physician.qualifications`、`physician.societyMemberships` を `masterKey` ベースで保持。
+- 学会マスター（`master:society:<classification>|<name>`）を整備し、個人資格マスターやクリニック入力時の「学会名」プルダウンはこのデータを参照する。分類×学会名の重複排除と承認フローを実装する。
 - 医師の履歴書テンプレート生成に必要な学歴・職歴・研究業績・論文リストなども構造化し、公開可否フラグを付与。下書き用データは `physicianProfileDraft` に保存して本人のみ閲覧可能とする。
 - フィルタリング高速化のため、シリアライズ時に `searchFacets`（例: `["department:内科","service:糖尿病外来","qualification:認定内科医","physicianSkill:消化器内視鏡"]`）を precompute。
 - クリニック表示用の資格・所属学会は、所属医師の公開プロフィールから集計して `clinic.aggregateQualifications` のようなビュー生成を行う。既存のクリニック側 `personalQualifications` は最終的に医師プロファイル由来の読み取り専用フィールドへ移行。
@@ -80,10 +82,11 @@
    - 管理者用 UI にアカウント管理、医師プロフィール編集画面を追加。
    - クリニック/医師検索 UI のワイヤーフレーム作成と段階的実装。
    - 既存の個人資格入力フォームでは「学会名」フィールドを中心に学会マスター候補を収集し、医師プロフィールと同期する。
+   - 学会マスター管理ページ（`admin/societyMaster.html`）で分類×学会名を直接メンテナンスできるようにする。
 4. **マイグレーション/テスト**:
    - 既存クリニックデータのスキーマ移行スクリプトを作成 (`scripts/migrateClinicSchemaV2.mjs`)。
    - Vitest などで新 API の単体テストと E2E テスト（Playwright/Selenium 等）を整備。
-   - `scripts/migrateSocietyNotes.mjs` で既存「備考」を学会名へ正規化し、学会マスタ候補を収集（Workers が `society` タイプを受け入れるまでは資格マスター由来の候補を使用）。
+   - `scripts/migrateSocietyNotes.mjs` で既存「備考」を学会名へ正規化し、学会マスタ候補を収集・投入する。
 5. **リリース準備**:
    - 招待フローと権限分離を検証環境で確認。
    - 検索性能/UX を検証し、ロードマップに基づいてトラック化。
@@ -94,7 +97,7 @@
 - `web/web.config` のリダイレクト方式や `node_modules/` 整理といった既存ToDoを処理し、将来の開発環境整備を進める。
 - セキュリティ（パスワードハッシュ、レート制御、監査ログ）とコンプライアンス（個人情報保護）の要件定義を追加する必要がある。
 - 医師プロフィール公開範囲やユーザー評価機能など、フェーズ分けした UX 要件をユーザーと合意してから実装に入る。
-- Cloudflare Workers 側で `addMasterItem(type=\"society\")` を受け付けるデプロイが未完了のため、登録処理は現在フォールバック扱い（ログ警告）で運用している。
+- 学会マスターの承認フローや分類ポリシー（医師/看護 等）の整備、重複エントリの整理を継続的に行う。
 
 ---
 

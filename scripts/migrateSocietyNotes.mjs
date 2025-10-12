@@ -8,6 +8,7 @@ const options = {
   dryRun: true,
   delayMs: Number(process.env.NCD_MIGRATE_DELAY_MS || 0),
 };
+const collator = new Intl.Collator('ja');
 
 function showHelp() {
   console.log(`Usage: migrateSocietyNotes [options]\n\n` +
@@ -44,6 +45,20 @@ function nk(value) {
   return (value ?? '')
     .toString()
     .trim();
+}
+
+function addSocietyPair(map, classification, name) {
+  const cls = nk(classification);
+  const society = nk(name);
+  if (!society) return;
+  if (!map.has(cls)) {
+    map.set(cls, new Set());
+  }
+  map.get(cls).add(society);
+}
+
+function societyKey(classification, name) {
+  return `${nk(classification)}::${nk(name)}`;
 }
 
 async function requestJson(path, init = {}) {
@@ -104,7 +119,9 @@ async function loadExistingSocieties() {
     const items = Array.isArray(data?.items) ? data.items : [];
     items.forEach(item => {
       const name = nk(item?.name);
-      if (name) existing.add(name);
+      if (!name) return;
+      const classification = nk(item?.category || item?.classification || '');
+      existing.add(societyKey(classification, name));
     });
   } catch (err) {
     console.warn('[warn] failed to load society master:', err.message);
@@ -113,13 +130,15 @@ async function loadExistingSocieties() {
 }
 
 async function loadQualificationSocieties() {
-  const societies = new Set();
+  const societies = new Map();
   try {
     const data = await fetchJson('/api/listMaster?type=qual');
     const items = Array.isArray(data?.items) ? data.items : [];
     items.forEach(item => {
       const name = nk(item?.notes || item?.issuer);
-      if (name) societies.add(name);
+      if (!name) return;
+      const classification = nk(item?.classification || item?.category || '');
+      addSocietyPair(societies, classification, name);
     });
   } catch (err) {
     console.warn('[warn] failed to load qualification master:', err.message);
@@ -128,7 +147,7 @@ async function loadQualificationSocieties() {
 }
 
 async function migrateClinics(societies) {
-  const updatedSocieties = new Set();
+  const updatedSocietyKeys = new Set();
   const result = await fetchJson('/api/listClinics');
   const clinics = Array.isArray(result?.clinics) ? result.clinics : [];
   let updatedCount = 0;
@@ -150,9 +169,11 @@ async function migrateClinics(societies) {
       if (!item || typeof item !== 'object') return item;
       const next = { ...item };
       const societyName = deriveSocietyName(next);
+      const classification = nk(next.classification || next.qualType || next.type || '');
       if (societyName) {
-        updatedSocieties.add(societyName);
-        societies.add(societyName);
+        const key = societyKey(classification, societyName);
+        updatedSocietyKeys.add(key);
+        addSocietyPair(societies, classification, societyName);
       }
       const normalized = societyName;
       if (normalized && next.notes !== normalized) {
@@ -200,47 +221,62 @@ async function migrateClinics(societies) {
     console.log(`[updated] clinic: ${name}`);
   }
 
-  return { clinicsProcessed: clinics.length, clinicsUpdated: updatedCount, societies: updatedSocieties };
+  return { clinicsProcessed: clinics.length, clinicsUpdated: updatedCount, societies: updatedSocietyKeys };
 }
 
 async function registerSocieties(values, existing) {
-  const toRegister = Array.from(values)
-    .map(name => nk(name))
-    .filter(name => name && !existing.has(name));
+  const toRegister = [];
+  for (const [classification, names] of values.entries()) {
+    for (const name of names) {
+      const key = societyKey(classification, name);
+      if (existing.has(key)) continue;
+      toRegister.push({ classification: nk(classification), name: nk(name) });
+    }
+  }
 
   if (!toRegister.length) {
     console.log('[info] no new society names to register.');
     return;
   }
 
+  toRegister.sort((a, b) => {
+    const clsCompare = collator.compare(a.classification, b.classification);
+    if (clsCompare !== 0) return clsCompare;
+    return collator.compare(a.name, b.name);
+  });
+
   console.log(`[info] registering ${toRegister.length} society master entries${options.dryRun ? ' (dry-run)' : ''}.`);
-  for (const name of toRegister) {
+  for (const entry of toRegister) {
+    const { classification, name } = entry;
+    const key = societyKey(classification, name);
     if (options.dryRun) {
-      console.log(`[dry-run] would register society master: ${name}`);
+      console.log(`[dry-run] would register society master: [${classification || '未分類'}] ${name}`);
       continue;
     }
     try {
       await postJson('/api/addMasterItem', {
         type: 'society',
-        category: 'global',
+        category: classification,
+        classification,
         name,
         source: 'migrateSocietyNotes',
         status: 'candidate',
       });
-      existing.add(name);
+      existing.add(key);
       if (options.delayMs > 0) {
         await delay(options.delayMs);
       }
-      console.log(`[registered] society master: ${name}`);
+      console.log(`[registered] society master: [${classification || '未分類'}] ${name}`);
     } catch (err) {
       console.warn(`[warn] failed to register society master "${name}": ${err.message}`);
       if (err.message.includes('type は') && err.message.includes('bodySite')) {
-        console.warn('[warn] API does not yet support type \"society\". Aborting further registrations.');
+        console.warn('[warn] API does not yet support type "society". Aborting further registrations.');
         break;
       }
     }
   }
 }
+
 
 async function main() {
   console.log(`[info] API base: ${options.apiBase}`);
@@ -258,7 +294,9 @@ async function main() {
     // reload qualification master to include any notes added via updates
     try {
       const latest = await loadQualificationSocieties();
-      latest.forEach(name => collectedSocieties.add(name));
+      for (const [classification, names] of latest.entries()) {
+        names.forEach(name => addSocietyPair(collectedSocieties, classification, name));
+      }
     } catch (_) {
       // already logged in helper
     }

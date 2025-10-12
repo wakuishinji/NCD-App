@@ -1068,7 +1068,7 @@
         registerPersonalMasterCandidate(entry.classification, entry.medicalField, entry.name, entry.societyName);
       }
       if (entry.societySource === "manual") {
-        registerSocietyMasterCandidate(entry.societyName);
+        registerSocietyMasterCandidate(entry.classification, entry.societyName);
       }
     } catch (err) {
       console.error("failed to save personal qualification", err);
@@ -1177,7 +1177,7 @@
     }
   }
 
-  async function registerSocietyMasterCandidate(name) {
+  async function registerSocietyMasterCandidate(classification, name) {
     const value = nk(name);
     if (!value) return;
     try {
@@ -1186,7 +1186,8 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: "society",
-          category: "global",
+          category: nk(classification),
+          classification: nk(classification),
           name: value,
           source: "clinicQualifications",
         }),

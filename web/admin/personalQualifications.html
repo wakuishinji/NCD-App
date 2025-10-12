@@ -100,7 +100,8 @@
               </div>
               <div>
                 <label class="block text-xs text-slate-600">学会名（発行元 等）</label>
-                <input id="addNotes" class="w-full rounded border px-2 py-1" placeholder="例: 日本消化器病学会" />
+                <input id="addNotes" class="w-full rounded border px-2 py-1" placeholder="学会名を選択または入力" list="societyOptions" />
+                <datalist id="societyOptions"></datalist>
               </div>
             </div>
             <div class="flex justify-end">
@@ -154,6 +155,9 @@
         showClassification: true,
         enableManualAdd: true,
         allowFreeCategory: true,
+        notesLabel: '学会名',
+        notesPlaceholder: '学会名を選択または入力',
+        notesDatalistId: 'societyOptions',
         loadingMessage: '個人資格マスターを読み込み中...',
         elements: {
           panel: document.getElementById('masterPanel'),
@@ -173,6 +177,82 @@
           addStatus: document.getElementById('addStatus')
         }
       });
+
+      const societyDatalist = document.getElementById('societyOptions');
+      const addNotesInput = document.getElementById('addNotes');
+      const collator = new Intl.Collator('ja');
+
+      function populateSocietyOptions(names) {
+        if (!societyDatalist) return;
+        societyDatalist.innerHTML = '';
+        const sorted = Array.from(names).filter(Boolean).sort((a, b) => collator.compare(a, b));
+        sorted.forEach(name => {
+          const option = document.createElement('option');
+          option.value = name;
+          societyDatalist.appendChild(option);
+        });
+      }
+
+      async function fetchSocietyMaster() {
+        const names = new Set();
+        try {
+          const url = new URL(`${getApiBase()}/api/listMaster`);
+          url.searchParams.set('type', 'society');
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            const items = Array.isArray(data?.items) ? data.items : [];
+            items.forEach(item => {
+              const name = (item?.name || '').trim();
+              if (name) names.add(name);
+            });
+          }
+        } catch (err) {
+          console.warn('failed to load society master', err);
+        }
+        return names;
+      }
+
+      async function fetchFallbackSocieties() {
+        const names = new Set();
+        try {
+          const url = new URL(`${getApiBase()}/api/listMaster`);
+          url.searchParams.set('type', 'qual');
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            const items = Array.isArray(data?.items) ? data.items : [];
+            items.forEach(item => {
+              const name = (item?.notes || item?.issuer || '').trim();
+              if (name) names.add(name);
+            });
+          }
+        } catch (err) {
+          console.warn('failed to load fallback society candidates', err);
+        }
+        return names;
+      }
+
+      async function loadSocietyOptions() {
+        const names = await fetchSocietyMaster();
+        if (!names.size) {
+          const fallback = await fetchFallbackSocieties();
+          fallback.forEach(name => names.add(name));
+        }
+        populateSocietyOptions(names);
+      }
+
+      const originalReload = page.reload.bind(page);
+      page.reload = async (...args) => {
+        await originalReload(...args);
+        await loadSocietyOptions();
+      };
+
+      loadSocietyOptions();
+      if (addNotesInput) {
+        addNotesInput.setAttribute('list', 'societyOptions');
+        addNotesInput.setAttribute('placeholder', '学会名を選択または入力');
+      }
 
       document.getElementById('exportCsv').addEventListener('click', () => {
         window.open(`${getApiBase()}/api/exportMaster?type=qual&format=csv`, '_blank');
