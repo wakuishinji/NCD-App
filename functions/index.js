@@ -1958,12 +1958,21 @@ if (routeMatch(url, "GET", "listClinics")) {
 
         const classification = nk(body?.classification);
         const notes = nk(body?.notes);
+        const medicalField = nk(body?.medicalField);
 
         if (type === 'qual') {
           const fallback = record.classification || classification || PERSONAL_QUAL_CLASSIFICATIONS[0];
           record.classification = classification || fallback;
         } else if (classification) {
           record.classification = classification;
+        }
+
+        if (type === 'society') {
+          if (medicalField) {
+            record.medicalField = medicalField;
+          } else if (!record.medicalField) {
+            record.medicalField = null;
+          }
         }
 
         if (status && ["candidate", "approved", "archived"].includes(status)) {
@@ -2140,14 +2149,14 @@ if (routeMatch(url, "GET", "listClinics")) {
     if (routeMatch(url, "POST", "updateMasterItem")) {
       try {
         const body = await request.json();
-        const { type, category, name, status, canonical_name, sortGroup, sortOrder, newCategory, newName, desc, notes, classification } = body || {};
+        const { type, category, name, status, canonical_name, sortGroup, sortOrder, newCategory, newName, desc, notes, classification, medicalField } = body || {};
         if (!type || !category || !name) {
           return new Response(JSON.stringify({ error: "type, category, name は必須です" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
         if (!MASTER_ALLOWED_TYPES.has(type)) {
-          return new Response(JSON.stringify({ error: "type は test / service / qual / department / facility / symptom / bodySite" }), {
+          return new Response(JSON.stringify({ error: "type は test / service / qual / department / facility / symptom / bodySite / society" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
@@ -2210,6 +2219,10 @@ if (routeMatch(url, "GET", "listClinics")) {
           } else {
             record.classification = null;
           }
+        }
+        if (Object.prototype.hasOwnProperty.call(body, 'medicalField')) {
+          const trimmedField = typeof medicalField === 'string' ? medicalField.trim() : '';
+          record.medicalField = trimmedField || null;
         }
 
         if (Array.isArray(body?.explanations)) {

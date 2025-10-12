@@ -47,18 +47,20 @@ function nk(value) {
     .trim();
 }
 
-function addSocietyPair(map, classification, name) {
+function addSocietyPair(map, classification, medicalField, name) {
   const cls = nk(classification);
+  const field = nk(medicalField);
   const society = nk(name);
   if (!society) return;
-  if (!map.has(cls)) {
-    map.set(cls, new Set());
+  const key = `${cls}::${field}`;
+  if (!map.has(key)) {
+    map.set(key, { classification: cls, medicalField: field, names: new Set() });
   }
-  map.get(cls).add(society);
+  map.get(key).names.add(society);
 }
 
-function societyKey(classification, name) {
-  return `${nk(classification)}::${nk(name)}`;
+function societyKey(classification, medicalField, name) {
+  return `${nk(classification)}::${nk(medicalField)}::${nk(name)}`;
 }
 
 async function requestJson(path, init = {}) {
@@ -121,7 +123,8 @@ async function loadExistingSocieties() {
       const name = nk(item?.name);
       if (!name) return;
       const classification = nk(item?.category || item?.classification || '');
-      existing.add(societyKey(classification, name));
+      const medicalField = nk(item?.medicalField || item?.notes || '');
+      existing.add(societyKey(classification, medicalField, name));
     });
   } catch (err) {
     console.warn('[warn] failed to load society master:', err.message);
@@ -137,8 +140,9 @@ async function loadQualificationSocieties() {
     items.forEach(item => {
       const name = nk(item?.notes || item?.issuer);
       if (!name) return;
-      const classification = nk(item?.classification || item?.category || '');
-      addSocietyPair(societies, classification, name);
+      const classification = nk(item?.classification || '');
+      const medicalField = nk(item?.category || '');
+      addSocietyPair(societies, classification, medicalField, name);
     });
   } catch (err) {
     console.warn('[warn] failed to load qualification master:', err.message);
@@ -170,14 +174,19 @@ async function migrateClinics(societies) {
       const next = { ...item };
       const societyName = deriveSocietyName(next);
       const classification = nk(next.classification || next.qualType || next.type || '');
+      const medicalField = nk(next.medicalField || next.category || '');
       if (societyName) {
-        const key = societyKey(classification, societyName);
+        const key = societyKey(classification, medicalField, societyName);
         updatedSocietyKeys.add(key);
-        addSocietyPair(societies, classification, societyName);
+        addSocietyPair(societies, classification, medicalField, societyName);
       }
       const normalized = societyName;
       if (normalized && next.notes !== normalized) {
         next.notes = normalized;
+        changed = true;
+      }
+      if (medicalField && next.medicalField !== medicalField) {
+        next.medicalField = medicalField;
         changed = true;
       }
       if (normalized && next.issuer !== normalized) {
@@ -226,12 +235,13 @@ async function migrateClinics(societies) {
 
 async function registerSocieties(values, existing) {
   const toRegister = [];
-  for (const [classification, names] of values.entries()) {
-    for (const name of names) {
-      const key = societyKey(classification, name);
-      if (existing.has(key)) continue;
-      toRegister.push({ classification: nk(classification), name: nk(name) });
-    }
+  for (const entry of values.values()) {
+    const { classification, medicalField, names } = entry;
+    names.forEach(name => {
+      const key = societyKey(classification, medicalField, name);
+      if (existing.has(key)) return;
+      toRegister.push({ classification, medicalField, name });
+    });
   }
 
   if (!toRegister.length) {
@@ -242,15 +252,17 @@ async function registerSocieties(values, existing) {
   toRegister.sort((a, b) => {
     const clsCompare = collator.compare(a.classification, b.classification);
     if (clsCompare !== 0) return clsCompare;
+    const fieldCompare = collator.compare(a.medicalField, b.medicalField);
+    if (fieldCompare !== 0) return fieldCompare;
     return collator.compare(a.name, b.name);
   });
 
   console.log(`[info] registering ${toRegister.length} society master entries${options.dryRun ? ' (dry-run)' : ''}.`);
   for (const entry of toRegister) {
-    const { classification, name } = entry;
-    const key = societyKey(classification, name);
+    const { classification, medicalField, name } = entry;
+    const key = societyKey(classification, medicalField, name);
     if (options.dryRun) {
-      console.log(`[dry-run] would register society master: [${classification || '未分類'}] ${name}`);
+      console.log(`[dry-run] would register society master: [${classification || '未分類'}|${medicalField || '未設定'}] ${name}`);
       continue;
     }
     try {
@@ -258,6 +270,7 @@ async function registerSocieties(values, existing) {
         type: 'society',
         category: classification,
         classification,
+        medicalField,
         name,
         source: 'migrateSocietyNotes',
         status: 'candidate',
@@ -266,7 +279,7 @@ async function registerSocieties(values, existing) {
       if (options.delayMs > 0) {
         await delay(options.delayMs);
       }
-      console.log(`[registered] society master: [${classification || '未分類'}] ${name}`);
+      console.log(`[registered] society master: [${classification || '未分類'}|${medicalField || '未設定'}] ${name}`);
     } catch (err) {
       console.warn(`[warn] failed to register society master "${name}": ${err.message}`);
       if (err.message.includes('type は') && err.message.includes('bodySite')) {
@@ -294,8 +307,9 @@ async function main() {
     // reload qualification master to include any notes added via updates
     try {
       const latest = await loadQualificationSocieties();
-      for (const [classification, names] of latest.entries()) {
-        names.forEach(name => addSocietyPair(collectedSocieties, classification, name));
+      for (const entry of latest.values()) {
+        const { classification, medicalField, names } = entry;
+        names.forEach(name => addSocietyPair(collectedSocieties, classification, medicalField, name));
       }
     } catch (_) {
       // already logged in helper

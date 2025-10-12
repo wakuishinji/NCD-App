@@ -67,7 +67,7 @@
           </div>
 
           <form id="societyAddForm" class="grid gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
-            <div class="grid gap-3 md:grid-cols-[2fr,2fr,1fr]">
+            <div class="grid gap-3 md:grid-cols-[2fr,2fr,2fr,1fr]">
               <div>
                 <label class="block text-xs text-slate-600">分類（医師/看護 等）</label>
                 <select id="addSocietyCategory" class="w-full rounded border px-2 py-1">
@@ -84,6 +84,11 @@
               <div>
                 <label class="block text-xs text-slate-600">学会名</label>
                 <input id="addSocietyName" class="w-full rounded border px-2 py-1" placeholder="例: 日本循環器学会" required />
+              </div>
+              <div>
+                <label class="block text-xs text-slate-600">医療分野</label>
+                <input id="addSocietyMedicalField" class="w-full rounded border px-2 py-1" placeholder="例: 循環器" list="societyMedicalFieldOptions" />
+                <datalist id="societyMedicalFieldOptions"></datalist>
               </div>
               <div>
                 <label class="block text-xs text-slate-600">ステータス</label>
@@ -140,7 +145,10 @@
         enableCategoryFilter: true,
         enableCsvImport: false,
         showDescription: false,
-        showNotes: false,
+        showNotes: true,
+        notesProp: 'medicalField',
+        notesLabel: '医療分野',
+        notesPlaceholder: '学会が属する医療分野を入力',
         showClassification: false,
         enableManualAdd: true,
         allowFreeCategory: true,
@@ -156,7 +164,8 @@
           addCategory: document.getElementById('addSocietyCategory'),
           addCategoryManual: document.getElementById('addSocietyCategoryManual'),
           addName: document.getElementById('addSocietyName'),
-          addStatus: document.getElementById('addSocietyStatus')
+          addStatus: document.getElementById('addSocietyStatus'),
+          addNotes: document.getElementById('addSocietyMedicalField')
         }
       });
 
@@ -168,6 +177,52 @@
       exportJson.addEventListener('click', () => {
         window.open(`${getApiBase()}/api/exportMaster?type=society&format=json`, '_blank');
       });
+
+      const categorySelect = document.getElementById('addSocietyCategory');
+      const categoryManual = document.getElementById('addSocietyCategoryManual');
+      if (categorySelect) {
+        categorySelect.addEventListener('change', () => {
+          if (categorySelect.value === '__direct') {
+            categoryManual.classList.remove('hidden');
+          } else {
+            categoryManual.classList.add('hidden');
+            categoryManual.value = '';
+          }
+        });
+      }
+
+      const medicalFieldInput = document.getElementById('addSocietyMedicalField');
+      const medicalFieldDatalist = document.getElementById('societyMedicalFieldOptions');
+      const medicalFieldCollator = new Intl.Collator('ja');
+
+      async function loadMedicalFieldOptions() {
+        const values = new Set();
+        try {
+          const res = await fetch(`${getApiBase()}/api/listCategories?type=qual`);
+          if (res.ok) {
+            const data = await res.json();
+            const categories = Array.isArray(data?.categories) ? data.categories : [];
+            categories.forEach(value => {
+              const trimmed = (value || '').trim();
+              if (trimmed) values.add(trimmed);
+            });
+          }
+        } catch (err) {
+          console.warn('failed to load medical field categories', err);
+        }
+        if (!medicalFieldDatalist) return;
+        medicalFieldDatalist.innerHTML = '';
+        Array.from(values).sort((a, b) => medicalFieldCollator.compare(a, b)).forEach(value => {
+          const option = document.createElement('option');
+          option.value = value;
+          medicalFieldDatalist.appendChild(option);
+        });
+      }
+
+      loadMedicalFieldOptions();
+      if (medicalFieldInput) {
+        medicalFieldInput.setAttribute('list', 'societyMedicalFieldOptions');
+      }
     });
   </script>
 </body>

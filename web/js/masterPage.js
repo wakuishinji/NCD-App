@@ -143,6 +143,7 @@
       this.showNotes = Boolean(config.showNotes);
       this.manualAdd = Boolean(config.enableManualAdd);
       this.allowFreeCategory = Boolean(config.allowFreeCategory);
+      this.notesProp = config.notesProp || 'notes';
       this.notesLabel = config.notesLabel || '備考';
       this.notesPlaceholder = config.notesPlaceholder || '備考を入力';
       this.notesDatalistId = config.notesDatalistId || null;
@@ -277,7 +278,8 @@
       }
       if (keyword) {
         items = items.filter(item => {
-          const target = `${item.category || ''} ${item.name || ''} ${item.canonical_name || ''} ${item.desc || ''} ${item.notes || ''}`.toLowerCase();
+          const noteValue = this.getItemNoteValue(item);
+          const target = `${item.category || ''} ${item.name || ''} ${item.canonical_name || ''} ${item.desc || ''} ${noteValue || ''}`.toLowerCase();
           return target.includes(keyword);
         });
       }
@@ -354,7 +356,8 @@
           card.dataset.name = item.name || '';
 
           const showDesc = this.showDescription || (typeof item.desc === 'string' && item.desc);
-          const showNotes = this.showNotes || (typeof item.notes === 'string' && item.notes && item.notes !== item.desc);
+          const noteValue = this.getItemNoteValue(item);
+          const showNotes = this.showNotes || (typeof noteValue === 'string' && noteValue && noteValue !== item.desc);
           const showClassification = this.showClassification;
 
           const gridCols = this.type === 'department'
@@ -404,7 +407,7 @@
               ${showNotes ? `
               <div class="${notesCols}">
                 <label class="block text-xs text-slate-500">${notesLabel}</label>
-                <input class="w-full border rounded px-2 py-1" data-field="notes"${notesListAttr} value="${escapeHtml(item.notes || '')}" placeholder="${notesPlaceholder}">
+                <input class="w-full border rounded px-2 py-1" data-field="notes"${notesListAttr} value="${escapeHtml(noteValue || '')}" placeholder="${notesPlaceholder}">
               </div>` : ''}
             </div>
             <div class="mt-3 space-y-3" data-explanation-section></div>
@@ -708,7 +711,8 @@
       const status = card.querySelector('[data-field="status"]').value;
       const classificationEl = card.querySelector('[data-field="classification"]');
       const desc = descField ? descField.value : '';
-      const notes = notesField ? notesField.value : desc;
+      const rawNotes = notesField ? notesField.value : (this.notesProp === 'notes' ? desc : '');
+      const notes = normalizeString(rawNotes);
       const classification = classificationEl ? classificationEl.value : item.classification || '';
 
       const explanationRows = Array.from(card.querySelectorAll('[data-explanation-item]'));
@@ -767,6 +771,16 @@
       return normalizeString(select.value);
     }
 
+    getItemNoteValue(item) {
+      if (!item || typeof item !== 'object') return '';
+      const prop = this.notesProp || 'notes';
+      const value = item[prop];
+      if (value === undefined && prop !== 'notes') {
+        return item.notes || '';
+      }
+      return value || '';
+    }
+
     async handleUpdate(card, item, button) {
       const values = this.collectCardValues(card, item);
       if (!values.category || !values.name) {
@@ -787,10 +801,10 @@
       if (this.showClassification) {
         payload.classification = values.classification;
       }
-      if (this.showNotes) {
-        payload.notes = values.notes;
+      if (this.showNotes || this.notesProp !== 'notes') {
+        payload[this.notesProp] = values.notes;
       } else if (!this.showDescription) {
-        payload.notes = values.notes;
+        payload[this.notesProp] = values.notes;
       }
 
       if (['service', 'test'].includes(this.type)) {
@@ -902,7 +916,8 @@
       const name = normalizeString(this.elements.addName.value);
       const desc = this.elements.addDesc ? this.elements.addDesc.value : '';
       const classification = this.elements.addClassification ? this.elements.addClassification.value : PERSONAL_CLASSIFICATIONS[0];
-      const notes = this.elements.addNotes ? this.elements.addNotes.value : desc;
+      const rawNotes = this.elements.addNotes ? this.elements.addNotes.value : (this.notesProp === 'notes' ? desc : '');
+      const notes = normalizeString(rawNotes);
       const status = this.elements.addStatus ? this.elements.addStatus.value : 'approved';
       if (!resolvedCategory || !name) {
         alert('分類と名称を入力してください');
@@ -919,10 +934,10 @@
       if (this.showClassification) {
         payload.classification = classification;
       }
-      if (this.showNotes) {
-        payload.notes = notes;
+      if (this.showNotes || this.notesProp !== 'notes') {
+        payload[this.notesProp] = notes;
       } else if (!this.showDescription) {
-        payload.notes = notes;
+        payload[this.notesProp] = notes;
       }
       await this.withLoading('項目を追加しています...', async () => {
       const res = await fetch(apiUrl('/api/addMasterItem'), {

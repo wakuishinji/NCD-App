@@ -86,7 +86,7 @@
 4. **マイグレーション/テスト**:
    - 既存クリニックデータのスキーマ移行スクリプトを作成 (`scripts/migrateClinicSchemaV2.mjs`)。
    - Vitest などで新 API の単体テストと E2E テスト（Playwright/Selenium 等）を整備。
-   - `scripts/migrateSocietyNotes.mjs` で既存「備考」を学会名へ正規化し、学会マスタ候補を収集・投入する。
+   - `scripts/migrateSocietyNotes.mjs` で既存「備考」を学会名へ正規化し、分類×医療分野のマスタ候補を収集・投入する。
 5. **リリース準備**:
    - 招待フローと権限分離を検証環境で確認。
    - 検索性能/UX を検証し、ロードマップに基づいてトラック化。

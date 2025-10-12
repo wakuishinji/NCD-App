@@ -1068,7 +1068,7 @@
         registerPersonalMasterCandidate(entry.classification, entry.medicalField, entry.name, entry.societyName);
       }
       if (entry.societySource === "manual") {
-        registerSocietyMasterCandidate(entry.classification, entry.societyName);
+        registerSocietyMasterCandidate(entry.classification, entry.medicalField, entry.societyName);
       }
     } catch (err) {
       console.error("failed to save personal qualification", err);
@@ -1177,7 +1177,7 @@
     }
   }
 
-  async function registerSocietyMasterCandidate(classification, name) {
+  async function registerSocietyMasterCandidate(classification, medicalField, name) {
     const value = nk(name);
     if (!value) return;
     try {
@@ -1188,6 +1188,7 @@
           type: "society",
           category: nk(classification),
           classification: nk(classification),
+          medicalField: nk(medicalField),
           name: value,
           source: "clinicQualifications",
         }),
