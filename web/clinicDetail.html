@@ -339,7 +339,7 @@
 
   <!-- 右下 固定アクション -->
   <div class="fab">
-    <button onclick="saveClinic()" class="bg-blue-600 text-white px-4 py-3 rounded shadow hover:bg-blue-700">この診療所を保存</button>
+    <button id="clinicSaveButton" onclick="saveClinic()" class="bg-blue-600 text-white px-4 py-3 rounded shadow hover:bg-blue-700">この診療所を保存</button>
     <a href="clinicHome.html" class="bg-gray-600 text-white px-4 py-3 rounded shadow hover:bg-gray-700 flex items-center">Home</a>
   </div>
 
@@ -1753,15 +1753,21 @@ async function saveClinic() {
     modes: modesPayload
   };
 
+  const saveButton = document.getElementById("clinicSaveButton");
+  const mainElement = document.querySelector('main');
+  let result;
   try {
-    const res = await fetch(`${BASE}/api/updateClinic`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(clinicData)
-    });
-    if (!res.ok) throw new Error("API更新エラー");
+    if (saveButton) saveButton.disabled = true;
+    result = await wrapWithLoading(async () => {
+      const res = await fetch(`${BASE}/api/updateClinic`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(clinicData)
+      });
+      if (!res.ok) throw new Error("API更新エラー");
+      return res.json();
+    }, '保存中です...', mainElement);
 
-    const result = await res.json();
     if (!result?.clinic) {
       throw new Error('応答に診療所データが含まれていません');
     }
@@ -1778,6 +1784,8 @@ async function saveClinic() {
   } catch (err) {
     alert("保存に失敗しました: " + err.message);
     console.error(err);
+  } finally {
+    if (saveButton) saveButton.disabled = false;
   }
 }
 

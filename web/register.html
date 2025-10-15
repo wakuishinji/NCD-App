@@ -76,33 +76,37 @@
         return;
       }
 
+      messageEl.textContent = "";
+      messageEl.className = "mt-4 text-sm text-gray-600";
+
       try {
+        // 既存クリニックの重複チェック
+        const detailRes = await fetch(`${API_BASE}/api/clinicDetail?name=${encodeURIComponent(name)}`);
+        if (detailRes.ok) {
+          const detailData = await detailRes.json().catch(() => null);
+          if (detailData?.clinic) {
+            localStorage.setItem("selectedClinic", JSON.stringify(detailData.clinic));
+            messageEl.textContent = "同名の診療所が既に登録されています。既存データに移動します。";
+            messageEl.className = "mt-4 text-sm text-red-600";
+            alert("同じ名称の診療所が既に登録されています。既存の施設ホームへ移動します。");
+            window.location.href = "clinicHome.html";
+            return;
+          }
+        }
+
         const res = await fetch(`${API_BASE}/api/registerClinic`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name })
         });
 
-        const data = await res.json();
+        const data = await res.json().catch(() => null);
 
-        if (res.ok) {
-          // サーバーで新規登録成功
-          const newClinic = {
-            id: data.clinic.name,   // 現在は name をキーに保存している
-            name: data.clinic.name,
-            address: "",
-            doctors: { fulltime: 0, parttime: 0, qualifications: "" },
-            schedule: { patterns: {}, days: {} }
-          };
-
-          // 選択中クリニックとして保存
-          localStorage.setItem("selectedClinic", JSON.stringify(newClinic));
-
-          // 詳細入力へ遷移
+        if (res.ok && data?.clinic) {
+          localStorage.setItem("selectedClinic", JSON.stringify(data.clinic));
           window.location.href = "clinicDetail.html";
         } else {
-          // 重複などのエラー
-          messageEl.textContent = "⚠️ " + (data.error || "登録に失敗しました");
+          messageEl.textContent = "⚠️ " + (data?.error || "登録に失敗しました");
           messageEl.className = "mt-4 text-sm text-red-600";
         }
       } catch (err) {
