@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- ローディング機能 -->
+  <script src="js/googleMapsLoader.js"></script>
   <script src="js/loading.js"></script>
   <script src="js/header.js" defer></script>
   <style>
@@ -355,6 +356,93 @@
 
 <script>
 const DEFAULT_API_BASE = "https://ncd-app.altry.workers.dev";
+
+const geocodeCache = new Map();
+
+function getStoredSelectedClinic() {
+  try {
+    const raw = localStorage.getItem("selectedClinic");
+    return raw ? JSON.parse(raw) : null;
+  } catch (err) {
+    console.warn('failed to parse selectedClinic from localStorage', err);
+    return null;
+  }
+}
+
+async function geocodeAddressIfNeeded(clinicData) {
+  const addressComponents = [clinicData.postalCode, clinicData.address].map((value) => (value || '').trim()).filter(Boolean);
+  if (!addressComponents.length) return null;
+  const query = addressComponents.join(' ');
+  const cached = geocodeCache.get(query);
+  if (cached) {
+    return cached;
+  }
+  if (!window.NCD || typeof window.NCD.loadGoogleMaps !== 'function') {
+    console.warn('Google Maps loader is not available');
+    return null;
+  }
+  try {
+    const maps = await window.NCD.loadGoogleMaps({ libraries: [] });
+    const geocoder = new maps.Geocoder();
+    const result = await new Promise((resolve, reject) => {
+      geocoder.geocode({ address: query, componentRestrictions: { country: 'JP' } }, (results, status) => {
+        if (status === 'OK' && Array.isArray(results) && results.length) {
+          const location = results[0].geometry?.location;
+          if (location && typeof location.lat === 'function' && typeof location.lng === 'function') {
+            resolve({ lat: location.lat(), lng: location.lng(), formattedAddress: results[0].formatted_address });
+            return;
+          }
+        }
+        if (status === 'ZERO_RESULTS') {
+          resolve(null);
+        } else {
+          reject(new Error(`Geocode failed: ${status}`));
+        }
+      });
+    });
+    if (result) {
+      geocodeCache.set(query, result);
+    }
+    return result;
+  } catch (err) {
+    console.warn('geocodeAddressIfNeeded error', err);
+    return null;
+  }
+}
+
+async function ensureClinicCoordinates(clinicData) {
+  const stored = getStoredSelectedClinic();
+  const storedAddress = stored ? [stored.postalCode, stored.address].map((value) => (value || '').trim()).filter(Boolean).join(' ') : '';
+  const currentAddress = [clinicData.postalCode, clinicData.address].map((value) => (value || '').trim()).filter(Boolean).join(' ');
+  const storedLat = stored?.latitude ?? stored?.location?.lat ?? stored?.location?.latitude ?? null;
+  const storedLng = stored?.longitude ?? stored?.location?.lng ?? stored?.location?.lon ?? stored?.location?.longitude ?? null;
+
+  if (currentAddress && storedAddress === currentAddress && Number.isFinite(storedLat) && Number.isFinite(storedLng)) {
+    clinicData.latitude = storedLat;
+    clinicData.longitude = storedLng;
+    clinicData.location = {
+      ...(stored.location || {}),
+      lat: storedLat,
+      lng: storedLng
+    };
+    return;
+  }
+
+  const geocoded = await geocodeAddressIfNeeded(clinicData);
+  if (geocoded && Number.isFinite(geocoded.lat) && Number.isFinite(geocoded.lng)) {
+    clinicData.latitude = geocoded.lat;
+    clinicData.longitude = geocoded.lng;
+    clinicData.location = {
+      ...(clinicData.location || {}),
+      lat: geocoded.lat,
+      lng: geocoded.lng,
+      formattedAddress: geocoded.formattedAddress || clinicData.address || '',
+      source: 'geocode',
+      geocodedAt: new Date().toISOString()
+    };
+  }
+}
+
 const DEFAULT_ASSET_BASE = "https://ncd-app.altry.workers.dev";
 const BASE = (() => {
   if (typeof window !== 'undefined' && typeof window.NCD_API_BASE === 'string' && window.NCD_API_BASE.trim()) {
@@ -1752,6 +1840,8 @@ async function saveClinic() {
     access,
     modes: modesPayload
   };
+
+  await ensureClinicCoordinates(clinicData);
 
   const saveButton = document.getElementById("clinicSaveButton");
   const mainElement = document.querySelector('main');

@@ -52,6 +52,7 @@ NCD-App は診療所のマスタ管理と運用補助を行う Web アプリケ�
 - **主要機能**
   - `GET /api/clinicDetail` で初期データ取得。
   - `POST /api/updateClinic` で保存。名称変更時は旧名称インデックスが自動削除される。
+  - 住所保存時に Google Geocoding API を用いて緯度・経度を自動登録し、地図検索でピン表示できるようにする。
   - 診療形態マスター `GET /api/modes` を反映し、タグを追加・並べ替え。
   - メディアアップロード (`POST /api/media/upload-url` → R2 PUT → `POST /api/media/commit`)
   - 住所検索（ZipCloud API）と Google Maps 描画（`client-config` 経由で API Key 取得）。
