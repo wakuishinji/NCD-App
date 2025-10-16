@@ -37,6 +37,12 @@
 
   let modeMaster = [];
   const modeMasterMap = new Map();
+  let vaccinationMaster = [];
+  const vaccinationMasterMap = new Map();
+  let vaccinationTypes = [];
+  let checkupMaster = [];
+  const checkupMasterMap = new Map();
+  let checkupTypes = [];
 
   const els = {};
   const mapState = {
@@ -85,6 +91,127 @@
       modeMaster = [];
       modeMasterMap.clear();
     }
+  }
+
+  async function loadVaccinationMaster() {
+    try {
+      const data = await fetchJson('/api/listMaster?type=vaccination');
+      vaccinationMaster = Array.isArray(data?.items) ? data.items : [];
+      vaccinationMasterMap.clear();
+      vaccinationMaster.forEach((item) => {
+        if (item && item._key) {
+          vaccinationMasterMap.set(item._key, item);
+        }
+      });
+    } catch (err) {
+      console.error('failed to load vaccination master', err);
+      vaccinationMaster = [];
+      vaccinationMasterMap.clear();
+    }
+    try {
+      const data = await fetchJson('/api/listCategories?type=vaccinationType');
+      vaccinationTypes = Array.isArray(data?.categories) ? data.categories : [];
+    } catch (err) {
+      console.error('failed to load vaccination types', err);
+      vaccinationTypes = [];
+    }
+  }
+
+  async function loadCheckupMaster() {
+    try {
+      const data = await fetchJson('/api/listMaster?type=checkup');
+      checkupMaster = Array.isArray(data?.items) ? data.items : [];
+      checkupMasterMap.clear();
+      checkupMaster.forEach((item) => {
+        if (item && item._key) {
+          checkupMasterMap.set(item._key, item);
+        }
+      });
+    } catch (err) {
+      console.error('failed to load checkup master', err);
+      checkupMaster = [];
+      checkupMasterMap.clear();
+    }
+    try {
+      const data = await fetchJson('/api/listCategories?type=checkupType');
+      checkupTypes = Array.isArray(data?.categories) ? data.categories : [];
+    } catch (err) {
+      console.error('failed to load checkup types', err);
+      checkupTypes = [];
+    }
+  }
+
+  function buildCategoryGroups(items, types) {
+    const groups = new Map();
+    const collator = new Intl.Collator('ja');
+    items.forEach((item) => {
+      const category = (item.category || '').trim() || 'その他';
+      if (!groups.has(category)) groups.set(category, []);
+      groups.get(category).push(item);
+    });
+    groups.forEach((arr) => {
+      arr.sort((a, b) => {
+        const ao = Number.isFinite(a.sortOrder) ? a.sortOrder : Number.MAX_SAFE_INTEGER;
+        const bo = Number.isFinite(b.sortOrder) ? b.sortOrder : Number.MAX_SAFE_INTEGER;
+        if (ao !== bo) return ao - bo;
+        return collator.compare(a.name || '', b.name || '');
+      });
+    });
+    const orderedCategories = [];
+    if (Array.isArray(types) && types.length) {
+      types.forEach((type) => {
+        if (groups.has(type)) orderedCategories.push(type);
+      });
+    }
+    Array.from(groups.keys())
+      .filter((cat) => !orderedCategories.includes(cat))
+      .sort((a, b) => {
+        const coll = new Intl.Collator('ja');
+        return coll.compare(a, b);
+      })
+      .forEach((cat) => orderedCategories.push(cat));
+    return orderedCategories.map((category) => ({
+      category,
+      items: groups.get(category) || [],
+    }));
+  }
+
+  function renderGroupedCards({ container, emptyEl, items, types }) {
+    if (!container || !emptyEl) return;
+    container.innerHTML = '';
+    if (!items.length) {
+      emptyEl.classList.remove('hidden');
+      return;
+    }
+    const groups = buildCategoryGroups(items, types);
+    if (!groups.length) {
+      emptyEl.classList.remove('hidden');
+      return;
+    }
+    emptyEl.classList.add('hidden');
+    groups.forEach(({ category, items: groupItems }) => {
+      if (!groupItems.length) return;
+      const card = document.createElement('div');
+      card.className = 'rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm';
+      const heading = document.createElement('h4');
+      heading.className = 'text-sm font-semibold text-blue-900';
+      heading.textContent = category || 'その他';
+      card.appendChild(heading);
+      const list = document.createElement('ul');
+      list.className = 'mt-2 space-y-1 text-sm text-slate-700';
+      groupItems.forEach((item) => {
+        const li = document.createElement('li');
+        li.className = 'leading-relaxed';
+        if (item.desc) {
+          li.innerHTML = `<span class="font-medium">${item.name || item._key}</span><br><span class="text-xs text-slate-500">${item.desc}</span>`;
+        } else {
+          li.textContent = item.name || item._key;
+        }
+        list.appendChild(li);
+      });
+      card.appendChild(list);
+      container.appendChild(card);
+    });
   }
 
   function formatTimestamp(seconds) {
@@ -327,6 +454,80 @@
       text.textContent = meta.label || slug;
       badge.appendChild(text);
       els.modes.appendChild(badge);
+    });
+  }
+
+  function resolveVaccinationMeta(key, clinicMeta) {
+    return clinicMeta?.[key] || vaccinationMasterMap.get(key) || null;
+  }
+
+  function resolveCheckupMeta(key, clinicMeta) {
+    return clinicMeta?.[key] || checkupMasterMap.get(key) || null;
+  }
+
+  function renderVaccinations(clinic) {
+    if (!els.vaccinationSection || !els.vaccinations || !els.vaccinationEmpty) return;
+    const data = clinic.vaccinations && typeof clinic.vaccinations === 'object' ? clinic.vaccinations : {};
+    const selection = Array.isArray(data.selected) ? data.selected : [];
+    const meta = data.meta && typeof data.meta === 'object' ? data.meta : {};
+    const items = selection
+      .map((key) => {
+        const source = resolveVaccinationMeta(key, meta);
+        if (!source) return null;
+        return {
+          _key: key,
+          category: source.category || '',
+          name: source.name || source.label || '',
+          desc: source.desc || source.detail || '',
+          sortOrder: Number.isFinite(source.sortOrder) ? source.sortOrder : null,
+        };
+      })
+      .filter(Boolean);
+    if (!items.length) {
+      els.vaccinationSection.classList.add('hidden');
+      els.vaccinationEmpty.classList.remove('hidden');
+      els.vaccinations.innerHTML = '';
+      return;
+    }
+    els.vaccinationSection.classList.remove('hidden');
+    renderGroupedCards({
+      container: els.vaccinations,
+      emptyEl: els.vaccinationEmpty,
+      items,
+      types: vaccinationTypes,
+    });
+  }
+
+  function renderCheckups(clinic) {
+    if (!els.checkupSection || !els.checkups || !els.checkupEmpty) return;
+    const data = clinic.checkups && typeof clinic.checkups === 'object' ? clinic.checkups : {};
+    const selection = Array.isArray(data.selected) ? data.selected : [];
+    const meta = data.meta && typeof data.meta === 'object' ? data.meta : {};
+    const items = selection
+      .map((key) => {
+        const source = resolveCheckupMeta(key, meta);
+        if (!source) return null;
+        return {
+          _key: key,
+          category: source.category || '',
+          name: source.name || source.label || '',
+          desc: source.desc || source.detail || '',
+          sortOrder: Number.isFinite(source.sortOrder) ? source.sortOrder : null,
+        };
+      })
+      .filter(Boolean);
+    if (!items.length) {
+      els.checkupSection.classList.add('hidden');
+      els.checkupEmpty.classList.remove('hidden');
+      els.checkups.innerHTML = '';
+      return;
+    }
+    els.checkupSection.classList.remove('hidden');
+    renderGroupedCards({
+      container: els.checkups,
+      emptyEl: els.checkupEmpty,
+      items,
+      types: checkupTypes,
     });
   }
 
@@ -699,6 +900,8 @@
     renderFeatures(clinic);
     renderHero(clinic);
     renderModes(clinic);
+    renderVaccinations(clinic);
+    renderCheckups(clinic);
     renderAccess(clinic);
     renderMap(clinic);
   }
@@ -713,6 +916,8 @@
     if (els.subtitle) {
       els.subtitle.textContent = '検索ページからクリニックを選択すると、このページに情報が表示されます。';
     }
+    renderVaccinations({});
+    renderCheckups({});
   }
 
   function renderNotFound() {
@@ -725,6 +930,8 @@
     if (els.subtitle) {
       els.subtitle.textContent = '管理画面から登録を行ってください。';
     }
+    renderVaccinations({});
+    renderCheckups({});
   }
 
   async function loadClinic(id) {
@@ -760,6 +967,12 @@
     els.features = document.getElementById('clinicFeatures');
     els.hero = document.getElementById('clinicHero');
     els.modes = document.getElementById('clinicModes');
+    els.vaccinationSection = document.getElementById('clinicVaccinationSection');
+    els.vaccinations = document.getElementById('clinicVaccinations');
+    els.vaccinationEmpty = document.getElementById('clinicVaccinationsEmpty');
+    els.checkupSection = document.getElementById('clinicCheckupSection');
+    els.checkups = document.getElementById('clinicCheckups');
+    els.checkupEmpty = document.getElementById('clinicCheckupsEmpty');
     els.accessSummary = document.getElementById('clinicAccessSummary');
     els.accessList = document.getElementById('clinicAccessList');
     els.accessText = document.getElementById('clinicAccessText');
@@ -769,12 +982,12 @@
   async function init() {
     bindElements();
     const params = new URLSearchParams(window.location.search);
-    const clinicId = params.get('id');
-    if (!clinicId) {
-      renderMissingId();
-      return;
-    }
-    await loadModesMaster();
+   const clinicId = params.get('id');
+   if (!clinicId) {
+     renderMissingId();
+     return;
+   }
+    await Promise.all([loadModesMaster(), loadVaccinationMaster(), loadCheckupMaster()]);
     await loadClinic(clinicId);
   }
 

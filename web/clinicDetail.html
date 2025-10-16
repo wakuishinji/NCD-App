@@ -404,6 +404,56 @@
         </div>
       </div>
     </section>
+
+    <!-- 予防接種 -->
+    <section class="bg-white rounded shadow p-6 space-y-4">
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 class="text-lg font-semibold text-blue-800">予防接種</h2>
+          <p class="text-xs text-gray-500">登録されたワクチン情報は公開ページの「設備・特徴」や健診情報と合わせて表示されます。</p>
+        </div>
+        <button id="vaccinationEditButton" type="button" class="self-start rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">入力する</button>
+      </div>
+      <div id="vaccinationSummaryContainer" class="space-y-3" aria-live="polite"></div>
+      <div id="vaccinationSummaryEmpty" class="text-sm text-slate-400 italic">登録されていません</div>
+      <div id="vaccinationEditor" class="hidden border border-slate-200 rounded-lg bg-slate-50 p-4 space-y-4" aria-hidden="true">
+        <div class="flex items-center justify-between">
+          <h3 class="text-base font-semibold text-blue-800">予防接種の入力</h3>
+          <button id="vaccinationEditorClose" type="button" class="rounded px-2 py-1 text-sm text-slate-600 hover:text-slate-800">閉じる</button>
+        </div>
+        <p class="text-xs text-gray-500">対象となるワクチン種類にチェックを入れてください。マスターに登録されていない場合は種類マスターおよび予防接種マスターを先に更新してください。</p>
+        <div id="vaccinationOptions" class="space-y-4"></div>
+        <div class="flex justify-end gap-2">
+          <button id="vaccinationEditorCancel" type="button" class="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-white">キャンセル</button>
+          <button id="vaccinationEditorSave" type="button" class="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">保存する</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 健診 -->
+    <section class="bg-white rounded shadow p-6 space-y-4">
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 class="text-lg font-semibold text-blue-800">健診</h2>
+          <p class="text-xs text-gray-500">提供している健診メニューを選択してください。公開ページではカテゴリごとに表示されます。</p>
+        </div>
+        <button id="checkupEditButton" type="button" class="self-start rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">入力する</button>
+      </div>
+      <div id="checkupSummaryContainer" class="space-y-3" aria-live="polite"></div>
+      <div id="checkupSummaryEmpty" class="text-sm text-slate-400 italic">登録されていません</div>
+      <div id="checkupEditor" class="hidden border border-slate-200 rounded-lg bg-slate-50 p-4 space-y-4" aria-hidden="true">
+        <div class="flex items-center justify-between">
+          <h3 class="text-base font-semibold text-blue-800">健診の入力</h3>
+          <button id="checkupEditorClose" type="button" class="rounded px-2 py-1 text-sm text-slate-600 hover:text-slate-800">閉じる</button>
+        </div>
+        <p class="text-xs text-gray-500">健診種類ごとに実施している健診を選択してください。健診種類／健診名は管理画面のマスターで管理します。</p>
+        <div id="checkupOptions" class="space-y-4"></div>
+        <div class="flex justify-end gap-2">
+          <button id="checkupEditorCancel" type="button" class="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-white">キャンセル</button>
+          <button id="checkupEditorSave" type="button" class="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">保存する</button>
+        </div>
+      </div>
+    </section>
   </main>
 
   <!-- 右下 固定アクション -->
@@ -604,6 +654,28 @@ let modesEditorSaveEl = null;
 let modesEditorCancelEl = null;
 let modesEditorSnapshotJson = null;
 let currentModesMeta = {};
+let vaccinationMaster = [];
+const vaccinationMasterMap = new Map();
+let vaccinationTypes = [];
+let vaccinationEditorEl = null;
+let vaccinationEditButtonEl = null;
+let vaccinationEditorCloseEl = null;
+let vaccinationEditorSaveEl = null;
+let vaccinationEditorCancelEl = null;
+let vaccinationEditorSnapshotJson = null;
+let currentVaccinationMeta = {};
+let vaccinationSelection = new Set();
+let checkupMaster = [];
+const checkupMasterMap = new Map();
+let checkupTypes = [];
+let checkupEditorEl = null;
+let checkupEditButtonEl = null;
+let checkupEditorCloseEl = null;
+let checkupEditorSaveEl = null;
+let checkupEditorCancelEl = null;
+let checkupEditorSnapshotJson = null;
+let currentCheckupMeta = {};
+let checkupSelection = new Set();
 
 function toggleLoadingOverlay(show) {
   const overlay = document.getElementById("loadingOverlay");
@@ -1160,6 +1232,416 @@ function closeModesEditor({ revert = false } = {}) {
   modesEditorSnapshotJson = null;
 }
 
+function buildCategoryGroups(masterList, types) {
+  const groups = new Map();
+  const collator = new Intl.Collator('ja');
+  masterList.forEach((item) => {
+    if (!item || item.status === 'archived') return;
+    const category = (item.category || '').trim() || 'その他';
+    if (!groups.has(category)) {
+      groups.set(category, []);
+    }
+    groups.get(category).push(item);
+  });
+  groups.forEach((items, category) => {
+    items.sort((a, b) => {
+      const ao = Number.isFinite(a.sortOrder) ? a.sortOrder : Number.MAX_SAFE_INTEGER;
+      const bo = Number.isFinite(b.sortOrder) ? b.sortOrder : Number.MAX_SAFE_INTEGER;
+      if (ao !== bo) return ao - bo;
+      return collator.compare(a.name || '', b.name || '');
+    });
+  });
+  const orderedCategories = [];
+  if (Array.isArray(types) && types.length) {
+    types.forEach((type) => {
+      if (groups.has(type)) orderedCategories.push(type);
+    });
+  }
+  Array.from(groups.keys())
+    .filter((category) => !orderedCategories.includes(category))
+    .sort((a, b) => collator.compare(a, b))
+    .forEach((category) => orderedCategories.push(category));
+  return orderedCategories.map((category) => ({
+    category,
+    items: groups.get(category) || [],
+  }));
+}
+
+function buildMetaFromSelection(selection, masterMap, fallbackMeta = {}) {
+  const meta = {};
+  selection.forEach((key) => {
+    const source = masterMap.get(key) || fallbackMeta[key];
+    if (source) {
+      meta[key] = {
+        category: source.category || '',
+        name: source.name || source.label || '',
+        desc: source.desc || source.detail || source.notes || '',
+      };
+    } else {
+      meta[key] = {
+        category: '',
+        name: key,
+        desc: '',
+      };
+    }
+  });
+  return meta;
+}
+
+function renderGroupedSummary({ containerId, emptyId, selection = [], meta = {}, types = [] }) {
+  const container = document.getElementById(containerId);
+  const emptyState = document.getElementById(emptyId);
+  if (!container || !emptyState) return;
+  container.innerHTML = '';
+  if (!selection.length) {
+    emptyState.classList.remove('hidden');
+    return;
+  }
+  const items = selection
+    .map((key) => {
+      const info = meta[key];
+      if (!info) return null;
+      return { key, ...info };
+    })
+    .filter(Boolean);
+  if (!items.length) {
+    emptyState.classList.remove('hidden');
+    return;
+  }
+  emptyState.classList.add('hidden');
+  const masterItems = items.map((item) => ({
+    category: item.category || '',
+    name: item.name || '',
+    desc: item.desc || '',
+    _key: item.key,
+  }));
+  const groups = buildCategoryGroups(masterItems, types);
+  if (!groups.length) {
+    emptyState.classList.remove('hidden');
+    return;
+  }
+  groups.forEach(({ category, items: groupItems }) => {
+    if (!groupItems.length) return;
+    const card = document.createElement('div');
+    card.className = 'rounded border border-slate-200 bg-slate-50 px-4 py-3';
+    const heading = document.createElement('h3');
+    heading.className = 'text-sm font-semibold text-blue-900';
+    heading.textContent = category || 'その他';
+    card.appendChild(heading);
+    const list = document.createElement('ul');
+    list.className = 'mt-2 space-y-1 text-sm text-slate-700';
+    groupItems.forEach((item) => {
+      const li = document.createElement('li');
+      li.className = 'leading-relaxed';
+      if (item.desc) {
+        li.innerHTML = `<span class="font-medium">${item.name || item._key}</span><br><span class="text-xs text-slate-500">${item.desc}</span>`;
+      } else {
+        li.textContent = item.name || item._key;
+      }
+      list.appendChild(li);
+    });
+    card.appendChild(list);
+    container.appendChild(card);
+  });
+}
+
+function renderGroupedOptions({ containerId, inputName, masterList, types, selectedSet }) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = '';
+  if (!Array.isArray(masterList) || !masterList.length) {
+    const empty = document.createElement('div');
+    empty.className = 'rounded border border-dashed border-slate-300 bg-white px-4 py-3 text-sm text-slate-500';
+    empty.textContent = 'マスターに公開中の項目がありません。管理画面で登録してください。';
+    container.appendChild(empty);
+    return;
+  }
+  const groups = buildCategoryGroups(masterList, types);
+  if (!groups.length) {
+    const empty = document.createElement('div');
+    empty.className = 'rounded border border-dashed border-slate-300 bg-white px-4 py-3 text-sm text-slate-500';
+    empty.textContent = 'チェック可能な項目がありません。';
+    container.appendChild(empty);
+    return;
+  }
+  groups.forEach(({ category, items }) => {
+    if (!items.length) return;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'rounded-lg border border-slate-200 bg-white px-4 py-3 space-y-3';
+    const heading = document.createElement('div');
+    heading.className = 'border-b border-slate-200 pb-2';
+    heading.innerHTML = `<p class="text-sm font-semibold text-blue-900">${category || 'その他'}</p><p class="text-xs text-slate-500 mt-1">該当する項目にチェックを入れてください。</p>`;
+    wrapper.appendChild(heading);
+    const groupList = document.createElement('div');
+    groupList.className = 'space-y-2';
+    items.forEach((item) => {
+      const id = `${inputName}-${item._key.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+      const label = document.createElement('label');
+      label.className = 'flex items-start gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.name = inputName;
+      checkbox.value = item._key;
+      checkbox.id = id;
+      checkbox.className = 'mt-1 h-4 w-4 text-blue-600';
+      checkbox.checked = selectedSet.has(item._key);
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) {
+          selectedSet.add(item._key);
+        } else {
+          selectedSet.delete(item._key);
+        }
+        markDirty();
+      });
+      label.appendChild(checkbox);
+      const textWrap = document.createElement('div');
+      textWrap.className = 'flex-1';
+      const title = document.createElement('p');
+      title.className = 'font-semibold';
+      title.textContent = item.name || item._key;
+      textWrap.appendChild(title);
+      if (item.desc) {
+        const detail = document.createElement('p');
+        detail.className = 'text-xs text-slate-500 mt-1';
+        detail.textContent = item.desc;
+        textWrap.appendChild(detail);
+      }
+      if (item.status && item.status !== 'approved') {
+        const badge = document.createElement('span');
+        badge.className = 'mt-1 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700';
+        badge.textContent = item.status;
+        textWrap.appendChild(badge);
+      }
+      label.appendChild(textWrap);
+      groupList.appendChild(label);
+    });
+    wrapper.appendChild(groupList);
+    container.appendChild(wrapper);
+  });
+}
+
+function mergeMasterWithSelection(masterList, selectionSet, metaSource, map) {
+  const merged = Array.isArray(masterList) ? [...masterList] : [];
+  const set = selectionSet instanceof Set ? selectionSet : new Set(selectionSet || []);
+  set.forEach((key) => {
+    if (!map.has(key)) {
+      const meta = metaSource?.[key];
+      if (meta) {
+        merged.push({
+          _key: key,
+          category: meta.category || '',
+          name: meta.name || meta.label || key,
+          desc: meta.desc || meta.detail || '',
+          status: meta.status || 'candidate'
+        });
+      }
+    }
+  });
+  return merged;
+}
+
+function renderVaccinationSummary(selection = Array.from(vaccinationSelection), meta = currentVaccinationMeta) {
+  renderGroupedSummary({
+    containerId: 'vaccinationSummaryContainer',
+    emptyId: 'vaccinationSummaryEmpty',
+    selection,
+    meta,
+    types: vaccinationTypes,
+  });
+}
+
+function renderCheckupSummary(selection = Array.from(checkupSelection), meta = currentCheckupMeta) {
+  renderGroupedSummary({
+    containerId: 'checkupSummaryContainer',
+    emptyId: 'checkupSummaryEmpty',
+    selection,
+    meta,
+    types: checkupTypes,
+  });
+}
+
+function renderVaccinationOptions(selection = vaccinationSelection) {
+  vaccinationSelection = new Set(selection ?? []);
+  const merged = mergeMasterWithSelection(vaccinationMaster, vaccinationSelection, currentVaccinationMeta, vaccinationMasterMap);
+  renderGroupedOptions({
+    containerId: 'vaccinationOptions',
+    inputName: 'vaccinationItem',
+    masterList: merged,
+    types: vaccinationTypes,
+    selectedSet: vaccinationSelection,
+  });
+}
+
+function renderCheckupOptions(selection = checkupSelection) {
+  checkupSelection = new Set(selection ?? []);
+  const merged = mergeMasterWithSelection(checkupMaster, checkupSelection, currentCheckupMeta, checkupMasterMap);
+  renderGroupedOptions({
+    containerId: 'checkupOptions',
+    inputName: 'checkupItem',
+    masterList: merged,
+    types: checkupTypes,
+    selectedSet: checkupSelection,
+  });
+}
+
+function readVaccinationsFromForm() {
+  const selected = Array.from(vaccinationSelection);
+  const meta = buildMetaFromSelection(selected, vaccinationMasterMap, currentVaccinationMeta);
+  return { selected, meta };
+}
+
+function readCheckupsFromForm() {
+  const selected = Array.from(checkupSelection);
+  const meta = buildMetaFromSelection(selected, checkupMasterMap, currentCheckupMeta);
+  return { selected, meta };
+}
+
+function openVaccinationEditor() {
+  if (!vaccinationEditorEl) vaccinationEditorEl = document.getElementById('vaccinationEditor');
+  if (!vaccinationEditorEl) return;
+  vaccinationEditorSnapshotJson = JSON.stringify(Array.from(vaccinationSelection));
+  renderVaccinationOptions(vaccinationSelection);
+  vaccinationEditorEl.classList.remove('hidden');
+  vaccinationEditorEl.setAttribute('aria-hidden', 'false');
+  vaccinationEditorEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function closeVaccinationEditor({ revert = false } = {}) {
+  if (!vaccinationEditorEl) vaccinationEditorEl = document.getElementById('vaccinationEditor');
+  if (!vaccinationEditorEl) return;
+  if (revert && vaccinationEditorSnapshotJson) {
+    try {
+      const snapshot = JSON.parse(vaccinationEditorSnapshotJson);
+      vaccinationSelection = new Set(Array.isArray(snapshot) ? snapshot : []);
+      renderVaccinationOptions(vaccinationSelection);
+      renderVaccinationSummary(Array.from(vaccinationSelection), currentVaccinationMeta);
+    } catch (err) {
+      console.warn('failed to restore vaccination snapshot', err);
+    }
+  } else if (!revert) {
+    const { selected, meta } = readVaccinationsFromForm();
+    vaccinationSelection = new Set(selected);
+    currentVaccinationMeta = meta;
+    renderVaccinationSummary(selected, meta);
+  }
+  vaccinationEditorEl.classList.add('hidden');
+  vaccinationEditorEl.setAttribute('aria-hidden', 'true');
+  vaccinationEditorSnapshotJson = null;
+}
+
+function openCheckupEditor() {
+  if (!checkupEditorEl) checkupEditorEl = document.getElementById('checkupEditor');
+  if (!checkupEditorEl) return;
+  checkupEditorSnapshotJson = JSON.stringify(Array.from(checkupSelection));
+  renderCheckupOptions(checkupSelection);
+  checkupEditorEl.classList.remove('hidden');
+  checkupEditorEl.setAttribute('aria-hidden', 'false');
+  checkupEditorEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function closeCheckupEditor({ revert = false } = {}) {
+  if (!checkupEditorEl) checkupEditorEl = document.getElementById('checkupEditor');
+  if (!checkupEditorEl) return;
+  if (revert && checkupEditorSnapshotJson) {
+    try {
+      const snapshot = JSON.parse(checkupEditorSnapshotJson);
+      checkupSelection = new Set(Array.isArray(snapshot) ? snapshot : []);
+      renderCheckupOptions(checkupSelection);
+      renderCheckupSummary(Array.from(checkupSelection), currentCheckupMeta);
+    } catch (err) {
+      console.warn('failed to restore checkup snapshot', err);
+    }
+  } else if (!revert) {
+    const { selected, meta } = readCheckupsFromForm();
+    checkupSelection = new Set(selected);
+    currentCheckupMeta = meta;
+    renderCheckupSummary(selected, meta);
+  }
+  checkupEditorEl.classList.add('hidden');
+  checkupEditorEl.setAttribute('aria-hidden', 'true');
+  checkupEditorSnapshotJson = null;
+}
+
+function applyVaccinationToForm(data) {
+  const selected = Array.isArray(data?.selected) ? data.selected : [];
+  vaccinationSelection = new Set(selected);
+  currentVaccinationMeta = data?.meta || {};
+  renderVaccinationOptions(vaccinationSelection);
+  renderVaccinationSummary(Array.from(vaccinationSelection), currentVaccinationMeta);
+}
+
+function applyCheckupToForm(data) {
+  const selected = Array.isArray(data?.selected) ? data.selected : [];
+  checkupSelection = new Set(selected);
+  currentCheckupMeta = data?.meta || {};
+  renderCheckupOptions(checkupSelection);
+  renderCheckupSummary(Array.from(checkupSelection), currentCheckupMeta);
+}
+
+async function loadVaccinationMaster() {
+  try {
+    const url = new URL(`${BASE}/api/listMaster`);
+    url.searchParams.set('type', 'vaccination');
+    const res = await fetch(url.toString());
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    vaccinationMaster = Array.isArray(data?.items) ? data.items : [];
+    vaccinationMasterMap.clear();
+    vaccinationMaster.forEach((item) => {
+      if (item && item._key) {
+        vaccinationMasterMap.set(item._key, item);
+      }
+    });
+  } catch (err) {
+    console.warn('failed to load vaccination master', err);
+    vaccinationMaster = [];
+    vaccinationMasterMap.clear();
+  }
+  try {
+    const res = await fetch(`${BASE}/api/listCategories?type=vaccinationType`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    vaccinationTypes = Array.isArray(data?.categories) ? data.categories : [];
+  } catch (err) {
+    console.warn('failed to load vaccination types', err);
+    vaccinationTypes = [];
+  }
+  renderVaccinationOptions(vaccinationSelection);
+  renderVaccinationSummary(Array.from(vaccinationSelection), currentVaccinationMeta);
+}
+
+async function loadCheckupMaster() {
+  try {
+    const url = new URL(`${BASE}/api/listMaster`);
+    url.searchParams.set('type', 'checkup');
+    const res = await fetch(url.toString());
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    checkupMaster = Array.isArray(data?.items) ? data.items : [];
+    checkupMasterMap.clear();
+    checkupMaster.forEach((item) => {
+      if (item && item._key) {
+        checkupMasterMap.set(item._key, item);
+      }
+    });
+  } catch (err) {
+    console.warn('failed to load checkup master', err);
+    checkupMaster = [];
+    checkupMasterMap.clear();
+  }
+  try {
+    const res = await fetch(`${BASE}/api/listCategories?type=checkupType`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    checkupTypes = Array.isArray(data?.categories) ? data.categories : [];
+  } catch (err) {
+    console.warn('failed to load checkup types', err);
+    checkupTypes = [];
+  }
+  renderCheckupOptions(checkupSelection);
+  renderCheckupSummary(Array.from(checkupSelection), currentCheckupMeta);
+}
+
 function closeAccessEditor({ revert = false } = {}) {
   if (!accessEditorEl) accessEditorEl = document.getElementById('accessEditor');
   if (!accessEditorEl) return;
@@ -1277,6 +1759,50 @@ function initAccessSection() {
     closeAccessEditor({ revert: false });
   });
 
+}
+
+function initVaccinationSection() {
+  vaccinationEditorEl = document.getElementById('vaccinationEditor');
+  vaccinationEditButtonEl = document.getElementById('vaccinationEditButton');
+  vaccinationEditorCloseEl = document.getElementById('vaccinationEditorClose');
+  vaccinationEditorSaveEl = document.getElementById('vaccinationEditorSave');
+  vaccinationEditorCancelEl = document.getElementById('vaccinationEditorCancel');
+
+  vaccinationEditButtonEl?.addEventListener('click', () => {
+    openVaccinationEditor();
+  });
+  vaccinationEditorCloseEl?.addEventListener('click', () => {
+    closeVaccinationEditor({ revert: true });
+  });
+  vaccinationEditorCancelEl?.addEventListener('click', () => {
+    closeVaccinationEditor({ revert: true });
+  });
+  vaccinationEditorSaveEl?.addEventListener('click', () => {
+    closeVaccinationEditor({ revert: false });
+  });
+  renderVaccinationSummary();
+}
+
+function initCheckupSection() {
+  checkupEditorEl = document.getElementById('checkupEditor');
+  checkupEditButtonEl = document.getElementById('checkupEditButton');
+  checkupEditorCloseEl = document.getElementById('checkupEditorClose');
+  checkupEditorSaveEl = document.getElementById('checkupEditorSave');
+  checkupEditorCancelEl = document.getElementById('checkupEditorCancel');
+
+  checkupEditButtonEl?.addEventListener('click', () => {
+    openCheckupEditor();
+  });
+  checkupEditorCloseEl?.addEventListener('click', () => {
+    closeCheckupEditor({ revert: true });
+  });
+  checkupEditorCancelEl?.addEventListener('click', () => {
+    closeCheckupEditor({ revert: true });
+  });
+  checkupEditorSaveEl?.addEventListener('click', () => {
+    closeCheckupEditor({ revert: false });
+  });
+  renderCheckupSummary();
 }
 
 async function loadModesMaster() {
@@ -2187,6 +2713,8 @@ async function saveClinic() {
   const selectedModes = readModesFromForm();
   const modesPayload = buildModesPayload(selectedModes);
   const mediaPayload = buildMediaPayload();
+  const vaccinationsPayload = readVaccinationsFromForm();
+  const checkupsPayload = readCheckupsFromForm();
 
   const clinicData = {
     id: currentClinicId,
@@ -2209,7 +2737,9 @@ async function saveClinic() {
     },
     media: mediaPayload,
     access,
-    modes: modesPayload
+    modes: modesPayload,
+    vaccinations: vaccinationsPayload,
+    checkups: checkupsPayload
   };
 
   await ensureClinicCoordinates(clinicData);
@@ -2239,6 +2769,8 @@ async function saveClinic() {
     renderAllMediaSlots();
     applyAccessToForm(result.clinic.access);
     applyModesToForm(result.clinic.modes);
+    applyVaccinationToForm(result.clinic.vaccinations);
+    applyCheckupToForm(result.clinic.checkups);
     loadClinicDetail();
     alert("診療所データを更新しました");
     await registerDepartmentCandidates(uniqueOtherDept);
@@ -2264,6 +2796,8 @@ function loadClinicDetail() {
       renderAllMediaSlots();
       applyAccessToForm(null);
       applyModesToForm(null);
+      applyVaccinationToForm(null);
+      applyCheckupToForm(null);
     });
     latestPostalLookup = '';
     resetDirtyState();
@@ -2305,12 +2839,14 @@ function loadClinicDetail() {
     scheduleState.patterns = sanitizePatterns(clinic.schedule?.patterns);
     scheduleState.days = sanitizeScheduleDays(clinic.schedule?.days);
     applyScheduleStateToForm();
-    renderDisplay();
+   renderDisplay();
 
     mediaState = sanitizeMediaState(clinic.media);
     renderAllMediaSlots();
     applyAccessToForm(clinic.access);
     applyModesToForm(clinic.modes);
+    applyVaccinationToForm(clinic.vaccinations);
+    applyCheckupToForm(clinic.checkups);
   });
 
   latestPostalLookup = normalizePostalCode(loadedPostal);
@@ -2322,12 +2858,14 @@ window.addEventListener("DOMContentLoaded", async () => {
   try {
     initDepartmentSelectionUI();
     initScheduleEditorUI();
-   initTimeInputDefaults();
-   initPostalCodeField();
-   initMediaSection();
-   initAccessSection();
+    initTimeInputDefaults();
+    initPostalCodeField();
+    initMediaSection();
+    initAccessSection();
+    initVaccinationSection();
+    initCheckupSection();
     initModesSection();
-    await Promise.all([loadDepartmentMaster(), loadModesMaster()]);
+    await Promise.all([loadDepartmentMaster(), loadModesMaster(), loadVaccinationMaster(), loadCheckupMaster()]);
     renderModesOptions([]);
     loadClinicDetail();
   } finally {

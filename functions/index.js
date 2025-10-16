@@ -1,6 +1,19 @@
 import { ensureUniqueId, normalizeSlug, randomSlug } from './idUtils.js';
 
-const MASTER_TYPE_LIST = ['test', 'service', 'qual', 'department', 'facility', 'symptom', 'bodySite', 'society'];
+const MASTER_TYPE_LIST = [
+  'test',
+  'service',
+  'qual',
+  'department',
+  'facility',
+  'symptom',
+  'bodySite',
+  'society',
+  'vaccination',
+  'vaccinationType',
+  'checkup',
+  'checkupType',
+];
 const MASTER_ALLOWED_TYPES = new Set(MASTER_TYPE_LIST);
 
 export default {
