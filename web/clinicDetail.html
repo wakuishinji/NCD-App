@@ -184,64 +184,116 @@
     </section>
 
     <!-- アクセス情報 -->
-    <section class="bg-white rounded shadow p-6 space-y-4">
-      <h2 class="text-lg font-semibold text-blue-800">アクセス情報</h2>
-      <div class="grid gap-4 md:grid-cols-2">
-        <div class="md:col-span-2">
-          <label for="accessStation" class="block text-sm text-gray-700 mb-1">最寄駅・徒歩ルート</label>
-          <textarea id="accessStation" rows="2" class="w-full rounded border px-3 py-2 text-sm" placeholder="例: JR中野駅 北口より徒歩5分"></textarea>
-          <div id="accessStationPreviewWrap" class="mt-2 hidden">
-            <p class="text-xs text-gray-500 mb-1">登録済み：</p>
-            <div id="accessStationPreview" class="space-y-1 text-sm text-slate-700"></div>
-          </div>
-        </div>
-        <div class="md:col-span-2">
-          <label for="accessBus" class="block text-sm text-gray-700 mb-1">バス停・その他アクセス</label>
-          <textarea id="accessBus" rows="2" class="w-full rounded border px-3 py-2 text-sm" placeholder="例: 中野区循環バス1番停留所 徒歩2分"></textarea>
-          <div id="accessBusPreviewWrap" class="mt-2 hidden">
-            <p class="text-xs text-gray-500 mb-1">登録済み：</p>
-            <div id="accessBusPreview" class="space-y-1 text-sm text-slate-700"></div>
-          </div>
-        </div>
+    <section class="bg-white rounded shadow p-6 space-y-5">
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <label class="block text-sm text-gray-700 mb-1">駐車場</label>
-          <div class="flex items-center gap-2 text-sm text-gray-600">
-            <input id="accessParkingAvailable" type="checkbox" class="h-4 w-4 text-blue-600" />
-            <span>駐車場あり</span>
+          <h2 class="text-lg font-semibold text-blue-800">アクセス情報</h2>
+          <p class="text-xs text-gray-500">公開ページでは住所とともにアクセスサマリーと詳細リストを表示します。</p>
+        </div>
+        <button id="accessEditButton" type="button" class="self-start rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">入力する</button>
+      </div>
+
+      <div class="space-y-4">
+        <div class="rounded border border-slate-200 bg-slate-50 p-4">
+          <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">アクセス概要</p>
+          <p id="accessSummaryHighlight" class="mt-2 text-sm text-slate-500 italic">登録されていません</p>
+        </div>
+        <div class="grid gap-4 md:grid-cols-2" aria-live="polite">
+          <div class="rounded border border-slate-200 bg-slate-50 p-4">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">最寄駅・徒歩ルート</p>
+            <div id="accessStationSummary" class="mt-2 text-sm"></div>
           </div>
-          <div class="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
-            <input id="accessParkingCapacity" type="number" min="0" class="w-full rounded border px-3 py-2 sm:max-w-[140px]" placeholder="台数" />
-            <input id="accessParkingNotes" class="w-full rounded border px-3 py-2" placeholder="備考（提携コインPなど）" />
+          <div class="rounded border border-slate-200 bg-slate-50 p-4">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">バス停・その他アクセス</p>
+            <div id="accessBusSummary" class="mt-2 text-sm"></div>
+          </div>
+          <div class="rounded border border-slate-200 bg-slate-50 p-4">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">駐車場</p>
+            <div id="accessParkingSummary" class="mt-2 text-sm"></div>
+          </div>
+          <div class="rounded border border-slate-200 bg-slate-50 p-4">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">バリアフリー設備</p>
+            <div id="accessBarrierFreeSummary" class="mt-2 text-sm"></div>
+          </div>
+          <div class="rounded border border-slate-200 bg-slate-50 p-4 md:col-span-2">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">その他アクセス補足</p>
+            <div id="accessNotesSummary" class="mt-2 text-sm"></div>
           </div>
         </div>
-        <div>
-          <label for="accessBarrierFree" class="block text-sm text-gray-700 mb-1">バリアフリー設備</label>
-          <textarea id="accessBarrierFree" rows="3" class="w-full rounded border px-3 py-2 text-sm" placeholder="例: 入口段差なし\n例: 多目的トイレあり"></textarea>
-          <p class="text-xs text-gray-500 mt-1">1行につき1項目を入力してください。</p>
-          <div id="accessBarrierFreePreviewWrap" class="mt-2 hidden">
-            <p class="text-xs text-gray-500 mb-1">登録済み：</p>
-            <div id="accessBarrierFreePreview" class="space-y-1 text-sm text-slate-700"></div>
+      </div>
+
+      <div id="accessEditor" class="hidden border border-slate-200 rounded-lg bg-slate-50 p-4 space-y-4" aria-hidden="true">
+        <div class="flex items-center justify-between">
+          <h3 class="text-base font-semibold text-blue-800">アクセス情報の入力</h3>
+          <button id="accessEditorClose" type="button" class="rounded px-2 py-1 text-sm text-slate-600 hover:text-slate-800">閉じる</button>
+        </div>
+        <p class="text-xs text-gray-500">最寄駅やバスルート、バリアフリー設備などを入力してください。駐車場の有無をチェックすると台数や備考を追加できます。</p>
+
+        <div class="grid gap-4 md:grid-cols-2">
+          <div class="md:col-span-2">
+            <label for="accessStation" class="block text-sm text-gray-700 mb-1">最寄駅・徒歩ルート</label>
+            <textarea id="accessStation" rows="2" class="w-full rounded border px-3 py-2 text-sm" placeholder="例: JR中野駅 北口より徒歩5分"></textarea>
+          </div>
+          <div class="md:col-span-2">
+            <label for="accessBus" class="block text-sm text-gray-700 mb-1">バス停・その他アクセス</label>
+            <textarea id="accessBus" rows="2" class="w-full rounded border px-3 py-2 text-sm" placeholder="例: 中野区循環バス1番停留所 徒歩2分"></textarea>
+          </div>
+          <div>
+            <label class="block text-sm text-gray-700 mb-1">駐車場</label>
+            <div class="flex items-center gap-2 text-sm text-gray-600">
+              <input id="accessParkingAvailable" type="checkbox" class="h-4 w-4 text-blue-600" />
+              <span>駐車場あり</span>
+            </div>
+            <div class="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+              <input id="accessParkingCapacity" type="number" min="0" class="w-full rounded border px-3 py-2 sm:max-w-[140px]" placeholder="台数" />
+              <input id="accessParkingNotes" class="w-full rounded border px-3 py-2" placeholder="備考（提携コインPなど）" />
+            </div>
+          </div>
+          <div>
+            <label for="accessBarrierFree" class="block text-sm text-gray-700 mb-1">バリアフリー設備</label>
+            <textarea id="accessBarrierFree" rows="3" class="w-full rounded border px-3 py-2 text-sm" placeholder="例: 入口段差なし
+例: 多目的トイレあり"></textarea>
+            <p class="text-xs text-gray-500 mt-1">1行につき1項目を入力してください。</p>
+          </div>
+          <div class="md:col-span-2">
+            <label for="accessNotes" class="block text-sm text-gray-700 mb-1">その他アクセス補足</label>
+            <textarea id="accessNotes" rows="2" class="w-full rounded border px-3 py-2 text-sm" placeholder="例: 自転車は建物左側の駐輪スペースをご利用ください"></textarea>
           </div>
         </div>
-        <div class="md:col-span-2">
-          <label for="accessNotes" class="block text-sm text-gray-700 mb-1">その他アクセス補足</label>
-          <textarea id="accessNotes" rows="2" class="w-full rounded border px-3 py-2 text-sm" placeholder="例: 自転車は建物左側の駐輪スペースをご利用ください"></textarea>
-          <div id="accessNotesPreviewWrap" class="mt-2 hidden">
-            <p class="text-xs text-gray-500 mb-1">登録済み：</p>
-            <div id="accessNotesPreview" class="space-y-1 text-sm text-slate-700"></div>
-          </div>
+
+        <div class="flex justify-end gap-2">
+          <button id="accessEditorCancel" type="button" class="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-white">キャンセル</button>
+          <button id="accessEditorSave" type="button" class="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">保存する</button>
         </div>
       </div>
     </section>
 
     <!-- 診療形態 -->
     <section class="bg-white rounded shadow p-6 space-y-4">
-      <h2 class="text-lg font-semibold text-blue-800">診療形態・対応</h2>
-      <p class="text-sm text-gray-600">該当する項目にチェックを入れてください。公開ページでバッジ表示されます。</p>
-      <div id="modesContainer" class="grid gap-3 sm:grid-cols-2"></div>
-      <div id="modesEmpty" class="hidden rounded border border-dashed border-slate-300 bg-slate-100 px-4 py-3 text-sm text-slate-500">
-        診療形態マスターに公開中の項目がありません。<br />
-        管理画面「診療形態マスター管理」で登録してください。
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 class="text-lg font-semibold text-blue-800">診療形態・対応</h2>
+          <p class="text-xs text-gray-500">公開ページでは選択された診療形態がバッジ表示されます。</p>
+        </div>
+        <button id="modesEditButton" type="button" class="self-start rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">入力する</button>
+      </div>
+      <div id="modesSummaryContainer" class="flex flex-wrap gap-2" aria-live="polite"></div>
+      <div id="modesSummaryEmpty" class="text-sm text-slate-400 italic">登録されていません</div>
+      <div id="modesEditor" class="hidden border border-slate-200 rounded-lg p-4 bg-slate-50 space-y-4" aria-hidden="true">
+        <div class="flex justify-between items-center">
+          <h3 class="text-base font-semibold text-blue-800">診療形態の入力</h3>
+          <button id="modesEditorClose" type="button" class="rounded px-2 py-1 text-sm text-slate-600 hover:text-slate-800">閉じる</button>
+        </div>
+        <p class="text-xs text-gray-500">診療形態マスターで登録された項目が表示されます。該当するものにチェックを入れてください。</p>
+        <div id="modesContainer" class="grid gap-3 sm:grid-cols-2"></div>
+        <div id="modesEmpty" class="hidden rounded border border-dashed border-slate-300 bg-slate-100 px-4 py-3 text-sm text-slate-500">
+          診療形態マスターに公開中の項目がありません。<br />
+          管理画面「診療形態マスター管理」で登録してください。
+        </div>
+        <div class="flex justify-end gap-2">
+          <button id="modesEditorCancel" type="button" class="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-white">キャンセル</button>
+          <button id="modesEditorSave" type="button" class="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">保存する</button>
+        </div>
       </div>
     </section>
 
@@ -539,6 +591,19 @@ let scheduleDoneBtnEl = null;
 let latestPostalLookup = '';
 let isDirty = false;
 let suppressDirtyTracking = false;
+let accessEditorEl = null;
+let accessEditButtonEl = null;
+let accessEditorCloseEl = null;
+let accessEditorSaveEl = null;
+let accessEditorCancelEl = null;
+let accessEditorSnapshotJson = null;
+let modesEditorEl = null;
+let modesEditButtonEl = null;
+let modesEditorCloseEl = null;
+let modesEditorSaveEl = null;
+let modesEditorCancelEl = null;
+let modesEditorSnapshotJson = null;
+let currentModesMeta = {};
 
 function toggleLoadingOverlay(show) {
   const overlay = document.getElementById("loadingOverlay");
@@ -552,6 +617,10 @@ function normalizeText(v) {
 
 function equalsIgnoreCase(a, b) {
   return normalizeText(a).toLowerCase() === normalizeText(b).toLowerCase();
+}
+
+function nk(value) {
+  return (value || '').toString().trim();
 }
 
 function normalizePostalCode(value) {
@@ -629,6 +698,15 @@ function buildModesPayload(selected) {
         icon: master.icon || '',
         color: master.color || '',
         order: Number.isFinite(master.order) ? master.order : null,
+      };
+    } else if (currentModesMeta && currentModesMeta[slug]) {
+      meta[slug] = { ...currentModesMeta[slug] };
+    } else {
+      meta[slug] = {
+        label: slug,
+        icon: '',
+        color: '',
+        order: null,
       };
     }
   });
@@ -930,31 +1008,179 @@ function normalizeMultilineValue(value) {
     .filter(Boolean);
 }
 
-function updateMultilinePreview(wrapId, listId, items) {
-  const wrapper = document.getElementById(wrapId);
-  const listEl = document.getElementById(listId);
-  if (!wrapper || !listEl) return;
+function renderSummaryList(elementId, items) {
+  const el = document.getElementById(elementId);
+  if (!el) return;
   const normalized = normalizeMultilineValue(items);
   if (normalized.length) {
-    listEl.innerHTML = formatMultilineList(normalized);
-    wrapper.classList.remove('hidden');
+    el.innerHTML = formatMultilineList(normalized);
+    el.classList.remove('italic', 'text-slate-400');
   } else {
-    listEl.innerHTML = '';
-    wrapper.classList.add('hidden');
+    el.innerHTML = '<span class="text-slate-400">登録されていません</span>';
+    el.classList.add('italic', 'text-slate-400');
   }
 }
 
-function updateAccessPreviews(access) {
-  updateMultilinePreview('accessStationPreviewWrap', 'accessStationPreview', access?.nearestStation);
-  updateMultilinePreview('accessBusPreviewWrap', 'accessBusPreview', access?.bus);
-  updateMultilinePreview('accessBarrierFreePreviewWrap', 'accessBarrierFreePreview', access?.barrierFree);
-  updateMultilinePreview('accessNotesPreviewWrap', 'accessNotesPreview', normalizeMultilineValue(access?.notes));
+function renderParkingSummary(parking) {
+  const el = document.getElementById('accessParkingSummary');
+  if (!el) return;
+  if (!parking || parking.available !== true) {
+    el.innerHTML = '<span class="text-slate-400">登録されていません</span>';
+    el.classList.add('italic', 'text-slate-400');
+    return;
+  }
+  const details = [];
+  if (Number.isFinite(parking.capacity)) {
+    details.push(`${parking.capacity}台`);
+  }
+  if (parking.notes && parking.notes.trim()) {
+    details.push(escapeHtml(parking.notes.trim()));
+  }
+  const suffix = details.length ? `（${details.join('／')}）` : '';
+  el.innerHTML = `駐車場あり${suffix}`;
+  el.classList.remove('italic', 'text-slate-400');
 }
 
-function refreshAccessPreviewsFromForm() {
-  const access = readAccessFromForm();
-  updateAccessPreviews(access);
+function renderAccessSummary(access) {
+  const highlightEl = document.getElementById('accessSummaryHighlight');
+  if (highlightEl) {
+    const summaryParts = deriveAccessSummary(access || {});
+    if (summaryParts.length) {
+      highlightEl.textContent = summaryParts.join(' / ');
+      highlightEl.classList.remove('italic', 'text-slate-500');
+      highlightEl.classList.add('text-slate-700');
+    } else {
+      highlightEl.textContent = '登録されていません';
+      highlightEl.classList.remove('text-slate-700');
+      highlightEl.classList.add('italic', 'text-slate-500');
+    }
+  }
+  renderSummaryList('accessStationSummary', access?.nearestStation);
+  renderSummaryList('accessBusSummary', access?.bus);
+  renderParkingSummary(access?.parking);
+  renderSummaryList('accessBarrierFreeSummary', access?.barrierFree);
+  renderSummaryList('accessNotesSummary', access?.notes);
 }
+
+function openAccessEditor() {
+  if (!accessEditorEl) accessEditorEl = document.getElementById('accessEditor');
+  if (!accessEditorEl) return;
+  accessEditorSnapshotJson = JSON.stringify(readAccessFromForm());
+  accessEditorEl.classList.remove('hidden');
+  accessEditorEl.setAttribute('aria-hidden', 'false');
+  accessEditorEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function resolveModeMeta(slug, metaSource = currentModesMeta) {
+  if (metaSource && typeof metaSource === 'object') {
+    const stored = metaSource[slug];
+    if (stored && typeof stored === 'object') {
+      return {
+        label: stored.label || '',
+        icon: stored.icon || '',
+        color: stored.color || '',
+        order: Number.isFinite(stored.order) ? stored.order : null,
+      };
+    }
+  }
+  const master = modeMaster.find((item) => item.id === slug);
+  if (master) {
+    return {
+      label: master.label || '',
+      icon: master.icon || '',
+      color: master.color || '',
+      order: Number.isFinite(master.order) ? master.order : null,
+    };
+  }
+  return { label: slug, icon: '', color: '', order: null };
+}
+
+function renderModesSummary(selected, metaSource = currentModesMeta) {
+  const container = document.getElementById('modesSummaryContainer');
+  const empty = document.getElementById('modesSummaryEmpty');
+  if (!container || !empty) return;
+  container.innerHTML = '';
+  if (!Array.isArray(selected) || !selected.length) {
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+  selected.forEach((slug) => {
+    const meta = resolveModeMeta(slug, metaSource);
+    const badge = document.createElement('span');
+    badge.className = 'inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold shadow-sm';
+    if (meta.color) {
+      badge.style.backgroundColor = meta.color;
+      badge.style.color = '#fff';
+    } else {
+      badge.classList.add('bg-emerald-50', 'text-emerald-700');
+    }
+    if (meta.icon) {
+      const icon = document.createElement('i');
+      icon.className = `${meta.icon} text-[11px]`;
+      badge.appendChild(icon);
+    }
+    const label = document.createElement('span');
+    label.textContent = meta.label || slug;
+    badge.appendChild(label);
+    container.appendChild(badge);
+  });
+}
+
+function openModesEditor() {
+  if (!modesEditorEl) modesEditorEl = document.getElementById('modesEditor');
+  if (!modesEditorEl) return;
+  modesEditorSnapshotJson = JSON.stringify(readModesFromForm());
+  modesEditorEl.classList.remove('hidden');
+  modesEditorEl.setAttribute('aria-hidden', 'false');
+  modesEditorEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function closeModesEditor({ revert = false } = {}) {
+  if (!modesEditorEl) modesEditorEl = document.getElementById('modesEditor');
+  if (!modesEditorEl) return;
+  if (revert && modesEditorSnapshotJson) {
+    try {
+      const snapshot = JSON.parse(modesEditorSnapshotJson);
+      withDirtySuppressed(() => {
+        renderModesOptions(snapshot);
+      });
+      renderModesSummary(snapshot);
+    } catch (err) {
+      console.warn('failed to restore modes snapshot', err);
+    }
+  } else if (!revert) {
+    const selected = readModesFromForm();
+    const payload = buildModesPayload(selected);
+    currentModesMeta = payload.meta || {};
+    renderModesSummary(selected, currentModesMeta);
+  }
+  modesEditorEl.classList.add('hidden');
+  modesEditorEl.setAttribute('aria-hidden', 'true');
+  modesEditorSnapshotJson = null;
+}
+
+function closeAccessEditor({ revert = false } = {}) {
+  if (!accessEditorEl) accessEditorEl = document.getElementById('accessEditor');
+  if (!accessEditorEl) return;
+  if (revert && accessEditorSnapshotJson) {
+    try {
+      const snapshot = JSON.parse(accessEditorSnapshotJson);
+      withDirtySuppressed(() => {
+        applyAccessToForm(snapshot);
+      });
+    } catch (err) {
+      console.warn('failed to restore access snapshot', err);
+    }
+  } else if (!revert) {
+    const access = readAccessFromForm();
+    renderAccessSummary(access);
+  }
+  accessEditorEl.classList.add('hidden');
+  accessEditorEl.setAttribute('aria-hidden', 'true');
+  accessEditorSnapshotJson = null;
+}
+
 
 function readAccessFromForm() {
   const nearestStation = splitMultiline('accessStation');
@@ -1011,7 +1237,7 @@ function applyAccessToForm(access) {
 
   if (capacityField) capacityField.disabled = !available;
   if (notesField) notesField.disabled = !available;
-  updateAccessPreviews(access || {});
+  renderAccessSummary(access || {});
 }
 
 function initAccessSection() {
@@ -1032,13 +1258,25 @@ function initAccessSection() {
     });
   }
 
-  ['accessStation', 'accessBus', 'accessBarrierFree', 'accessNotes'].forEach((id) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.addEventListener('input', refreshAccessPreviewsFromForm);
+  accessEditorEl = document.getElementById('accessEditor');
+  accessEditButtonEl = document.getElementById('accessEditButton');
+  accessEditorCloseEl = document.getElementById('accessEditorClose');
+  accessEditorSaveEl = document.getElementById('accessEditorSave');
+  accessEditorCancelEl = document.getElementById('accessEditorCancel');
+
+  accessEditButtonEl?.addEventListener('click', () => {
+    openAccessEditor();
+  });
+  accessEditorCloseEl?.addEventListener('click', () => {
+    closeAccessEditor({ revert: true });
+  });
+  accessEditorCancelEl?.addEventListener('click', () => {
+    closeAccessEditor({ revert: true });
+  });
+  accessEditorSaveEl?.addEventListener('click', () => {
+    closeAccessEditor({ revert: false });
   });
 
-  refreshAccessPreviewsFromForm();
 }
 
 async function loadModesMaster() {
@@ -1058,6 +1296,25 @@ async function loadModesMaster() {
 function initModesSection() {
   modeContainerEl = document.getElementById('modesContainer');
   modeEmptyEl = document.getElementById('modesEmpty');
+  modesEditorEl = document.getElementById('modesEditor');
+  modesEditButtonEl = document.getElementById('modesEditButton');
+  modesEditorCloseEl = document.getElementById('modesEditorClose');
+  modesEditorSaveEl = document.getElementById('modesEditorSave');
+  modesEditorCancelEl = document.getElementById('modesEditorCancel');
+
+  modesEditButtonEl?.addEventListener('click', () => {
+    openModesEditor();
+  });
+  modesEditorCloseEl?.addEventListener('click', () => {
+    closeModesEditor({ revert: true });
+  });
+  modesEditorCancelEl?.addEventListener('click', () => {
+    closeModesEditor({ revert: true });
+  });
+  modesEditorSaveEl?.addEventListener('click', () => {
+    closeModesEditor({ revert: false });
+  });
+
   renderModesOptions([]);
 }
 
@@ -1148,8 +1405,10 @@ function extractSelectedModes(raw) {
 }
 
 function applyModesToForm(rawModes) {
+  currentModesMeta = rawModes && typeof rawModes.meta === 'object' ? rawModes.meta : {};
   const selected = extractSelectedModes(rawModes);
   renderModesOptions(selected);
+  renderModesSummary(selected, currentModesMeta);
 }
 
 
@@ -1975,6 +2234,7 @@ async function saveClinic() {
     }
 
     localStorage.setItem("selectedClinic", JSON.stringify(result.clinic));
+    renderAccessSummary(result.clinic.access || {});
     mediaState = sanitizeMediaState(result.clinic.media);
     renderAllMediaSlots();
     applyAccessToForm(result.clinic.access);
