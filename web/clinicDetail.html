@@ -871,8 +871,7 @@ function escapeHtml(value) {
 function splitMultiline(id) {
   const value = document.getElementById(id)?.value || '';
   return value
-    .split(/
-+/)
+    .split(/\n+/)
     .map(line => line.trim())
     .filter(Boolean);
 }
