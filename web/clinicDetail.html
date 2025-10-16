@@ -189,11 +189,19 @@
       <div class="grid gap-4 md:grid-cols-2">
         <div class="md:col-span-2">
           <label for="accessStation" class="block text-sm text-gray-700 mb-1">最寄駅・徒歩ルート</label>
-          <input id="accessStation" class="w-full rounded border px-3 py-2" placeholder="例: JR中野駅 北口より徒歩5分" />
+          <textarea id="accessStation" rows="2" class="w-full rounded border px-3 py-2 text-sm" placeholder="例: JR中野駅 北口より徒歩5分"></textarea>
+          <div id="accessStationPreviewWrap" class="mt-2 hidden">
+            <p class="text-xs text-gray-500 mb-1">登録済み：</p>
+            <div id="accessStationPreview" class="space-y-1 text-sm text-slate-700"></div>
+          </div>
         </div>
         <div class="md:col-span-2">
           <label for="accessBus" class="block text-sm text-gray-700 mb-1">バス停・その他アクセス</label>
-          <input id="accessBus" class="w-full rounded border px-3 py-2" placeholder="例: 中野区循環バス1番停留所 徒歩2分" />
+          <textarea id="accessBus" rows="2" class="w-full rounded border px-3 py-2 text-sm" placeholder="例: 中野区循環バス1番停留所 徒歩2分"></textarea>
+          <div id="accessBusPreviewWrap" class="mt-2 hidden">
+            <p class="text-xs text-gray-500 mb-1">登録済み：</p>
+            <div id="accessBusPreview" class="space-y-1 text-sm text-slate-700"></div>
+          </div>
         </div>
         <div>
           <label class="block text-sm text-gray-700 mb-1">駐車場</label>
@@ -210,10 +218,18 @@
           <label for="accessBarrierFree" class="block text-sm text-gray-700 mb-1">バリアフリー設備</label>
           <textarea id="accessBarrierFree" rows="3" class="w-full rounded border px-3 py-2 text-sm" placeholder="例: 入口段差なし\n例: 多目的トイレあり"></textarea>
           <p class="text-xs text-gray-500 mt-1">1行につき1項目を入力してください。</p>
+          <div id="accessBarrierFreePreviewWrap" class="mt-2 hidden">
+            <p class="text-xs text-gray-500 mb-1">登録済み：</p>
+            <div id="accessBarrierFreePreview" class="space-y-1 text-sm text-slate-700"></div>
+          </div>
         </div>
         <div class="md:col-span-2">
           <label for="accessNotes" class="block text-sm text-gray-700 mb-1">その他アクセス補足</label>
           <textarea id="accessNotes" rows="2" class="w-full rounded border px-3 py-2 text-sm" placeholder="例: 自転車は建物左側の駐輪スペースをご利用ください"></textarea>
+          <div id="accessNotesPreviewWrap" class="mt-2 hidden">
+            <p class="text-xs text-gray-500 mb-1">登録済み：</p>
+            <div id="accessNotesPreview" class="space-y-1 text-sm text-slate-700"></div>
+          </div>
         </div>
       </div>
     </section>
@@ -883,7 +899,7 @@ function deriveAccessSummary(access) {
     if (Array.isArray(value)) {
       value.forEach(v => { if (v && v.trim()) parts.push(v.trim()); });
     } else if (typeof value === 'string' && value.trim()) {
-      parts.push(value.trim());
+      value.split(/\n+/).forEach((v) => { const trimmed = v.trim(); if (trimmed) parts.push(trimmed); });
     }
   };
   add(access?.nearestStation);
@@ -900,6 +916,44 @@ function formatMultilineList(items) {
       <span class="flex-1 border-b border-dashed border-slate-300 pb-1">${escapeHtml(item)}</span>
     </div>
   `).join('');
+}
+
+function normalizeMultilineValue(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return value.map((item) => (item ?? '').toString().trim()).filter(Boolean);
+  }
+  return value
+    .toString()
+    .split(/\n+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function updateMultilinePreview(wrapId, listId, items) {
+  const wrapper = document.getElementById(wrapId);
+  const listEl = document.getElementById(listId);
+  if (!wrapper || !listEl) return;
+  const normalized = normalizeMultilineValue(items);
+  if (normalized.length) {
+    listEl.innerHTML = formatMultilineList(normalized);
+    wrapper.classList.remove('hidden');
+  } else {
+    listEl.innerHTML = '';
+    wrapper.classList.add('hidden');
+  }
+}
+
+function updateAccessPreviews(access) {
+  updateMultilinePreview('accessStationPreviewWrap', 'accessStationPreview', access?.nearestStation);
+  updateMultilinePreview('accessBusPreviewWrap', 'accessBusPreview', access?.bus);
+  updateMultilinePreview('accessBarrierFreePreviewWrap', 'accessBarrierFreePreview', access?.barrierFree);
+  updateMultilinePreview('accessNotesPreviewWrap', 'accessNotesPreview', normalizeMultilineValue(access?.notes));
+}
+
+function refreshAccessPreviewsFromForm() {
+  const access = readAccessFromForm();
+  updateAccessPreviews(access);
 }
 
 function readAccessFromForm() {
@@ -957,6 +1011,7 @@ function applyAccessToForm(access) {
 
   if (capacityField) capacityField.disabled = !available;
   if (notesField) notesField.disabled = !available;
+  updateAccessPreviews(access || {});
 }
 
 function initAccessSection() {
@@ -976,6 +1031,14 @@ function initAccessSection() {
       }
     });
   }
+
+  ['accessStation', 'accessBus', 'accessBarrierFree', 'accessNotes'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', refreshAccessPreviewsFromForm);
+  });
+
+  refreshAccessPreviewsFromForm();
 }
 
 async function loadModesMaster() {
