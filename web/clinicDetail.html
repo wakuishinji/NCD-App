@@ -857,9 +857,45 @@ function initMediaSection() {
   renderAllMediaSlots();
 }
 
+
+function splitMultiline(id) {
+  const value = document.getElementById(id)?.value || '';
+  return value
+    .split(/
++/)
+    .map(line => line.trim())
+    .filter(Boolean);
+}
+
+function deriveAccessSummary(access) {
+  const parts = [];
+  const add = (value) => {
+    if (!value) return;
+    if (Array.isArray(value)) {
+      value.forEach(v => { if (v && v.trim()) parts.push(v.trim()); });
+    } else if (typeof value === 'string' && value.trim()) {
+      parts.push(value.trim());
+    }
+  };
+  add(access?.nearestStation);
+  add(access?.bus);
+  add(access?.notes);
+  return parts;
+}
+
+function formatMultilineList(items) {
+  if (!items || !items.length) return '';
+  return items.map((item, index) => `
+    <div class="flex items-start gap-2 py-0.5">
+      <span class="select-none text-slate-300">${index + 1}.</span>
+      <span class="flex-1 border-b border-dashed border-slate-300 pb-1">${escapeHtml(item)}</span>
+    </div>
+  `).join('');
+}
+
 function readAccessFromForm() {
-  const nearestStation = document.getElementById('accessStation')?.value.trim() || '';
-  const bus = document.getElementById('accessBus')?.value.trim() || '';
+  const nearestStation = splitMultiline('accessStation');
+  const bus = splitMultiline('accessBus');
   const parkingAvailable = Boolean(document.getElementById('accessParkingAvailable')?.checked);
   const capacityValue = document.getElementById('accessParkingCapacity')?.value;
   const capacity = capacityValue ? Number(capacityValue) : null;
@@ -880,6 +916,7 @@ function readAccessFromForm() {
     },
     barrierFree,
     notes,
+    summary: deriveAccessSummary({ nearestStation, bus, notes })
   };
 }
 
@@ -897,13 +934,16 @@ function applyAccessToForm(access) {
     }
   };
 
-  setValue('accessStation', access?.nearestStation || '');
-  setValue('accessBus', access?.bus || '');
+  const stationValue = Array.isArray(access?.nearestStation) ? access.nearestStation.join('\n') : (access?.nearestStation || '');
+  const busValue = Array.isArray(access?.bus) ? access.bus.join('\n') : (access?.bus || '');
+  setValue('accessStation', stationValue);
+  setValue('accessBus', busValue);
   const checkbox = document.getElementById('accessParkingAvailable');
   if (checkbox) checkbox.checked = available;
   setValue('accessParkingCapacity', Number.isFinite(parking.capacity) ? parking.capacity : '');
   setValue('accessParkingNotes', parking.notes || '');
-  setValue('accessBarrierFree', Array.isArray(access?.barrierFree) ? access.barrierFree.join('\n') : '');
+  const barrierValue = Array.isArray(access?.barrierFree) ? access.barrierFree.join('\n') : (access?.barrierFree || '');
+  setValue('accessBarrierFree', barrierValue);
   setValue('accessNotes', access?.notes || '');
 
   if (capacityField) capacityField.disabled = !available;
