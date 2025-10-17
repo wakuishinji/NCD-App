@@ -1487,19 +1487,31 @@ function renderCheckupOptions(selection = checkupSelection) {
 function readVaccinationsFromForm() {
   const selected = Array.from(vaccinationSelection);
   const meta = buildMetaFromSelection(selected, vaccinationMasterMap, currentVaccinationMeta);
-  if (selected.length || Object.keys(meta).length) {
-    return { selected, meta };
+  const cleanedMeta = {};
+  Object.entries(meta).forEach(([key, value]) => {
+    if (value && (value.category || value.name || value.desc)) {
+      cleanedMeta[key] = value;
+    }
+  });
+  if (!selected.length && !Object.keys(cleanedMeta).length) {
+    return null;
   }
-  return null;
+  return { selected, meta: cleanedMeta };
 }
 
 function readCheckupsFromForm() {
   const selected = Array.from(checkupSelection);
   const meta = buildMetaFromSelection(selected, checkupMasterMap, currentCheckupMeta);
-  if (selected.length || Object.keys(meta).length) {
-    return { selected, meta };
+  const cleanedMeta = {};
+  Object.entries(meta).forEach(([key, value]) => {
+    if (value && (value.category || value.name || value.desc)) {
+      cleanedMeta[key] = value;
+    }
+  });
+  if (!selected.length && !Object.keys(cleanedMeta).length) {
+    return null;
   }
-  return null;
+  return { selected, meta: cleanedMeta };
 }
 
 function openVaccinationEditor() {
@@ -2743,10 +2755,10 @@ async function saveClinic() {
     },
     media: mediaPayload,
     access,
-    modes: modesPayload,
-    vaccinations: vaccinationsPayload,
-    checkups: checkupsPayload
+    modes: modesPayload
   };
+  clinicData.vaccinations = vaccinationsPayload;
+  clinicData.checkups = checkupsPayload;
 
   await ensureClinicCoordinates(clinicData);
 
@@ -2777,7 +2789,7 @@ async function saveClinic() {
     applyModesToForm(result.clinic.modes);
     applyVaccinationToForm(result.clinic.vaccinations);
     applyCheckupToForm(result.clinic.checkups);
-    loadClinicDetail();
+    await loadClinicDetail();
     alert("診療所データを更新しました");
     await registerDepartmentCandidates(uniqueOtherDept);
     resetDirtyState();
@@ -2790,9 +2802,9 @@ async function saveClinic() {
 }
 
 // 選択済み施設から初期値ロード
-function loadClinicDetail() {
-  const stored = localStorage.getItem("selectedClinic");
-  if (!stored) {
+async function loadClinicDetail() {
+  const storedClinic = getStoredSelectedClinic();
+  if (!storedClinic) {
     withDirtySuppressed(() => {
       scheduleState.patterns = createEmptyPatterns();
       scheduleState.days = {};
@@ -2810,8 +2822,38 @@ function loadClinicDetail() {
     return;
   }
 
-  const clinic = JSON.parse(stored);
-  const loadedPostal = formatPostalCode(clinic.postalCode || '');
+  let clinic = { ...storedClinic };
+  const params = new URLSearchParams();
+  if (clinic.id) {
+    params.set("id", clinic.id);
+  } else if (clinic.name) {
+    params.set("name", clinic.name);
+  }
+
+  if ([...params.keys()].length) {
+    try {
+      const res = await fetch(`${BASE}/api/clinicDetail?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.clinic) {
+          clinic = data.clinic;
+          try {
+            localStorage.setItem("selectedClinic", JSON.stringify(clinic));
+          } catch (storageError) {
+            console.warn("failed to update selectedClinic in localStorage", storageError);
+          }
+        } else {
+          console.warn("clinic detail response did not include clinic data");
+        }
+      } else {
+        console.warn("clinic detail request failed", res.status, res.statusText);
+      }
+    } catch (error) {
+      console.warn("failed to fetch clinic detail", error);
+    }
+  }
+
+  const loadedPostal = formatPostalCode(clinic.postalCode || "");
   withDirtySuppressed(() => {
     currentClinicId = clinic.id || "";
     retainedQualifications = clinic.doctors?.qualifications || "";
@@ -2845,7 +2887,7 @@ function loadClinicDetail() {
     scheduleState.patterns = sanitizePatterns(clinic.schedule?.patterns);
     scheduleState.days = sanitizeScheduleDays(clinic.schedule?.days);
     applyScheduleStateToForm();
-   renderDisplay();
+    renderDisplay();
 
     mediaState = sanitizeMediaState(clinic.media);
     renderAllMediaSlots();
@@ -2873,7 +2915,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     initModesSection();
     await Promise.all([loadDepartmentMaster(), loadModesMaster(), loadVaccinationMaster(), loadCheckupMaster()]);
     renderModesOptions([]);
-    loadClinicDetail();
+    await loadClinicDetail();
   } finally {
     toggleLoadingOverlay(false);
   }
