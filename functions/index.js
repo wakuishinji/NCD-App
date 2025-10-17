@@ -2559,6 +2559,9 @@ if (routeMatch(url, "GET", "listClinics")) {
         case "facility": return [...DEFAULT_CATEGORIES_FACILITY];
         case "symptom": return [...DEFAULT_CATEGORIES_SYMPTOM];
         case "bodySite": return [...DEFAULT_CATEGORIES_BODYSITE];
+        case "vaccinationType":
+        case "checkupType":
+          return [];
         default: return [];
       }
     }
@@ -2566,8 +2569,9 @@ if (routeMatch(url, "GET", "listClinics")) {
     // <<< START: CATEGORIES_LIST >>>
       if (routeMatch(url, "GET", "listCategories")) {
     const type = url.searchParams.get("type");
-    if (!type || !["test","service","qual","department","facility","symptom","bodySite"].includes(type)) {
-      return new Response(JSON.stringify({ error: "type は test / service / qual / department / facility / symptom / bodySite" }), {
+    const CATEGORY_ALLOWED_TYPES = ["test","service","qual","department","facility","symptom","bodySite","vaccinationType","checkupType"];
+    if (!type || !CATEGORY_ALLOWED_TYPES.includes(type)) {
+      return new Response(JSON.stringify({ error: "type は test / service / qual / department / facility / symptom / bodySite / vaccinationType / checkupType" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
