@@ -112,7 +112,7 @@
     const deptNewNameInput = document.getElementById('departmentNewName');
     const deptAddButton = document.getElementById('departmentAddBtn');
     const deptTbody = document.getElementById('departmentTbody');
-
+    let importInProgress = false;
     let departmentCategories = [];
     let currentDepartmentItems = [];
 
@@ -125,34 +125,68 @@
     }
 
     async function importCategoriesFromCsv(file) {
-      try {
-        const text = await file.text();
-        const rows = parseCsvLines(text);
-        if (!rows.length) {
-          alert('有効な行が見つかりませんでした');
-          return;
-        }
-        const unique = Array.from(new Set(rows));
-        let success = 0;
-        let failure = 0;
-        for (const name of unique) {
-          try {
-            await fetchJson('/api/addCategory', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ type: typeSelect.value, name })
-            });
-            success += 1;
-          } catch (err) {
-            console.warn('failed to import category', name, err);
-            failure += 1;
+      if (!file || importInProgress) return;
+      const runner = async () => {
+        try {
+          importInProgress = true;
+          const text = await file.text();
+          const rows = parseCsvLines(text);
+          if (!rows.length) {
+            alert('有効な行が見つかりませんでした');
+            return;
           }
+          const unique = Array.from(new Set(rows));
+          const existingRes = await fetchJson(`/api/listCategories?type=${encodeURIComponent(typeSelect.value)}`);
+          const existing = new Set((existingRes?.categories || []).map(cat => cat.trim()));
+          let added = 0;
+          let skipped = 0;
+          const failures = [];
+          for (const name of unique) {
+            if (!name) continue;
+            if (existing.has(name)) {
+              skipped += 1;
+              continue;
+            }
+            try {
+              const res = await fetch(apiUrl('/api/addCategory'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: typeSelect.value, name })
+              });
+              if (!res.ok) {
+                const text = await res.text();
+                throw new Error(`HTTP ${res.status} ${text}`);
+              }
+              existing.add(name);
+              added += 1;
+            } catch (err) {
+              console.warn('failed to import category', name, err);
+              failures.push({ name, message: err.message || '不明なエラー' });
+            }
+          }
+          await loadCategoryList(true);
+          let summary = `CSV取込が完了しました。\n追加: ${added} 件`;
+          summary += skipped ? ` / 既存のためスキップ: ${skipped} 件` : '';
+          summary += failures.length ? ` / 失敗: ${failures.length} 件` : '';
+          if (failures.length) {
+            const details = failures.slice(0, 5).map(f => `・${f.name}: ${f.message}`).join('\n');
+            summary += `\n\n失敗した行(一部):\n${details}`;
+            if (failures.length > 5) {
+              summary += `\n…ほか ${failures.length - 5} 件`;
+            }
+          }
+          alert(summary);
+        } catch (err) {
+          console.error(err);
+          alert('CSV取込中にエラーが発生しました');
+        } finally {
+          importInProgress = false;
         }
-        await loadCategoryList(true);
-        alert(`CSV取込が完了しました。成功: ${success} / 失敗: ${failure}`);
-      } catch (err) {
-        console.error(err);
-        alert('CSV取込中にエラーが発生しました');
+      };
+      if (typeof wrapWithLoading === 'function') {
+        await wrapWithLoading(runner, 'CSVを取り込み中です...', categoryPanel);
+      } else {
+        await runner();
       }
     }
 
@@ -408,6 +442,7 @@
     });
 
     importButton?.addEventListener('click', () => {
+      if (importInProgress) return;
       importInput?.click();
     });
 
