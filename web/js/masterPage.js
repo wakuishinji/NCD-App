@@ -135,6 +135,7 @@
     constructor(config) {
       this.config = config;
       this.type = config.type;
+      this.categoryType = config.categoryType || this.type;
       this.elements = config.elements;
       this.enableCategoryFilter = Boolean(config.enableCategoryFilter);
       this.enableCsvImport = Boolean(config.enableCsvImport);
@@ -214,7 +215,8 @@
 
     async loadCategories() {
       try {
-        const res = await fetch(apiUrl(`/api/listCategories?type=${this.type}`));
+        const categoryType = this.categoryType || this.type;
+        const res = await fetch(apiUrl(`/api/listCategories?type=${categoryType}`));
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         this.categoryOptions = Array.isArray(data.categories) ? data.categories : [];
