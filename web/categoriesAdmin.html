@@ -119,9 +119,15 @@
     function parseCsvLines(text) {
       if (!text) return [];
       return text
+        .replace(/^\uFEFF/, '')
         .split(/\r?\n/)
         .map(line => line.split(',')[0]?.trim())
-        .filter(Boolean);
+        .filter(value => {
+          if (!value) return false;
+          const normalized = value.toLowerCase();
+          if (['分類','種類','category','type'].some(header => header.toLowerCase() === normalized)) return false;
+          return true;
+        });
     }
 
     async function importCategoriesFromCsv(file) {
