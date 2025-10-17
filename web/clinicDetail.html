@@ -665,6 +665,7 @@ function normalizeMasterEntry(item, fallbackType) {
     category: item.category || '',
     name: item.name || item.label || item.title || key,
     desc: item.desc || item.description || firstSample || item.notes || '',
+    referenceUrl: item.referenceUrl || item.reference_url || '',
   };
   if (!Number.isFinite(normalized.sortOrder) && Number.isFinite(item.order)) {
     normalized.sortOrder = item.order;
@@ -839,12 +840,14 @@ function normalizeSelectionPayload(payload, masterMap, fallbackType) {
         category: record.category,
         name: record.name,
         desc: record.desc,
+        referenceUrl: record.referenceUrl,
       }) ||
       {};
     normalizedMeta[key] = {
       category: metaSource.category || metaSource.label || '',
       name: metaSource.name || metaSource.label || key,
       desc: metaSource.desc || metaSource.detail || metaSource.notes || '',
+      referenceUrl: metaSource.referenceUrl || metaSource.reference_url || '',
     };
   });
   const result = { ...payload };
@@ -1476,12 +1479,14 @@ function buildMetaFromSelection(selection, masterMap, fallbackMeta = {}) {
         category: source.category || '',
         name: source.name || source.label || '',
         desc: source.desc || source.detail || source.notes || '',
+        referenceUrl: source.referenceUrl || source.reference_url || '',
       };
     } else {
       meta[key] = {
         category: '',
         name: key,
         desc: '',
+        referenceUrl: '',
       };
     }
   });
@@ -1651,6 +1656,7 @@ function mergeMasterWithSelection(masterList, selectionSet, metaSource, map) {
         category: meta.category || '',
         name: meta.name || meta.label || key,
         desc: meta.desc || meta.detail || '',
+        referenceUrl: meta.referenceUrl || meta.reference_url || '',
         status: meta.status || 'candidate'
       });
     } else {
@@ -1659,6 +1665,7 @@ function mergeMasterWithSelection(masterList, selectionSet, metaSource, map) {
         category: '',
         name: key,
         desc: '',
+        referenceUrl: '',
         status: 'candidate'
       });
     }

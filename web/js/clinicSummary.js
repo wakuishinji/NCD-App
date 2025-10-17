@@ -66,6 +66,53 @@
     return '';
   }
 
+  function resolveMasterKey(item, fallbackType) {
+    if (!item || typeof item !== 'object') return '';
+    const directKeys = [item._key, item.key, item.id, item.slug, item.code, item.legacyKey];
+    for (const candidate of directKeys) {
+      if (typeof candidate === 'string' && candidate.trim()) {
+        return candidate.trim();
+      }
+    }
+    const type = nk(item.type) || fallbackType || 'master';
+    const category = nk(item.category);
+    const name = nk(item.name || item.label);
+    if (category || name) {
+      return `${type}:${category}|${name}`.replace(/\s+/g, '');
+    }
+    return '';
+  }
+
+  function normalizeMasterEntry(item, fallbackType) {
+    if (!item || typeof item !== 'object') return null;
+    const key = resolveMasterKey(item, fallbackType);
+    if (!key) return null;
+    const descSamples = Array.isArray(item.desc_samples) ? item.desc_samples : [];
+    const firstSample = descSamples.find((entry) => typeof entry === 'string' && entry.trim()) || '';
+    const normalized = {
+      ...item,
+      _key: key,
+      category: item.category || '',
+      name: item.name || item.label || item.title || key,
+      desc: item.desc || item.description || firstSample || item.notes || '',
+      referenceUrl: item.referenceUrl || item.reference_url || '',
+    };
+    if (!Number.isFinite(normalized.sortOrder) && Number.isFinite(item.order)) {
+      normalized.sortOrder = item.order;
+    }
+    return normalized;
+  }
+
+  function formatReferenceLinkText(url) {
+    if (!url) return '';
+    try {
+      const parsed = new URL(url);
+      return parsed.hostname.replace(/^www\./i, '') || parsed.href;
+    } catch (_) {
+      return url.replace(/^https?:\/\//i, '');
+    }
+  }
+
   function fetchJson(path) {
     return fetch(`${API_BASE}${path}`).then(async (res) => {
       if (!res.ok) {
@@ -96,11 +143,22 @@
   async function loadVaccinationMaster() {
     try {
       const data = await fetchJson('/api/listMaster?type=vaccination');
-      vaccinationMaster = Array.isArray(data?.items) ? data.items : [];
+      vaccinationMaster = Array.isArray(data?.items)
+        ? data.items.map((item) => normalizeMasterEntry(item, 'vaccination')).filter(Boolean)
+        : [];
       vaccinationMasterMap.clear();
       vaccinationMaster.forEach((item) => {
-        if (item && item._key) {
-          vaccinationMasterMap.set(item._key, item);
+        if (!item || !item._key) return;
+        vaccinationMasterMap.set(item._key, item);
+        if (typeof item.legacyKey === 'string' && item.legacyKey.trim()) {
+          vaccinationMasterMap.set(item.legacyKey.trim(), item);
+        }
+        if (Array.isArray(item.legacyAliases)) {
+          item.legacyAliases.forEach((alias) => {
+            if (typeof alias === 'string' && alias.trim()) {
+              vaccinationMasterMap.set(alias.trim(), item);
+            }
+          });
         }
       });
     } catch (err) {
@@ -120,11 +178,22 @@
   async function loadCheckupMaster() {
     try {
       const data = await fetchJson('/api/listMaster?type=checkup');
-      checkupMaster = Array.isArray(data?.items) ? data.items : [];
+      checkupMaster = Array.isArray(data?.items)
+        ? data.items.map((item) => normalizeMasterEntry(item, 'checkup')).filter(Boolean)
+        : [];
       checkupMasterMap.clear();
       checkupMaster.forEach((item) => {
-        if (item && item._key) {
-          checkupMasterMap.set(item._key, item);
+        if (!item || !item._key) return;
+        checkupMasterMap.set(item._key, item);
+        if (typeof item.legacyKey === 'string' && item.legacyKey.trim()) {
+          checkupMasterMap.set(item.legacyKey.trim(), item);
+        }
+        if (Array.isArray(item.legacyAliases)) {
+          item.legacyAliases.forEach((alias) => {
+            if (typeof alias === 'string' && alias.trim()) {
+              checkupMasterMap.set(alias.trim(), item);
+            }
+          });
         }
       });
     } catch (err) {
@@ -201,12 +270,37 @@
       list.className = 'mt-2 space-y-1 text-sm text-slate-700';
       groupItems.forEach((item) => {
         const li = document.createElement('li');
-        li.className = 'leading-relaxed';
+        li.className = 'leading-relaxed flex flex-col gap-0.5';
+
+        const title = document.createElement('span');
+        title.className = 'font-medium';
+        title.textContent = item.name || item._key;
+        li.appendChild(title);
+
         if (item.desc) {
-          li.innerHTML = `<span class="font-medium">${item.name || item._key}</span><br><span class="text-xs text-slate-500">${item.desc}</span>`;
-        } else {
-          li.textContent = item.name || item._key;
+          const description = document.createElement('span');
+          description.className = 'text-xs text-slate-500';
+          description.textContent = item.desc;
+          li.appendChild(description);
         }
+
+        if (item.referenceUrl) {
+          const link = document.createElement('a');
+          link.className = 'mt-1 inline-flex items-center gap-1 text-xs text-blue-600 hover:underline';
+          link.href = item.referenceUrl;
+          link.target = '_blank';
+          link.rel = 'noopener';
+          link.textContent = formatReferenceLinkText(item.referenceUrl);
+          link.title = item.referenceUrl;
+          const icon = document.createElement('span');
+          icon.setAttribute('aria-hidden', 'true');
+          icon.className = 'text-[10px]';
+          icon.textContent = '↗';
+          link.appendChild(document.createTextNode(' '));
+          link.appendChild(icon);
+          li.appendChild(link);
+        }
+
         list.appendChild(li);
       });
       card.appendChild(list);
@@ -458,23 +552,39 @@
   }
 
   function mergeMasterWithSelection(masterList, selection, metaSource, map) {
-    const merged = Array.isArray(masterList) ? [...masterList] : [];
+    const mergedMap = new Map();
+    if (Array.isArray(masterList)) {
+      masterList.forEach((item) => {
+        const normalized = normalizeMasterEntry(item);
+        if (normalized && normalized._key && !mergedMap.has(normalized._key)) {
+          mergedMap.set(normalized._key, normalized);
+        }
+      });
+    }
     const set = new Set(selection || []);
     set.forEach((key) => {
-      if (!map.has(key)) {
-        const meta = metaSource?.[key];
-        if (meta) {
-          merged.push({
-            _key: key,
-            category: meta.category || '',
-            name: meta.name || meta.label || key,
-            desc: meta.desc || meta.detail || '',
-            status: meta.status || 'candidate'
-          });
+      if (mergedMap.has(key)) return;
+      const normalizedFromMap = map?.get?.(key);
+      if (normalizedFromMap) {
+        const normalized = normalizeMasterEntry(normalizedFromMap);
+        if (normalized && normalized._key) {
+          mergedMap.set(normalized._key, normalized);
+          return;
         }
       }
+      const meta = metaSource?.[key];
+      if (meta) {
+        mergedMap.set(key, {
+          _key: key,
+          category: meta.category || '',
+          name: meta.name || meta.label || key,
+          desc: meta.desc || meta.detail || '',
+          referenceUrl: meta.referenceUrl || meta.reference_url || '',
+          status: meta.status || 'candidate'
+        });
+      }
     });
-    return merged;
+    return Array.from(mergedMap.values());
   }
 
   function resolveVaccinationMeta(key, clinicMeta) {
@@ -500,6 +610,7 @@
           category: source.category || '',
           name: source.name || source.label || '',
           desc: source.desc || source.detail || '',
+          referenceUrl: source.referenceUrl || source.reference_url || '',
           sortOrder: Number.isFinite(source.sortOrder) ? source.sortOrder : null,
         };
       })
@@ -534,6 +645,7 @@
           category: source.category || '',
           name: source.name || source.label || '',
           desc: source.desc || source.detail || '',
+          referenceUrl: source.referenceUrl || source.reference_url || '',
           sortOrder: Number.isFinite(source.sortOrder) ? source.sortOrder : null,
         };
       })

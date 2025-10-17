@@ -68,6 +68,21 @@ export default {
       return trimmed ? trimmed : null;
     }
 
+    function sanitizeUrl(value) {
+      const trimmed = nk(value);
+      if (!trimmed) return null;
+      if (/^https?:\/\//i.test(trimmed)) {
+        return trimmed;
+      }
+      if (/^www\./i.test(trimmed)) {
+        return `https://${trimmed}`;
+      }
+      if (/^[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?:\/.*)?$/.test(trimmed)) {
+        return `https://${trimmed}`;
+      }
+      return trimmed;
+    }
+
     function normalizeStringArray(value) {
       if (Array.isArray(value)) {
         return Array.from(new Set(value.map(v => nk(v)).filter(Boolean)));
@@ -1941,7 +1956,7 @@ if (routeMatch(url, "GET", "listClinics")) {
     if (routeMatch(url, "POST", "addMasterItem")) {
       try {
         const body = await request.json();
-        const { type, category, name, desc, source, status } = body || {};
+        const { type, category, name, desc, source, status, referenceUrl } = body || {};
         if (!type || !category || !name) {
           return new Response(JSON.stringify({ error: "type, category, name は必須です" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1972,6 +1987,7 @@ if (routeMatch(url, "GET", "listClinics")) {
         const classification = nk(body?.classification);
         const notes = nk(body?.notes);
         const medicalField = nk(body?.medicalField);
+        const sanitizedReferenceUrl = sanitizeUrl(referenceUrl ?? body?.reference_url);
 
         if (type === 'qual') {
           const fallback = record.classification || classification || PERSONAL_QUAL_CLASSIFICATIONS[0];
@@ -2012,6 +2028,10 @@ if (routeMatch(url, "GET", "listClinics")) {
           record.desc = notes;
         } else if (record.desc && !record.notes) {
           record.notes = record.desc;
+        }
+
+        if (referenceUrl !== undefined || body?.reference_url !== undefined || sanitizedReferenceUrl) {
+          record.referenceUrl = sanitizedReferenceUrl;
         }
 
         if (typeof body?.canonical_name === 'string') {
@@ -2162,7 +2182,7 @@ if (routeMatch(url, "GET", "listClinics")) {
     if (routeMatch(url, "POST", "updateMasterItem")) {
       try {
         const body = await request.json();
-        const { type, category, name, status, canonical_name, sortGroup, sortOrder, newCategory, newName, desc, notes, classification, medicalField } = body || {};
+        const { type, category, name, status, canonical_name, sortGroup, sortOrder, newCategory, newName, desc, notes, classification, medicalField, referenceUrl } = body || {};
         if (!type || !category || !name) {
           return new Response(JSON.stringify({ error: "type, category, name は必須です" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2222,6 +2242,10 @@ if (routeMatch(url, "GET", "listClinics")) {
           if (!desc && trimmedNotes) {
             record.desc = trimmedNotes;
           }
+        }
+        if (Object.prototype.hasOwnProperty.call(body || {}, 'referenceUrl') || Object.prototype.hasOwnProperty.call(body || {}, 'reference_url')) {
+          const sanitizedReferenceUrl = sanitizeUrl(referenceUrl ?? body?.reference_url);
+          record.referenceUrl = sanitizedReferenceUrl;
         }
         if (typeof classification === 'string') {
           const trimmedClass = classification.trim();

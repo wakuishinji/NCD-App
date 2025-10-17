@@ -93,6 +93,11 @@
                 <input id="addDesc" class="w-full rounded border px-2 py-1" placeholder="例: 40-74歳対象・生活習慣病対策" />
               </div>
             </div>
+            <div>
+              <label class="block text-xs text-slate-600">参考URL</label>
+              <input id="addReferenceUrl" class="w-full rounded border px-2 py-1" placeholder="https://example.jp/..." />
+              <p class="mt-1 text-[11px] text-slate-500">公式サイト等の参考ページがあれば入力してください（入力例: https://www.city.example.jp/...）。</p>
+            </div>
             <div class="flex justify-end">
               <button class="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700">新規登録</button>
             </div>
@@ -135,7 +140,10 @@
         enableCategoryFilter: true,
         enableCsvImport: true,
         showDescription: true,
-        showNotes: false,
+        showNotes: true,
+        notesProp: 'referenceUrl',
+        notesLabel: '参考URL',
+        notesPlaceholder: 'https://example.jp/...',
         showClassification: false,
         enableManualAdd: true,
         allowFreeCategory: true,
@@ -154,7 +162,8 @@
           addCategoryManual: document.getElementById('addCategoryManual'),
           addName: document.getElementById('addName'),
           addDesc: document.getElementById('addDesc'),
-          addStatus: document.getElementById('addStatus')
+          addStatus: document.getElementById('addStatus'),
+          addNotes: document.getElementById('addReferenceUrl')
         }
       });
 

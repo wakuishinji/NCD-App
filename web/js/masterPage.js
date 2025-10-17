@@ -615,7 +615,7 @@
         canonical: item.canonical_name || '',
         status: item.status || '',
         classification: item.classification || PERSONAL_CLASSIFICATIONS[0],
-        notes: item.notes || '',
+        notes: this.getItemNoteValue(item),
         explanationsSignature: this.canonicalizeExplanations(item.explanations)
       };
 
@@ -781,6 +781,42 @@
       return value || '';
     }
 
+    upsertCacheItem(updated) {
+      if (!updated || typeof updated !== 'object') return;
+      if (!Array.isArray(this.cache)) {
+        this.cache = [];
+      }
+      if (!Array.isArray(this.currentItems)) {
+        this.currentItems = [];
+      }
+      const targetId = updated.id ? String(updated.id) : null;
+      const targetCategory = normalizeString(updated.category);
+      const targetName = normalizeString(updated.name);
+      const matcher = (candidate) => {
+        if (!candidate || typeof candidate !== 'object') return false;
+        const cid = candidate.id ? String(candidate.id) : null;
+        if (targetId && cid && cid === targetId) {
+          return true;
+        }
+        return normalizeString(candidate.category) === targetCategory && normalizeString(candidate.name) === targetName;
+      };
+
+      const mergeItem = (candidate) => ({ ...candidate, ...updated });
+
+      const apply = (list) => {
+        if (!Array.isArray(list)) return;
+        const index = list.findIndex(matcher);
+        if (index >= 0) {
+          list[index] = mergeItem(list[index]);
+        } else {
+          list.push({ ...updated });
+        }
+      };
+
+      apply(this.cache);
+      apply(this.currentItems);
+    }
+
     async handleUpdate(card, item, button) {
       const values = this.collectCardValues(card, item);
       if (!values.category || !values.name) {
@@ -815,21 +851,37 @@
       }
 
       button.disabled = true;
-      await this.withLoading('項目を更新しています...', async () => {
-        const res = await fetch(apiUrl('/api/updateMasterItem'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+      try {
+        await this.withLoading('項目を更新しています...', async () => {
+          const res = await fetch(apiUrl('/api/updateMasterItem'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`更新に失敗しました: ${res.status} ${text}`);
+          }
+          let data = null;
+          try {
+            data = await res.json();
+          } catch (_) {}
+          if (data?.item) {
+            this.upsertCacheItem(data.item);
+            this.renderList();
+            window.setTimeout(() => {
+              this.reload({ force: true }).catch(() => {});
+            }, 500);
+          } else {
+            await this.reload({ force: true });
+          }
         });
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(`更新に失敗しました: ${res.status} ${text}`);
-        }
-        await this.reload({ force: true });
-      }).catch(err => {
+      } catch (err) {
         console.error(err);
         alert(err.message);
-      });
+      } finally {
+        button.disabled = false;
+      }
     }
 
     async handleDelete(item) {
