@@ -43,23 +43,23 @@
       </section>
 
       <section class="flex-1 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <a id="clinicSummaryLink" href="#" class="bg-white rounded shadow p-6 hover:shadow-lg transition pointer-events-none opacity-60" data-disabled="true">
+        <a id="clinicSummaryLink" href="#" data-base-href="clinicSummary.html" class="bg-white rounded shadow p-6 hover:shadow-lg transition pointer-events-none opacity-60" data-disabled="true">
           <div class="text-lg font-semibold text-blue-800 mb-2">公開ページを表示</div>
           <div class="text-sm text-gray-600">別タブで施設サマリーページを開きます。施設を選択すると有効になります。</div>
         </a>
-        <a href="clinicDetail.html" class="bg-white rounded shadow p-6 hover:shadow-lg transition">
+        <a href="clinicDetail.html" data-base-href="clinicDetail.html" data-clinic-link class="bg-white rounded shadow p-6 hover:shadow-lg transition pointer-events-none opacity-60" data-disabled="true">
           <div class="text-lg font-semibold text-blue-800 mb-2">基本情報入力</div>
           <div class="text-sm text-gray-600">名称・住所・医師数・診療時間パターン/曜日設定など。</div>
         </a>
-        <a href="clinicQualifications.html" class="bg-white rounded shadow p-6 hover:shadow-lg transition">
+        <a href="clinicQualifications.html" data-base-href="clinicQualifications.html" data-clinic-link class="bg-white rounded shadow p-6 hover:shadow-lg transition pointer-events-none opacity-60" data-disabled="true">
           <div class="text-lg font-semibold text-blue-800 mb-2">保有資格入力</div>
           <div class="text-sm text-gray-600">在籍医師の専門医資格・認定等を登録し、施設の強みとして整理します。</div>
         </a>
-        <a href="clinicTests.html" class="bg-white rounded shadow p-6 hover:shadow-lg transition">
+        <a href="clinicTests.html" data-base-href="clinicTests.html" data-clinic-link class="bg-white rounded shadow p-6 hover:shadow-lg transition pointer-events-none opacity-60" data-disabled="true">
           <div class="text-lg font-semibold text-blue-800 mb-2">可能な検査入力</div>
           <div class="text-sm text-gray-600">分類（〜検査）を選んで名称・説明を登録。マスターに自動集計。</div>
         </a>
-        <a href="clinicServices.html" class="bg-white rounded shadow p-6 hover:shadow-lg transition">
+        <a href="clinicServices.html" data-base-href="clinicServices.html" data-clinic-link class="bg-white rounded shadow p-6 hover:shadow-lg transition pointer-events-none opacity-60" data-disabled="true">
           <div class="text-lg font-semibold text-blue-800 mb-2">可能な診療入力</div>
           <div class="text-sm text-gray-600">診療科系分類を選んで名称・説明を登録。マスターに自動集計。</div>
         </a>
@@ -73,11 +73,38 @@
   </footer>
 
   <script>
+    function buildClinicLink(baseHref, clinic) {
+      if (!baseHref) return '#';
+      const [pathAndQuery, hash] = baseHref.split('#');
+      const [path, queryString] = pathAndQuery.split('?');
+      const params = new URLSearchParams(queryString || '');
+      if (clinic && clinic.id) {
+        params.set('id', clinic.id);
+      } else {
+        params.delete('id');
+      }
+      if (clinic && clinic.name) {
+        params.set('name', clinic.name);
+      } else {
+        params.delete('name');
+      }
+      const query = params.toString();
+      let result = path || 'clinicDetail.html';
+      if (query) {
+        result += `?${query}`;
+      }
+      if (hash) {
+        result += `#${hash}`;
+      }
+      return result;
+    }
+
     function updateSummaryLink(clinic) {
       const link = document.getElementById('clinicSummaryLink');
       if (!link) return;
+      const baseHref = link.dataset.baseHref || 'clinicSummary.html';
       if (clinic && clinic.id) {
-        link.href = `clinicSummary.html?id=${encodeURIComponent(clinic.id)}`;
+        link.href = buildClinicLink(baseHref, clinic);
         link.target = '_blank';
         link.rel = 'noopener';
         link.classList.remove('pointer-events-none', 'opacity-60');
@@ -91,10 +118,28 @@
       }
     }
 
+    function updateActionLinks(clinic) {
+      const links = document.querySelectorAll('[data-clinic-link]');
+      links.forEach((link) => {
+        const baseHref = link.dataset.baseHref || link.getAttribute('href') || '#';
+        link.dataset.baseHref = baseHref;
+        if (clinic && clinic.id) {
+          link.href = buildClinicLink(baseHref, clinic);
+          link.classList.remove('pointer-events-none', 'opacity-60');
+          link.dataset.disabled = 'false';
+        } else {
+          link.href = '#';
+          link.classList.add('pointer-events-none', 'opacity-60');
+          link.dataset.disabled = 'true';
+        }
+      });
+    }
+
     function loadSelected() {
       const s = localStorage.getItem('selectedClinic');
       if (!s) {
         updateSummaryLink(null);
+        updateActionLinks(null);
         return;
       }
       const c = JSON.parse(s);
@@ -102,6 +147,7 @@
       document.getElementById('clinicId').textContent = "ID: " + (c.id || '-');
       document.getElementById('clinicAddr').textContent = "住所: " + (c.address || '-');
       updateSummaryLink(c);
+      updateActionLinks(c);
     }
     loadSelected();
   </script>

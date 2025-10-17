@@ -562,39 +562,174 @@ async function ensureClinicCoordinates(clinicData) {
 }
 
 const DEFAULT_ASSET_BASE = "https://ncd-app.altry.workers.dev";
-const BASE = (() => {
-  if (typeof window !== 'undefined' && typeof window.NCD_API_BASE === 'string' && window.NCD_API_BASE.trim()) {
-    return window.NCD_API_BASE.trim().replace(/\/$/, '');
+
+function sanitizeBaseUrl(value) {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  return trimmed.replace(/\/+$/, '');
+}
+
+function shouldUseLocalApi() {
+  if (typeof window === 'undefined') return false;
+  try {
+    const params = new URLSearchParams(window.location.search || '');
+    const paramValue = params.get('useLocalApi');
+    if (paramValue === '1' || paramValue === 'true') {
+      return true;
+    }
+  } catch (_) {}
+  try {
+    const stored = localStorage.getItem('ncdUseLocalApi');
+    if (stored === '1' || stored === 'true') {
+      return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
+function detectLocalApiBase() {
+  if (typeof window === 'undefined') return '';
+  try {
+    const origin = window.location.origin;
+    if (!origin || origin === 'null') return '';
+    const parsed = new URL(origin);
+    const host = parsed.hostname || '';
+    if (!host) return '';
+    if (/^(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0)$/i.test(host) || host.endsWith('.local')) {
+      return sanitizeBaseUrl(origin);
+    }
+  } catch (_) {}
+  return '';
+}
+
+const INITIAL_API_BASE = (() => {
+  let override = '';
+  if (typeof window !== 'undefined' && typeof window.NCD_API_BASE === 'string') {
+    override = sanitizeBaseUrl(window.NCD_API_BASE);
+  }
+  if (override) {
+    return override;
   }
   try {
     const stored = localStorage.getItem('ncdApiBase') || localStorage.getItem('ncdApiBaseUrl');
-    if (typeof stored === 'string' && stored.trim()) {
-      return stored.trim().replace(/\/$/, '');
+    override = sanitizeBaseUrl(stored);
+    if (override) {
+      return override;
     }
   } catch (_) {}
+  if (shouldUseLocalApi()) {
+    const localFallback = detectLocalApiBase();
+    if (localFallback) {
+      return localFallback;
+    }
+  }
   return DEFAULT_API_BASE;
 })();
+
+let ACTIVE_API_BASE = INITIAL_API_BASE;
+
+function resolveMasterKey(item, fallbackType) {
+  if (!item || typeof item !== 'object') return '';
+  const directKeys = [
+    item._key,
+    item.key,
+    item.id,
+    item.slug,
+    item.code,
+    item.legacyKey,
+  ];
+  for (const candidate of directKeys) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+  const type = nk(item.type) || fallbackType || 'master';
+  const category = nk(item.category);
+  const name = nk(item.name || item.label);
+  if (category || name) {
+    return `${type}:${category}|${name}`.replace(/\s+/g, '');
+  }
+  return '';
+}
+
+function normalizeMasterEntry(item, fallbackType) {
+  if (!item || typeof item !== 'object') return null;
+  const key = resolveMasterKey(item, fallbackType);
+  if (!key) return null;
+  const descSamples = Array.isArray(item.desc_samples) ? item.desc_samples : [];
+  const firstSample = descSamples.find((entry) => typeof entry === 'string' && entry.trim()) || '';
+  const normalized = {
+    ...item,
+    _key: key,
+    category: item.category || '',
+    name: item.name || item.label || item.title || key,
+    desc: item.desc || item.description || firstSample || item.notes || '',
+  };
+  if (!Number.isFinite(normalized.sortOrder) && Number.isFinite(item.order)) {
+    normalized.sortOrder = item.order;
+  }
+  return normalized;
+}
+
+function setActiveApiBase(value, { persist = false } = {}) {
+  const sanitized = sanitizeBaseUrl(value) || DEFAULT_API_BASE;
+  ACTIVE_API_BASE = sanitized;
+  if (typeof window !== 'undefined') {
+    window.NCD_API_BASE = sanitized;
+  }
+  if (persist) {
+    try {
+      localStorage.setItem('ncdApiBase', sanitized);
+    } catch (_) {}
+  }
+}
+
+function apiBase() {
+  return ACTIVE_API_BASE;
+}
+
 const ASSET_BASE = (() => {
-  if (typeof window !== 'undefined' && typeof window.NCD_ASSET_BASE === 'string' && window.NCD_ASSET_BASE.trim()) {
-    return window.NCD_ASSET_BASE.trim().replace(/\/$/, '');
+  if (typeof window !== 'undefined' && typeof window.NCD_ASSET_BASE === 'string') {
+    const override = sanitizeBaseUrl(window.NCD_ASSET_BASE);
+    if (override) return override;
   }
   try {
-    const stored = localStorage.getItem('ncdAssetBase');
-    if (typeof stored === 'string' && stored.trim()) {
-      return stored.trim().replace(/\/$/, '');
+    const stored = sanitizeBaseUrl(localStorage.getItem('ncdAssetBase'));
+    if (stored) {
+      return stored;
     }
   } catch (_) {}
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  const fallback = origin && BASE === origin ? DEFAULT_ASSET_BASE : BASE;
+  const origin = typeof window !== 'undefined' ? sanitizeBaseUrl(window.location.origin) : '';
+  const current = apiBase();
+  const fallback = origin && current === origin ? DEFAULT_ASSET_BASE : current;
   return fallback || DEFAULT_ASSET_BASE;
 })();
+
 if (typeof window !== 'undefined') {
-  if (typeof window.NCD_API_BASE !== 'string' || !window.NCD_API_BASE.trim()) {
-    window.NCD_API_BASE = BASE;
-  }
+  window.NCD_API_BASE = apiBase();
   if (typeof window.NCD_ASSET_BASE !== 'string' || !window.NCD_ASSET_BASE.trim()) {
     window.NCD_ASSET_BASE = ASSET_BASE;
   }
+}
+
+function getApiBaseCandidates() {
+  const candidates = [];
+  const seen = new Set();
+  const add = (value) => {
+    const sanitized = sanitizeBaseUrl(value);
+    if (!sanitized || seen.has(sanitized)) return;
+    candidates.push(sanitized);
+    seen.add(sanitized);
+  };
+  const localPref = shouldUseLocalApi();
+  const localBase = detectLocalApiBase();
+  if (localPref && localBase) add(localBase);
+  add(apiBase());
+  add(INITIAL_API_BASE);
+  if (!localPref && localBase) add(localBase);
+  add(DEFAULT_API_BASE);
+  return candidates;
 }
 const days = ["月曜","火曜","水曜","木曜","金曜","土曜","日曜","祝日"];
 const DEPARTMENT_CATEGORY = "標榜診療科";
@@ -676,6 +811,71 @@ let checkupEditorCancelEl = null;
 let checkupEditorSnapshotJson = null;
 let currentCheckupMeta = {};
 let checkupSelection = new Set();
+
+function normalizeSelectionPayload(payload, masterMap, fallbackType) {
+  if (!payload || typeof payload !== 'object') return payload;
+  const selected = Array.isArray(payload.selected) ? payload.selected : [];
+  const normalizedSelected = [];
+  const normalizedMeta = {};
+  const seen = new Set();
+  selected.forEach((rawKey) => {
+    if (typeof rawKey !== 'string') return;
+    let key = rawKey.trim();
+    if (!key) return;
+    const record = masterMap?.get?.(key) || masterMap?.get?.(resolveMasterKey({ _key: key }, fallbackType));
+    if (record) {
+      const candidate = resolveMasterKey(record, fallbackType);
+      if (candidate) {
+        key = candidate;
+      }
+    }
+    if (seen.has(key)) return;
+    seen.add(key);
+    normalizedSelected.push(key);
+    const metaSource =
+      payload.meta?.[rawKey] ||
+      payload.meta?.[key] ||
+      (record && {
+        category: record.category,
+        name: record.name,
+        desc: record.desc,
+      }) ||
+      {};
+    normalizedMeta[key] = {
+      category: metaSource.category || metaSource.label || '',
+      name: metaSource.name || metaSource.label || key,
+      desc: metaSource.desc || metaSource.detail || metaSource.notes || '',
+    };
+  });
+  const result = { ...payload };
+  if (normalizedSelected.length) {
+    result.selected = normalizedSelected;
+  }
+  if (Object.keys(normalizedMeta).length) {
+    result.meta = normalizedMeta;
+  }
+  return result;
+}
+
+function normalizeClinicSelections(clinic) {
+  if (!clinic || typeof clinic !== 'object') return clinic;
+  const normalized = { ...clinic };
+  if (clinic.vaccinations) {
+    normalized.vaccinations = normalizeSelectionPayload(
+      { ...clinic.vaccinations },
+      vaccinationMasterMap,
+      'vaccination'
+    );
+  }
+  if (clinic.checkups) {
+    normalized.checkups = normalizeSelectionPayload(
+      { ...clinic.checkups },
+      checkupMasterMap,
+      'checkup'
+    );
+  }
+  return normalized;
+}
 
 function toggleLoadingOverlay(show) {
   const overlay = document.getElementById("loadingOverlay");
@@ -924,7 +1124,7 @@ async function handleMediaUpload(slot, file) {
     if (dimensions.height) formData.append('height', String(dimensions.height));
     formData.append('file', file, file.name || `${slot}.png`);
 
-    const res = await fetch(`${BASE}/api/media/upload`, {
+    const res = await fetch(`${apiBase()}/api/media/upload`, {
       method: 'POST',
       body: formData,
     });
@@ -961,7 +1161,7 @@ async function handleMediaDelete(slot) {
   if (!window.confirm('この画像を削除しますか？')) return;
   setMediaSlotBusy(slot, true);
   try {
-    const res = await fetch(`${BASE}/api/media/delete`, {
+    const res = await fetch(`${apiBase()}/api/media/delete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ clinicId: currentClinicId, slot }),
@@ -1375,21 +1575,24 @@ function renderGroupedOptions({ containerId, inputName, masterList, types, selec
     const groupList = document.createElement('div');
     groupList.className = 'space-y-2';
     items.forEach((item) => {
-      const id = `${inputName}-${item._key.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+      const key = item._key || resolveMasterKey(item, inputName);
+      if (!key) return;
+      const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const id = `${inputName}-${safeKey || Math.random().toString(36).slice(2)}`;
       const label = document.createElement('label');
       label.className = 'flex items-start gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100';
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
       checkbox.name = inputName;
-      checkbox.value = item._key;
+      checkbox.value = key;
       checkbox.id = id;
       checkbox.className = 'mt-1 h-4 w-4 text-blue-600';
-      checkbox.checked = selectedSet.has(item._key);
+      checkbox.checked = selectedSet.has(key);
       checkbox.addEventListener('change', () => {
         if (checkbox.checked) {
-          selectedSet.add(item._key);
+          selectedSet.add(key);
         } else {
-          selectedSet.delete(item._key);
+          selectedSet.delete(key);
         }
         markDirty();
       });
@@ -1398,7 +1601,7 @@ function renderGroupedOptions({ containerId, inputName, masterList, types, selec
       textWrap.className = 'flex-1';
       const title = document.createElement('p');
       title.className = 'font-semibold';
-      title.textContent = item.name || item._key;
+      title.textContent = item.name || key;
       textWrap.appendChild(title);
       if (item.desc) {
         const detail = document.createElement('p');
@@ -1421,23 +1624,46 @@ function renderGroupedOptions({ containerId, inputName, masterList, types, selec
 }
 
 function mergeMasterWithSelection(masterList, selectionSet, metaSource, map) {
-  const merged = Array.isArray(masterList) ? [...masterList] : [];
+  const mergedMap = new Map();
+  if (Array.isArray(masterList)) {
+    masterList.forEach((item) => {
+      const normalized = normalizeMasterEntry(item);
+      if (normalized && normalized._key && !mergedMap.has(normalized._key)) {
+        mergedMap.set(normalized._key, normalized);
+      }
+    });
+  }
   const set = selectionSet instanceof Set ? selectionSet : new Set(selectionSet || []);
   set.forEach((key) => {
-    if (!map.has(key)) {
-      const meta = metaSource?.[key];
-      if (meta) {
-        merged.push({
-          _key: key,
-          category: meta.category || '',
-          name: meta.name || meta.label || key,
-          desc: meta.desc || meta.detail || '',
-          status: meta.status || 'candidate'
-        });
+    if (mergedMap.has(key)) return;
+    const normalizedFromMap = map?.get?.(key);
+    if (normalizedFromMap) {
+      const normalized = normalizeMasterEntry(normalizedFromMap);
+      if (normalized && normalized._key) {
+        mergedMap.set(normalized._key, normalized);
+        return;
       }
     }
+    const meta = metaSource?.[key];
+    if (meta) {
+      mergedMap.set(key, {
+        _key: key,
+        category: meta.category || '',
+        name: meta.name || meta.label || key,
+        desc: meta.desc || meta.detail || '',
+        status: meta.status || 'candidate'
+      });
+    } else {
+      mergedMap.set(key, {
+        _key: key,
+        category: '',
+        name: key,
+        desc: '',
+        status: 'candidate'
+      });
+    }
   });
-  return merged;
+  return Array.from(mergedMap.values());
 }
 
 function renderVaccinationSummary(selection = Array.from(vaccinationSelection), meta = currentVaccinationMeta) {
@@ -1598,16 +1824,28 @@ function applyCheckupToForm(data) {
 
 async function loadVaccinationMaster() {
   try {
-    const url = new URL(`${BASE}/api/listMaster`);
+    const url = new URL(`${apiBase()}/api/listMaster`);
     url.searchParams.set('type', 'vaccination');
     const res = await fetch(url.toString());
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    vaccinationMaster = Array.isArray(data?.items) ? data.items : [];
+    vaccinationMaster = Array.isArray(data?.items)
+      ? data.items.map((item) => normalizeMasterEntry(item, 'vaccination')).filter(Boolean)
+      : [];
     vaccinationMasterMap.clear();
     vaccinationMaster.forEach((item) => {
       if (item && item._key) {
         vaccinationMasterMap.set(item._key, item);
+      }
+      if (typeof item.legacyKey === 'string' && item.legacyKey.trim()) {
+        vaccinationMasterMap.set(item.legacyKey.trim(), item);
+      }
+      if (Array.isArray(item.legacyAliases)) {
+        item.legacyAliases.forEach((alias) => {
+          if (typeof alias === 'string' && alias.trim()) {
+            vaccinationMasterMap.set(alias.trim(), item);
+          }
+        });
       }
     });
   } catch (err) {
@@ -1616,7 +1854,7 @@ async function loadVaccinationMaster() {
     vaccinationMasterMap.clear();
   }
   try {
-    const res = await fetch(`${BASE}/api/listCategories?type=vaccinationType`);
+    const res = await fetch(`${apiBase()}/api/listCategories?type=vaccinationType`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     vaccinationTypes = Array.isArray(data?.categories) ? data.categories : [];
@@ -1630,16 +1868,28 @@ async function loadVaccinationMaster() {
 
 async function loadCheckupMaster() {
   try {
-    const url = new URL(`${BASE}/api/listMaster`);
+    const url = new URL(`${apiBase()}/api/listMaster`);
     url.searchParams.set('type', 'checkup');
     const res = await fetch(url.toString());
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    checkupMaster = Array.isArray(data?.items) ? data.items : [];
+    checkupMaster = Array.isArray(data?.items)
+      ? data.items.map((item) => normalizeMasterEntry(item, 'checkup')).filter(Boolean)
+      : [];
     checkupMasterMap.clear();
     checkupMaster.forEach((item) => {
       if (item && item._key) {
         checkupMasterMap.set(item._key, item);
+      }
+      if (typeof item.legacyKey === 'string' && item.legacyKey.trim()) {
+        checkupMasterMap.set(item.legacyKey.trim(), item);
+      }
+      if (Array.isArray(item.legacyAliases)) {
+        item.legacyAliases.forEach((alias) => {
+          if (typeof alias === 'string' && alias.trim()) {
+            checkupMasterMap.set(alias.trim(), item);
+          }
+        });
       }
     });
   } catch (err) {
@@ -1648,7 +1898,7 @@ async function loadCheckupMaster() {
     checkupMasterMap.clear();
   }
   try {
-    const res = await fetch(`${BASE}/api/listCategories?type=checkupType`);
+    const res = await fetch(`${apiBase()}/api/listCategories?type=checkupType`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     checkupTypes = Array.isArray(data?.categories) ? data.categories : [];
@@ -1825,7 +2075,7 @@ function initCheckupSection() {
 
 async function loadModesMaster() {
   try {
-    const res = await fetch(`${BASE}/api/modes`);
+    const res = await fetch(`${apiBase()}/api/modes`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     modeMaster = Array.isArray(data?.modes)
@@ -2131,7 +2381,7 @@ function applyDepartmentMaster(items, { skipRenderWhenOpen = false } = {}) {
 
 async function fetchDepartmentMaster({ silent = false, skipRenderWhenOpen = false } = {}) {
   try {
-    const url = new URL(`${BASE}/api/listMaster`);
+    const url = new URL(`${apiBase()}/api/listMaster`);
     url.searchParams.set('type', 'department');
     url.searchParams.set('status', 'approved');
     const res = await fetch(url.toString());
@@ -2556,7 +2806,7 @@ async function registerDepartmentCandidates(names) {
   const targets = unique.filter(name => !existing.includes(name));
   if (!targets.length) return;
   await Promise.allSettled(targets.map(name =>
-    fetch(`${BASE}/api/addMasterItem`, {
+    fetch(`${apiBase()}/api/addMasterItem`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ type: "department", category: DEPARTMENT_CATEGORY, name, source: "clinicDetail" })
@@ -2768,7 +3018,7 @@ async function saveClinic() {
   try {
     if (saveButton) saveButton.disabled = true;
     result = await wrapWithLoading(async () => {
-      const res = await fetch(`${BASE}/api/updateClinic`, {
+      const res = await fetch(`${apiBase()}/api/updateClinic`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(clinicData)
@@ -2801,104 +3051,147 @@ async function saveClinic() {
   }
 }
 
-// 選択済み施設から初期値ロード
-async function loadClinicDetail() {
-  const storedClinic = getStoredSelectedClinic();
-  if (!storedClinic) {
-    withDirtySuppressed(() => {
-      scheduleState.patterns = createEmptyPatterns();
-      scheduleState.days = {};
-      applyScheduleStateToForm();
-      renderDisplay();
-      mediaState = sanitizeMediaState({});
-      renderAllMediaSlots();
-      applyAccessToForm(null);
-      applyModesToForm(null);
-      applyVaccinationToForm(null);
-      applyCheckupToForm(null);
-    });
-    latestPostalLookup = '';
-    resetDirtyState();
-    return;
-  }
-
-  let clinic = { ...storedClinic };
-  const params = new URLSearchParams();
-  if (clinic.id) {
-    params.set("id", clinic.id);
-  } else if (clinic.name) {
-    params.set("name", clinic.name);
-  }
-
-  if ([...params.keys()].length) {
-    try {
-      const res = await fetch(`${BASE}/api/clinicDetail?${params.toString()}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.clinic) {
-          clinic = data.clinic;
-          try {
-            localStorage.setItem("selectedClinic", JSON.stringify(clinic));
-          } catch (storageError) {
-            console.warn("failed to update selectedClinic in localStorage", storageError);
-          }
-        } else {
-          console.warn("clinic detail response did not include clinic data");
-        }
-      } else {
-        console.warn("clinic detail request failed", res.status, res.statusText);
-      }
-    } catch (error) {
-      console.warn("failed to fetch clinic detail", error);
-    }
-  }
-
-  const loadedPostal = formatPostalCode(clinic.postalCode || "");
+function populateClinicForm(clinic) {
+  const loadedPostal = formatPostalCode(clinic?.postalCode || "");
   withDirtySuppressed(() => {
-    currentClinicId = clinic.id || "";
-    retainedQualifications = clinic.doctors?.qualifications || "";
+    currentClinicId = clinic?.id || "";
+    retainedQualifications = clinic?.doctors?.qualifications || "";
 
-    document.getElementById("clinicName").value      = clinic.name || "";
-    document.getElementById("clinicPostalCode").value = loadedPostal;
-    document.getElementById("clinicAddress").value   = clinic.address || "";
-    document.getElementById("clinicPhone").value     = clinic.phone || "";
-    document.getElementById("clinicFax").value       = clinic.fax || "";
-    document.getElementById("numFulltime").value     = clinic.doctors?.fulltime || "";
-    document.getElementById("numParttime").value     = clinic.doctors?.parttime || "";
+    const assignValue = (id, value) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.value = value ?? "";
+    };
 
-    const homepageData = clinic.homepage || {};
-    const homepageAvailable = typeof homepageData.available === "boolean" ? homepageData.available : Boolean(homepageData.url);
+    assignValue("clinicName", clinic?.name || "");
+    assignValue("clinicPostalCode", loadedPostal);
+    assignValue("clinicAddress", clinic?.address || "");
+    assignValue("clinicPhone", clinic?.phone || "");
+    assignValue("clinicFax", clinic?.fax || "");
+    assignValue("numFulltime", clinic?.doctors?.fulltime ?? "");
+    assignValue("numParttime", clinic?.doctors?.parttime ?? "");
+
+    const homepageData = clinic?.homepage || {};
+    const homepageAvailable = typeof homepageData.available === "boolean"
+      ? homepageData.available
+      : Boolean(homepageData.url);
     const homepageTarget = document.querySelector(`input[name='homepageStatus'][value='${homepageAvailable ? "available" : "none"}']`);
     if (homepageTarget) homepageTarget.checked = true;
-    document.getElementById("homepageUrl").value = homepageData.url || "";
+    assignValue("homepageUrl", homepageData.url || "");
     updateHomepageField();
 
-    const reservationData = clinic.reservation || {};
-    const reservationAvailable = typeof reservationData.available === "boolean" ? reservationData.available : Boolean(reservationData.url);
+    const reservationData = clinic?.reservation || {};
+    const reservationAvailable = typeof reservationData.available === "boolean"
+      ? reservationData.available
+      : Boolean(reservationData.url);
     const reservationTarget = document.querySelector(`input[name='reservationStatus'][value='${reservationAvailable ? "available" : "none"}']`);
     if (reservationTarget) reservationTarget.checked = true;
-    document.getElementById("reservationUrl").value = reservationData.url || "";
+    assignValue("reservationUrl", reservationData.url || "");
     updateReservationField();
 
-    const deptState = parseDepartments(clinic.departments);
+    const deptState = parseDepartments(clinic?.departments);
     renderDepartmentChecklist(deptState.master);
-    document.getElementById("departmentOthers").value = deptState.others.join("\n");
+    const othersEl = document.getElementById("departmentOthers");
+    if (othersEl) {
+      othersEl.value = (deptState.others || []).join("\n");
+    }
 
-    scheduleState.patterns = sanitizePatterns(clinic.schedule?.patterns);
-    scheduleState.days = sanitizeScheduleDays(clinic.schedule?.days);
+    scheduleState.patterns = sanitizePatterns(clinic?.schedule?.patterns);
+    scheduleState.days = sanitizeScheduleDays(clinic?.schedule?.days);
     applyScheduleStateToForm();
     renderDisplay();
 
-    mediaState = sanitizeMediaState(clinic.media);
+    mediaState = sanitizeMediaState(clinic?.media);
     renderAllMediaSlots();
-    applyAccessToForm(clinic.access);
-    applyModesToForm(clinic.modes);
-    applyVaccinationToForm(clinic.vaccinations);
-    applyCheckupToForm(clinic.checkups);
+    applyAccessToForm(clinic?.access);
+    applyModesToForm(clinic?.modes);
+    applyVaccinationToForm(clinic?.vaccinations);
+    applyCheckupToForm(clinic?.checkups);
   });
 
   latestPostalLookup = normalizePostalCode(loadedPostal);
   resetDirtyState();
+}
+
+function buildClinicQuery(clinicRef, urlParams) {
+  const result = new URLSearchParams();
+  const idParam = nk(urlParams.get("id"));
+  const nameParam = nk(urlParams.get("name"));
+
+  if (idParam) {
+    result.set("id", idParam);
+    return result;
+  }
+  if (clinicRef?.id) {
+    result.set("id", clinicRef.id);
+    return result;
+  }
+  const fallbackName = nameParam || clinicRef?.name;
+  if (fallbackName) {
+    result.set("name", fallbackName);
+  }
+  return result;
+}
+
+// 選択済み施設から初期値ロード
+async function loadClinicDetail() {
+  const storedClinic = getStoredSelectedClinic();
+  const urlParams = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+  let clinic = storedClinic ? { ...storedClinic } : null;
+  const query = buildClinicQuery(clinic, urlParams);
+  let fetchError = null;
+  const queryString = query.toString();
+  const previousApiBase = apiBase();
+
+  if (queryString) {
+    const candidates = getApiBaseCandidates();
+    const localBase = detectLocalApiBase();
+    for (const candidate of candidates) {
+      try {
+        const res = await fetch(`${candidate}/api/clinicDetail?${queryString}`);
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        if (!data?.clinic) {
+          throw new Error("clinic payload is empty");
+        }
+        clinic = normalizeClinicSelections(data.clinic);
+        setActiveApiBase(candidate, { persist: candidate !== localBase });
+        if (candidate !== localBase) {
+          try {
+            localStorage.removeItem('ncdUseLocalApi');
+          } catch (_) {}
+        }
+        try {
+          localStorage.setItem("selectedClinic", JSON.stringify(clinic));
+        } catch (storageError) {
+          console.warn("failed to update selectedClinic in localStorage", storageError);
+        }
+        fetchError = null;
+        if (candidate !== previousApiBase) {
+          console.info("clinic detail API base switched to", candidate);
+        }
+        break;
+      } catch (error) {
+        fetchError = error;
+        console.warn(`clinic detail fetch failed via ${candidate}`, error);
+        continue;
+      }
+    }
+  }
+
+  clinic = normalizeClinicSelections(clinic);
+
+  if (!clinic) {
+    populateClinicForm(null);
+    if (fetchError) {
+      alert(`診療所情報を取得できませんでした: ${fetchError.message || fetchError}`);
+    }
+    return;
+  }
+
+  populateClinicForm(clinic);
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
