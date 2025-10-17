@@ -24,9 +24,15 @@
     </div>
 
     <div id="categoryPanel" class="bg-white rounded shadow p-4 space-y-3">
-      <div class="flex items-center gap-2">
-        <input id="newCat" class="border rounded px-2 py-1 flex-1" placeholder="新しい分類名を追加">
-        <button id="addBtn" class="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700">追加</button>
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div class="flex items-center gap-2 flex-1">
+          <input id="newCat" class="border rounded px-2 py-1 flex-1" placeholder="新しい分類名を追加">
+          <button id="addBtn" class="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 whitespace-nowrap">追加</button>
+        </div>
+        <div class="flex items-center gap-2 text-sm">
+          <button id="importBtn" class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 whitespace-nowrap">CSV取込</button>
+          <input id="importInput" type="file" accept=".csv,text/csv" class="hidden" />
+        </div>
       </div>
 
       <table class="w-full border text-sm">
@@ -100,6 +106,8 @@
     const catTbody = document.getElementById('catTbody');
     const newCategoryInput = document.getElementById('newCat');
     const addCategoryButton = document.getElementById('addBtn');
+    const importButton = document.getElementById('importBtn');
+    const importInput = document.getElementById('importInput');
     const deptCategorySelect = document.getElementById('departmentCategorySelect');
     const deptNewNameInput = document.getElementById('departmentNewName');
     const deptAddButton = document.getElementById('departmentAddBtn');
@@ -107,6 +115,46 @@
 
     let departmentCategories = [];
     let currentDepartmentItems = [];
+
+    function parseCsvLines(text) {
+      if (!text) return [];
+      return text
+        .split(/\r?\n/)
+        .map(line => line.split(',')[0]?.trim())
+        .filter(Boolean);
+    }
+
+    async function importCategoriesFromCsv(file) {
+      try {
+        const text = await file.text();
+        const rows = parseCsvLines(text);
+        if (!rows.length) {
+          alert('有効な行が見つかりませんでした');
+          return;
+        }
+        const unique = Array.from(new Set(rows));
+        let success = 0;
+        let failure = 0;
+        for (const name of unique) {
+          try {
+            await fetchJson('/api/addCategory', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ type: typeSelect.value, name })
+            });
+            success += 1;
+          } catch (err) {
+            console.warn('failed to import category', name, err);
+            failure += 1;
+          }
+        }
+        await loadCategoryList(true);
+        alert(`CSV取込が完了しました。成功: ${success} / 失敗: ${failure}`);
+      } catch (err) {
+        console.error(err);
+        alert('CSV取込中にエラーが発生しました');
+      }
+    }
 
     function populateTypeOptions(initial) {
       typeSelect.innerHTML = TYPE_OPTIONS.map(opt => `<option value="${opt.value}">${opt.label}</option>`).join('');
@@ -357,6 +405,18 @@
       }
       newCategoryInput.value = '';
       await loadCategoryList(true);
+    });
+
+    importButton?.addEventListener('click', () => {
+      importInput?.click();
+    });
+
+    importInput?.addEventListener('change', (event) => {
+      const file = event.target.files?.[0];
+      if (file) {
+        importCategoriesFromCsv(file);
+      }
+      event.target.value = '';
     });
 
     deptAddButton.addEventListener('click', async () => {
