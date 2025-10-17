@@ -1487,13 +1487,19 @@ function renderCheckupOptions(selection = checkupSelection) {
 function readVaccinationsFromForm() {
   const selected = Array.from(vaccinationSelection);
   const meta = buildMetaFromSelection(selected, vaccinationMasterMap, currentVaccinationMeta);
-  return { selected, meta };
+  if (selected.length || Object.keys(meta).length) {
+    return { selected, meta };
+  }
+  return null;
 }
 
 function readCheckupsFromForm() {
   const selected = Array.from(checkupSelection);
   const meta = buildMetaFromSelection(selected, checkupMasterMap, currentCheckupMeta);
-  return { selected, meta };
+  if (selected.length || Object.keys(meta).length) {
+    return { selected, meta };
+  }
+  return null;
 }
 
 function openVaccinationEditor() {

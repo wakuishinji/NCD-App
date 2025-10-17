@@ -470,9 +470,10 @@
     const data = clinic.vaccinations && typeof clinic.vaccinations === 'object' ? clinic.vaccinations : {};
     const selection = Array.isArray(data.selected) ? data.selected : [];
     const meta = data.meta && typeof data.meta === 'object' ? data.meta : {};
+    const merged = mergeMasterWithSelection(vaccinationMaster, selection, meta, vaccinationMasterMap);
     const items = selection
       .map((key) => {
-        const source = resolveVaccinationMeta(key, meta);
+        const source = merged.find((item) => item._key === key) || resolveVaccinationMeta(key, meta);
         if (!source) return null;
         return {
           _key: key,
@@ -503,9 +504,10 @@
     const data = clinic.checkups && typeof clinic.checkups === 'object' ? clinic.checkups : {};
     const selection = Array.isArray(data.selected) ? data.selected : [];
     const meta = data.meta && typeof data.meta === 'object' ? data.meta : {};
+    const merged = mergeMasterWithSelection(checkupMaster, selection, meta, checkupMasterMap);
     const items = selection
       .map((key) => {
-        const source = resolveCheckupMeta(key, meta);
+        const source = merged.find((item) => item._key === key) || resolveCheckupMeta(key, meta);
         if (!source) return null;
         return {
           _key: key,
