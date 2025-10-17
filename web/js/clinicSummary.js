@@ -457,6 +457,26 @@
     });
   }
 
+  function mergeMasterWithSelection(masterList, selection, metaSource, map) {
+    const merged = Array.isArray(masterList) ? [...masterList] : [];
+    const set = new Set(selection || []);
+    set.forEach((key) => {
+      if (!map.has(key)) {
+        const meta = metaSource?.[key];
+        if (meta) {
+          merged.push({
+            _key: key,
+            category: meta.category || '',
+            name: meta.name || meta.label || key,
+            desc: meta.desc || meta.detail || '',
+            status: meta.status || 'candidate'
+          });
+        }
+      }
+    });
+    return merged;
+  }
+
   function resolveVaccinationMeta(key, clinicMeta) {
     return clinicMeta?.[key] || vaccinationMasterMap.get(key) || null;
   }
