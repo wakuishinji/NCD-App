@@ -2586,8 +2586,8 @@ if (routeMatch(url, "GET", "listClinics")) {
       const body = await request.json();
       const type = body?.type;
       const name = (body?.name || "").trim();
-      if (!type || !["test","service","qual","department","facility","symptom","bodySite"].includes(type) || !name) {
-        return new Response(JSON.stringify({ error: "type/name 不正（type は test / service / qual / department / facility / symptom / bodySite）" }), {
+      if (!type || !["test","service","qual","department","facility","symptom","bodySite","vaccinationType","checkupType"].includes(type) || !name) {
+        return new Response(JSON.stringify({ error: "type/name 不正（type は test / service / qual / department / facility / symptom / bodySite / vaccinationType / checkupType）" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       }
@@ -2606,8 +2606,8 @@ if (routeMatch(url, "GET", "listClinics")) {
       const type = body?.type;
       const oldName = (body?.oldName || "").trim();
       const newName = (body?.newName || "").trim();
-      if (!type || !["test","service","qual","department","facility","symptom","bodySite"].includes(type) || !oldName || !newName) {
-        return new Response(JSON.stringify({ error: "パラメータ不正（type は test / service / qual / department / facility / symptom / bodySite）" }), {
+      if (!type || !["test","service","qual","department","facility","symptom","bodySite","vaccinationType","checkupType"].includes(type) || !oldName || !newName) {
+        return new Response(JSON.stringify({ error: "パラメータ不正（type は test / service / qual / department / facility / symptom / bodySite / vaccinationType / checkupType）" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       }
@@ -2625,8 +2625,8 @@ if (routeMatch(url, "GET", "listClinics")) {
       const body = await request.json();
       const type = body?.type;
       const name = (body?.name || "").trim();
-      if (!type || !["test","service","qual","department","facility","symptom","bodySite"].includes(type) || !name) {
-        return new Response(JSON.stringify({ error: "パラメータ不正（type は test / service / qual / department / facility / symptom / bodySite）" }), {
+      if (!type || !["test","service","qual","department","facility","symptom","bodySite","vaccinationType","checkupType"].includes(type) || !name) {
+        return new Response(JSON.stringify({ error: "パラメータ不正（type は test / service / qual / department / facility / symptom / bodySite / vaccinationType / checkupType）" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       }
