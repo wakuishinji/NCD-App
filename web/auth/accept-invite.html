@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>招待の受け入れ - NCD</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-100 text-slate-800">
+  <main class="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4 py-12">
+    <section class="rounded-lg bg-white p-6 shadow">
+      <header class="mb-4">
+        <h1 class="text-xl font-semibold text-blue-900">招待の受け入れ</h1>
+        <p class="mt-1 text-sm text-slate-500" id="introText">施設管理者またはスタッフとして招待されています。以下の情報を入力し、パスワードを設定してください。</p>
+      </header>
+
+      <div id="expiredNotice" class="mb-4 hidden rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+        招待の有効期限が切れています。システム管理者に再招待を依頼してください。
+      </div>
+
+      <form id="acceptForm" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-slate-700" for="displayName">氏名</label>
+          <input id="displayName" name="displayName" type="text" required class="mt-1 w-full rounded border px-3 py-2 text-sm" placeholder="招待された本人の氏名" />
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-slate-700" for="password">パスワード</label>
+          <input id="password" name="password" type="password" required class="mt-1 w-full rounded border px-3 py-2 text-sm" placeholder="8文字以上で入力" minlength="8" />
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-slate-700" for="passwordConfirm">パスワード（確認）</label>
+          <input id="passwordConfirm" name="passwordConfirm" type="password" required class="mt-1 w-full rounded border px-3 py-2 text-sm" placeholder="パスワードを再入力" minlength="8" />
+        </div>
+
+        <div id="formStatus" class="text-sm text-red-600"></div>
+
+        <button type="submit" class="w-full rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700">アカウントを有効化</button>
+      </form>
+
+      <div id="successPanel" class="mt-4 hidden rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+        アカウントを有効化しました。数秒後にトップページへ移動します。
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const API_BASE = (function resolveBase() {
+      try {
+        const stored = localStorage.getItem('ncdApiBase') || localStorage.getItem('ncdApiBaseUrl');
+        if (stored) return stored.replace(/\/$/, '');
+      } catch (_) {}
+      return 'https://ncd-app.altry.workers.dev';
+    }());
+
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token') || '';
+
+    if (!token) {
+      document.getElementById('introText').textContent = '無効なリンクです。URLを確認してください。';
+      document.getElementById('acceptForm').classList.add('hidden');
+      document.getElementById('expiredNotice').classList.remove('hidden');
+    }
+
+    function validatePasswords(password, confirm) {
+      if (password.length < 8) return 'パスワードは8文字以上で入力してください。';
+      if (password !== confirm) return 'パスワード（確認）が一致しません。';
+      return null;
+    }
+
+    document.getElementById('acceptForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const formStatus = document.getElementById('formStatus');
+      formStatus.textContent = '';
+
+      const displayName = document.getElementById('displayName').value.trim();
+      const password = document.getElementById('password').value;
+      const passwordConfirm = document.getElementById('passwordConfirm').value;
+      const validation = validatePasswords(password, passwordConfirm);
+      if (validation) {
+        formStatus.textContent = validation;
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/acceptInvite`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, displayName, password, passwordConfirm }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.message || '招待の受け入れに失敗しました。');
+        }
+        const data = await res.json();
+        formStatus.className = 'text-sm text-emerald-600';
+        formStatus.textContent = data.mailStatus === 'sent'
+          ? 'アカウントを有効化しました。'
+          : 'アカウントを有効化しました。';
+        document.getElementById('successPanel').classList.remove('hidden');
+        event.target.classList.add('hidden');
+
+        try {
+          localStorage.setItem('ncdAuth', JSON.stringify(data));
+        } catch (_) {}
+        setTimeout(() => {
+          window.location.href = '/index.html';
+        }, 2000);
+      } catch (error) {
+        console.error('accept invite failed', error);
+        formStatus.className = 'text-sm text-red-600';
+        formStatus.textContent = error.message || '招待の受け入れに失敗しました。';
+      }
+    });
+  </script>
+</body>
+</html>

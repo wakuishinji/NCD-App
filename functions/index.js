@@ -1,4 +1,8 @@
 import { ensureUniqueId, normalizeSlug, randomSlug } from './idUtils.js';
+import { createToken, verifyToken, invalidateSession } from './lib/auth/jwt.js';
+import { hashPassword, verifyPassword } from './lib/auth/password.js';
+import { generateInviteToken, generateTokenString } from './lib/auth/token.js';
+import { createMailClient } from './lib/mail/index.js';
 
 const MASTER_TYPE_LIST = [
   'test',
@@ -15,6 +19,16 @@ const MASTER_TYPE_LIST = [
   'checkupType',
 ];
 const MASTER_ALLOWED_TYPES = new Set(MASTER_TYPE_LIST);
+
+const ACCESS_TOKEN_TTL_SECONDS = 60 * 15; // 15 min
+const REFRESH_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
+const REFRESH_TOKEN_TTL_REMEMBER_SECONDS = 60 * 60 * 24 * 30; // 30 days
+const SESSION_META_PREFIX = 'session:meta:';
+const INVITE_TTL_SECONDS = 60 * 60 * 24; // 24 hours
+const INVITE_RESEND_COOLDOWN_SECONDS = 60 * 5; // 5 minutes
+const PASSWORD_RESET_TTL_SECONDS = 60 * 30; // 30 minutes
+const PASSWORD_RESET_LOOKUP_PREFIX = 'resetToken:';
+const MIN_PASSWORD_LENGTH = 8;
 
 export default {
   async fetch(request, env) {
@@ -92,6 +106,439 @@ export default {
         return single ? [single] : [];
       }
       return [];
+    }
+
+    function normalizeIdentifier(value) {
+      const trimmed = nk(value);
+      return trimmed ? trimmed.toLowerCase() : "";
+    }
+
+    function normalizeEmail(value) {
+      const trimmed = nk(value);
+      if (!trimmed) return "";
+      return trimmed.toLowerCase();
+    }
+
+    function getSessionStore(env) {
+      return env.AUTH_SESSIONS || env.SETTINGS;
+    }
+
+    const sessionMetaKey = (sessionId) => `${SESSION_META_PREFIX}${sessionId}`;
+    const accountLoginKey = (loginIdLower) => `account:login:${loginIdLower}`;
+    const accountEmailKey = (emailLower) => `account:email:${emailLower}`;
+    const inviteKey = (inviteId) => `invite:${inviteId}`;
+    const inviteLookupKey = (token) => `inviteToken:${token}`;
+    const resetLookupKey = (tokenHash) => `${PASSWORD_RESET_LOOKUP_PREFIX}${tokenHash}`;
+    const passwordResetKey = (id) => `passwordReset:${id}`;
+
+    function envFlag(value) {
+      return value === true || value === 'true' || value === '1';
+    }
+
+    function toBase64Url(bytes) {
+      const array = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+      if (typeof Buffer !== 'undefined') {
+        return Buffer.from(array).toString('base64url');
+      }
+      let binary = '';
+      for (let i = 0; i < array.length; i += 1) {
+        binary += String.fromCharCode(array[i]);
+      }
+      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+    }
+
+    function resolveAccountStorageKey(idOrPointer) {
+      const raw = nk(idOrPointer);
+      if (!raw) return null;
+      if (raw.startsWith('account:id:')) return raw;
+      if (raw.startsWith('account:')) {
+        return `account:id:${raw.substring('account:'.length)}`;
+      }
+      return `account:id:${raw}`;
+    }
+
+    function storageKeyToAccountId(value) {
+      const raw = nk(value);
+      if (!raw) return null;
+      if (raw.startsWith('account:id:')) {
+        return raw.substring('account:id:'.length);
+      }
+      if (raw.startsWith('account:')) {
+        return raw.substring('account:'.length);
+      }
+      return raw;
+    }
+
+    function ensureAccountId(account, pointer) {
+      if (!account || typeof account !== 'object') return null;
+      const existing = nk(account.id);
+      if (existing) return existing;
+      const core = storageKeyToAccountId(pointer || account.accountId || account.uuid);
+      if (!core) return null;
+      const value = core.startsWith('account:') ? core : `account:${core}`;
+      account.id = value;
+      return value;
+    }
+
+    function generateSessionId() {
+      if (globalThis.crypto?.randomUUID) {
+        return globalThis.crypto.randomUUID();
+      }
+      return `session-${generateTokenString(16)}`;
+    }
+
+    async function hashToken(token) {
+      const trimmed = nk(token);
+      if (!trimmed) return null;
+      const data = new TextEncoder().encode(trimmed);
+      const digest = await crypto.subtle.digest('SHA-256', data);
+      return toBase64Url(new Uint8Array(digest));
+    }
+
+    const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    function jsonResponse(body, status = 200) {
+      return new Response(JSON.stringify(body), {
+        status,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    async function authenticateRequest(request, env) {
+      const authHeader = request.headers.get('Authorization') || '';
+      const match = authHeader.match(/^Bearer\s+(.+)$/i);
+      if (!match) return null;
+      const token = match[1].trim();
+      if (!token) return null;
+      try {
+        const { payload } = await verifyToken(token, {
+          env,
+          sessionStore: getSessionStore(env),
+        });
+        const account = await getAccountById(env, payload.sub);
+        if (!account) return null;
+        if ((nk(account.status) || 'active') !== 'active') return null;
+        ensureAccountId(account, payload.sub);
+        return { account, payload, token };
+      } catch (err) {
+        console.warn('authenticateRequest failed', err);
+        return null;
+      }
+    }
+
+    function hasRole(payload, roles) {
+      if (!payload) return false;
+      const allowed = Array.isArray(roles) ? roles : [roles];
+      return allowed.includes(payload.role);
+    }
+
+    function normalizeRole(input, fallback = 'clinicStaff') {
+      const raw = nk(input).toLowerCase();
+      if (raw === 'systemadmin') return 'systemAdmin';
+      if (raw === 'clinicadmin') return 'clinicAdmin';
+      if (raw === 'clinicstaff') return 'clinicStaff';
+      if (raw === 'staff') return 'clinicStaff';
+      if (raw === 'admin') return 'clinicAdmin';
+      if (raw) return raw;
+      return fallback;
+    }
+
+    function validatePasswordStrength(password) {
+      if (typeof password !== 'string') return false;
+      return password.length >= MIN_PASSWORD_LENGTH;
+    }
+
+    function isoTimestamp(secondsFromNow = 0) {
+      const date = new Date(Date.now() + secondsFromNow * 1000);
+      return date.toISOString();
+    }
+
+    async function createInviteRecord(env, {
+      clinicId,
+      email,
+      role,
+      invitedBy,
+      metadata = {},
+      ttlSeconds = INVITE_TTL_SECONDS,
+    }) {
+      const inviteId = crypto.randomUUID();
+      const token = generateInviteToken();
+      const tokenHash = await hashToken(token);
+      const nowIso = new Date().toISOString();
+      const expiresAt = isoTimestamp(ttlSeconds);
+      const invite = {
+        id: inviteId,
+        clinicId,
+        email,
+        role,
+        invitedBy,
+        invitedAt: nowIso,
+        expiresAt,
+        status: 'pending',
+        metadata,
+      };
+      await kvPutJSONWithOptions(env, inviteKey(inviteId), invite, { expirationTtl: ttlSeconds });
+      if (tokenHash) {
+        await env.SETTINGS.put(inviteLookupKey(tokenHash), inviteId, { expirationTtl: ttlSeconds });
+      }
+      return { invite, token, tokenHash };
+    }
+
+    async function getInviteById(env, inviteId) {
+      return kvGetJSON(env, inviteKey(inviteId));
+    }
+
+    async function getInviteByToken(env, token) {
+      const tokenHash = await hashToken(token);
+      if (!tokenHash) return null;
+      const inviteId = await env.SETTINGS.get(inviteLookupKey(tokenHash));
+      if (!inviteId) return null;
+      const invite = await getInviteById(env, inviteId);
+      if (!invite) return null;
+      return { invite, tokenHash };
+    }
+
+    async function updateInviteStatus(env, inviteId, status, extra = {}) {
+      const invite = await getInviteById(env, inviteId);
+      if (!invite) return null;
+      invite.status = status;
+      Object.assign(invite, extra);
+      await kvPutJSON(env, inviteKey(inviteId), invite);
+      return invite;
+    }
+
+    function cleanClinicPendingInvites(clinic, now = Date.now()) {
+      if (!clinic || typeof clinic !== 'object') return [];
+      const pending = Array.isArray(clinic.pendingInvites) ? clinic.pendingInvites : [];
+      return pending.filter((entry) => {
+        if (!entry || typeof entry !== 'object') return false;
+        if (entry.status && entry.status !== 'pending') return false;
+        if (!entry.expiresAt) return true;
+        const expiresAtMs = Date.parse(entry.expiresAt);
+        if (Number.isNaN(expiresAtMs)) return true;
+        return expiresAtMs > now;
+      });
+    }
+
+    async function removeInviteLookup(env, tokenHash) {
+      if (!tokenHash) return;
+      await env.SETTINGS.delete(inviteLookupKey(tokenHash)).catch(() => {});
+    }
+
+    async function storeResetToken(env, { token, accountId, requestedBy }) {
+      const tokenHash = await hashToken(token);
+      if (!tokenHash) throw new Error('failed to hash reset token');
+      const recordId = crypto.randomUUID();
+      const nowIso = new Date().toISOString();
+      const expiresAt = isoTimestamp(PASSWORD_RESET_TTL_SECONDS);
+      const record = {
+        id: recordId,
+        tokenHash,
+        accountId,
+        requestedAt: nowIso,
+        expiresAt,
+        status: 'pending',
+        requestedBy: requestedBy || null,
+      };
+      await kvPutJSONWithOptions(env, passwordResetKey(recordId), record, { expirationTtl: PASSWORD_RESET_TTL_SECONDS });
+      await env.SETTINGS.put(resetLookupKey(tokenHash), recordId, { expirationTtl: PASSWORD_RESET_TTL_SECONDS });
+      return { record, tokenHash, expiresAt };
+    }
+
+    async function getResetRecordByToken(env, token) {
+      const tokenHash = await hashToken(token);
+      if (!tokenHash) return null;
+      const recordId = await env.SETTINGS.get(resetLookupKey(tokenHash));
+      if (!recordId) return null;
+      const record = await kvGetJSON(env, passwordResetKey(recordId));
+      if (!record) return null;
+      return { record, tokenHash };
+    }
+
+    async function updateResetRecord(env, id, updates) {
+      const key = passwordResetKey(id);
+      const record = await kvGetJSON(env, key);
+      if (!record) return null;
+      Object.assign(record, updates, { updatedAt: new Date().toISOString() });
+      await kvPutJSON(env, key, record);
+      if (updates.status && updates.status !== 'pending') {
+        await env.SETTINGS.delete(resetLookupKey(record.tokenHash)).catch(() => {});
+      }
+      return record;
+    }
+
+    function getAppBaseUrl(env) {
+      const raw = nk(env?.APP_BASE_URL);
+      if (!raw) return 'https://ncd-app.altry.workers.dev';
+      return raw.replace(/\/+$/, '');
+    }
+
+    function getAcceptInviteUrl(env, token) {
+      const base = getAppBaseUrl(env);
+      return `${base}/auth/accept-invite?token=${encodeURIComponent(token)}`;
+    }
+
+    function getPasswordResetUrl(env, token) {
+      const base = getAppBaseUrl(env);
+      return `${base}/auth/reset-password?token=${encodeURIComponent(token)}`;
+    }
+
+    async function sendInviteEmail(env, {
+      clinic,
+      invite,
+      token,
+    }) {
+      try {
+        const mail = createMailClient(env);
+        const acceptUrl = getAcceptInviteUrl(env, token);
+        const roleLabel = invite.role === 'clinicAdmin' ? '施設管理者' : 'スタッフ';
+        const clinicName = clinic?.name || '施設';
+        const subject = `[NCD] ${clinicName}の${roleLabel}アカウント招待`;
+        const text = [
+          `${clinicName}の${roleLabel}アカウントに招待されています。`,
+          '',
+          '以下のリンクからパスワードを設定し、ログインを完了してください。',
+          acceptUrl,
+          '',
+          'リンクの有効期限は24時間です。期限切れの場合は、システム管理者に再招待を依頼してください。',
+        ].join('\n');
+        const html = [
+          `<p>${clinicName}の${roleLabel}アカウントに招待されています。</p>`,
+          `<p><a href="${acceptUrl}">こちらのリンク</a>からパスワードを設定し、ログインを完了してください。</p>`,
+          '<p>リンクの有効期限は24時間です。期限切れの場合は、システム管理者に再招待を依頼してください。</p>',
+        ].join('');
+        return await mail.send({
+          to: invite.email,
+          subject,
+          text,
+          html,
+        });
+      } catch (err) {
+        console.error('[mail] failed to send invite email', err);
+        return { ok: false, error: err.message };
+      }
+    }
+
+    async function sendPasswordResetEmail(env, { account, token }) {
+      try {
+        const mail = createMailClient(env);
+        const resetUrl = getPasswordResetUrl(env, token);
+        const subject = '[NCD] パスワード再設定のご案内';
+        const text = [
+          'パスワードの再設定がリクエストされました。',
+          '',
+          '以下のリンクから新しいパスワードを設定してください。',
+          resetUrl,
+          '',
+          'リンクの有効期限は30分です。心当たりがない場合は、このメールを破棄してください。',
+        ].join('\n');
+        const html = [
+          '<p>パスワードの再設定がリクエストされました。</p>',
+          `<p><a href="${resetUrl}">こちらのリンク</a>から新しいパスワードを設定してください。</p>`,
+          '<p>リンクの有効期限は30分です。心当たりがない場合は、このメールを破棄してください。</p>',
+        ].join('');
+        return await mail.send({
+          to: account.primaryEmail,
+          subject,
+          text,
+          html,
+        });
+      } catch (err) {
+        console.error('[mail] failed to send password reset email', err);
+        return { ok: false, error: err.message };
+      }
+    }
+
+    function normalizeProfileInput(profile = {}, fallbackDisplayName) {
+      const result = {};
+      const displayName = nk(profile.displayName || profile.name || fallbackDisplayName);
+      if (displayName) result.displayName = displayName;
+      const displayNameKana = nk(profile.displayNameKana || profile.nameKana);
+      if (displayNameKana) result.displayNameKana = displayNameKana;
+      const phone = nk(profile.phone || profile.tel);
+      if (phone) result.phone = phone;
+      const title = nk(profile.title || profile.position);
+      if (title) result.title = title;
+      return result;
+    }
+
+    async function createAccountRecord(env, {
+      email,
+      password,
+      role = 'clinicStaff',
+      status = 'active',
+      loginId,
+      profile = {},
+      invitedBy,
+    }) {
+      const normalizedEmail = normalizeEmail(email);
+      if (!normalizedEmail) {
+        throw new Error('Email is required to create an account');
+      }
+      const emailLocal = normalizedEmail.split('@')[0] || 'user';
+      const loginCandidate = loginId ? normalizeSlug(loginId) : normalizeSlug(emailLocal);
+      const uniqueLoginId = await ensureUniqueId({
+        kv: env.SETTINGS,
+        prefix: 'account:login:',
+        candidate: loginCandidate,
+        normalize: (value) => value.toLowerCase(),
+        randomLength: 10,
+      });
+      const passwordHash = await hashPassword(password);
+      const accountUuid = crypto.randomUUID();
+      const accountId = `account:${accountUuid}`;
+      const nowIso = new Date().toISOString();
+      const accountRecord = {
+        id: accountId,
+        loginId: uniqueLoginId,
+        primaryEmail: normalizedEmail,
+        role,
+        status,
+        passwordHash,
+        profile,
+        membershipIds: [],
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+      if (invitedBy) {
+        accountRecord.invitedBy = invitedBy;
+      }
+      const accountKey = resolveAccountStorageKey(accountId);
+      await kvPutJSON(env, accountKey, accountRecord);
+      await env.SETTINGS.put(accountLoginKey(uniqueLoginId), accountUuid);
+      await env.SETTINGS.put(accountEmailKey(normalizedEmail), accountUuid);
+      return { account: accountRecord, accountKey, accountId };
+    }
+
+    async function saveAccountRecord(env, account) {
+      const key = resolveAccountStorageKey(account?.id);
+      if (!key) throw new Error('Invalid account identifier');
+      account.updatedAt = new Date().toISOString();
+      await kvPutJSON(env, key, account);
+    }
+
+    async function createMembershipRecord(env, {
+      clinicId,
+      accountId,
+      roles = ['clinicStaff'],
+      status = 'active',
+      invitedBy,
+    }) {
+      const membershipUuid = crypto.randomUUID();
+      const membershipId = `membership:${membershipUuid}`;
+      const nowIso = new Date().toISOString();
+      const membershipRecord = {
+        id: membershipId,
+        clinicId,
+        accountId,
+        roles,
+        status,
+        invitedBy: invitedBy || null,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+      await kvPutJSON(env, membershipId, membershipRecord);
+      return membershipRecord;
     }
 
     const EXPLANATION_STATUS_SET = new Set(["draft", "published", "archived"]);
@@ -518,6 +965,9 @@ export default {
     async function kvPutJSON(env, key, obj) {
       return env.SETTINGS.put(key, JSON.stringify(obj));
     }
+    async function kvPutJSONWithOptions(env, key, obj, options = {}) {
+      return env.SETTINGS.put(key, JSON.stringify(obj), options);
+    }
 
     // 施設: 取得/保存
     async function getClinicById(env, id) {
@@ -629,6 +1079,92 @@ export default {
       const list = await env.SETTINGS.list({ prefix });
       await Promise.all(list.keys.map(k => env.SETTINGS.delete(k.name).catch(() => {})));
     }
+
+    async function getAccountById(env, accountId) {
+      const key = resolveAccountStorageKey(accountId);
+      if (!key) return null;
+      const account = await kvGetJSON(env, key);
+      if (account) {
+        ensureAccountId(account, accountId);
+      }
+      return account;
+    }
+
+    async function findAccountByIdentifier(env, identifier) {
+      const normalized = normalizeIdentifier(identifier);
+      if (!normalized) return null;
+      const candidates = [];
+      if (normalized.includes('@')) {
+        candidates.push(accountEmailKey(normalized));
+      }
+      candidates.push(accountLoginKey(normalized));
+      for (const key of candidates) {
+        const pointer = await env.SETTINGS.get(key);
+        if (!pointer) continue;
+        const account = await getAccountById(env, pointer);
+        if (account) {
+          ensureAccountId(account, pointer);
+          return { account, pointer };
+        }
+      }
+      return null;
+    }
+
+    function normalizeMembershipIds(account) {
+      if (!account) return [];
+      if (Array.isArray(account.membershipIds)) {
+        return account.membershipIds.filter(id => typeof id === 'string' && id);
+      }
+      if (Array.isArray(account.memberships)) {
+        return account.memberships
+          .map(entry => (typeof entry === 'string' ? entry : entry?.id))
+          .filter(id => typeof id === 'string' && id);
+      }
+      return [];
+    }
+
+    async function verifyAccountPasswordValue(account, password) {
+      if (!account || typeof password !== 'string' || !password) return false;
+      const stored = account.passwordHash || account.password;
+      if (!stored) return false;
+      if (typeof stored === 'object') {
+        try {
+          return await verifyPassword(password, stored);
+        } catch (err) {
+          console.warn('password verification failed', err);
+          return false;
+        }
+      }
+      // Legacy string hashes are not supported; always fail closed.
+      return false;
+    }
+
+    function publicAccountView(account) {
+      if (!account) return null;
+      ensureAccountId(account);
+      const membershipIds = normalizeMembershipIds(account);
+      return {
+        id: account.id || null,
+        role: nk(account.role) || 'clinicStaff',
+        status: nk(account.status) || 'active',
+        primaryEmail: account.primaryEmail ? nk(account.primaryEmail) : null,
+        profile: account.profile && typeof account.profile === 'object' ? account.profile : {},
+        membershipIds,
+      };
+    }
+
+    async function writeSessionMeta(env, sessionId, data, ttlSeconds) {
+      if (!sessionId) return;
+      const key = sessionMetaKey(sessionId);
+      const options = ttlSeconds ? { expirationTtl: ttlSeconds } : undefined;
+      await kvPutJSONWithOptions(env, key, data, options);
+    }
+
+    async function deleteSessionMeta(env, sessionId) {
+      if (!sessionId) return;
+      await env.SETTINGS.delete(sessionMetaKey(sessionId)).catch(() => {});
+    }
+
     const DEFAULT_TODOS = [
       {
         category: "フロントエンド",
@@ -658,6 +1194,654 @@ export default {
       );
     }
     // <<< END: ROUTE_MATCH >>>
+
+    if (routeMatch(url, 'POST', 'auth/registerFacilityAdmin')) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      if (!hasRole(authContext.payload, ['systemAdmin'])) {
+        return jsonResponse({ error: 'FORBIDDEN', message: 'システム管理者のみが操作できます。' }, 403);
+      }
+      let body;
+      try {
+        body = await request.json();
+      } catch (err) {
+        return jsonResponse({ error: 'INVALID_JSON', message: 'リクエスト形式が不正です。' }, 400);
+      }
+      const clinicId = nk(body?.clinicId);
+      const emailRaw = body?.email;
+      const displayName = nk(body?.displayName || body?.name);
+      if (!clinicId) {
+        return jsonResponse({ error: 'INVALID_REQUEST', message: 'clinicId が必要です。' }, 400);
+      }
+      const clinic = await getClinicById(env, clinicId);
+      if (!clinic) {
+        return jsonResponse({ error: 'NOT_FOUND', message: '該当する施設が見つかりません。' }, 404);
+      }
+      const email = normalizeEmail(emailRaw);
+      if (!email || !EMAIL_REGEX.test(email)) {
+        return jsonResponse({ error: 'INVALID_EMAIL', message: 'メールアドレスの形式が正しくありません。' }, 400);
+      }
+
+      const existingAccount = await findAccountByIdentifier(env, email);
+      if (existingAccount && (nk(existingAccount.account.role) || 'clinicStaff') === 'clinicAdmin') {
+        return jsonResponse({ error: 'ALREADY_REGISTERED', message: 'このメールアドレスは既に管理者として登録されています。' }, 409);
+      }
+
+      const now = Date.now();
+      const activePending = cleanClinicPendingInvites(clinic, now);
+      const duplicateInvite = activePending.find((item) => normalizeEmail(item.email) === email);
+      if (duplicateInvite) {
+        const invitedAtMs = Date.parse(duplicateInvite.invitedAt || '') || now;
+        if (now - invitedAtMs < INVITE_RESEND_COOLDOWN_SECONDS * 1000) {
+          return jsonResponse({
+            error: 'INVITE_PENDING',
+            message: '同じメールアドレス宛の招待が進行中です。しばらく時間をおいて再度お試しください。',
+          }, 409);
+        }
+      }
+
+      const metadata = { kind: 'clinicAdmin' };
+      if (displayName) metadata.displayName = displayName;
+      const invitedBy = ensureAccountId(authContext.account);
+      const { invite, token } = await createInviteRecord(env, {
+        clinicId,
+        email,
+        role: 'clinicAdmin',
+        invitedBy,
+        metadata,
+      });
+
+      const pendingInvites = cleanClinicPendingInvites(clinic, now).filter((item) => item.id !== invite.id);
+      pendingInvites.push({
+        id: invite.id,
+        email: invite.email,
+        role: invite.role,
+        status: invite.status,
+        invitedAt: invite.invitedAt,
+        expiresAt: invite.expiresAt,
+        invitedBy,
+        metadata,
+      });
+      clinic.pendingInvites = pendingInvites;
+      await saveClinic(env, clinic);
+
+      const mailResult = await sendInviteEmail(env, { clinic, invite, token });
+
+      return jsonResponse({
+        ok: true,
+        invite: {
+          id: invite.id,
+          clinicId: invite.clinicId,
+          email: invite.email,
+          role: invite.role,
+          invitedAt: invite.invitedAt,
+          expiresAt: invite.expiresAt,
+          invitedBy,
+          metadata,
+        },
+        token,
+        mailStatus: mailResult?.ok ? 'sent' : 'failed',
+        mailProvider: mailResult?.provider || 'log',
+        ...(mailResult?.error ? { mailError: mailResult.error } : {}),
+      });
+    }
+
+    if (routeMatch(url, 'POST', 'auth/inviteStaff')) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      const isSystemAdmin = hasRole(authContext.payload, ['systemAdmin']);
+      const isClinicAdmin = hasRole(authContext.payload, ['clinicAdmin']);
+      if (!isSystemAdmin && !isClinicAdmin) {
+        return jsonResponse({ error: 'FORBIDDEN', message: '権限が不足しています。' }, 403);
+      }
+      let body;
+      try {
+        body = await request.json();
+      } catch (err) {
+        return jsonResponse({ error: 'INVALID_JSON', message: 'リクエスト形式が不正です。' }, 400);
+      }
+      const clinicId = nk(body?.clinicId);
+      const emailRaw = body?.email;
+      const displayName = nk(body?.displayName || body?.name);
+      if (!clinicId) {
+        return jsonResponse({ error: 'INVALID_REQUEST', message: 'clinicId が必要です。' }, 400);
+      }
+      const clinic = await getClinicById(env, clinicId);
+      if (!clinic) {
+        return jsonResponse({ error: 'NOT_FOUND', message: '該当する施設が見つかりません。' }, 404);
+      }
+      if (isClinicAdmin) {
+        const managers = new Set(Array.isArray(clinic.managerAccounts) ? clinic.managerAccounts : []);
+        if (!managers.has(ensureAccountId(authContext.account))) {
+          return jsonResponse({ error: 'FORBIDDEN', message: '指定した施設の管理権限がありません。' }, 403);
+        }
+      }
+      const email = normalizeEmail(emailRaw);
+      if (!email || !EMAIL_REGEX.test(email)) {
+        return jsonResponse({ error: 'INVALID_EMAIL', message: 'メールアドレスの形式が正しくありません。' }, 400);
+      }
+
+      const inviteRole = (() => {
+        const candidate = normalizeRole(body?.role, 'clinicStaff');
+        if (candidate === 'systemAdmin') return 'clinicStaff';
+        if (candidate === 'clinicAdmin' && !isSystemAdmin) {
+          // clinicAdmin から別の管理者を招待する場合は registerFacilityAdmin を利用
+          return 'clinicStaff';
+        }
+        return candidate || 'clinicStaff';
+      })();
+
+      const existingAccount = await findAccountByIdentifier(env, email);
+      if (existingAccount) {
+        return jsonResponse({ error: 'ALREADY_REGISTERED', message: 'このメールアドレスは既に登録済みです。' }, 409);
+      }
+
+      const now = Date.now();
+      const activePending = cleanClinicPendingInvites(clinic, now);
+      const duplicateInvite = activePending.find((item) => normalizeEmail(item.email) === email);
+      if (duplicateInvite) {
+        const invitedAtMs = Date.parse(duplicateInvite.invitedAt || '') || now;
+        if (now - invitedAtMs < INVITE_RESEND_COOLDOWN_SECONDS * 1000) {
+          return jsonResponse({
+            error: 'INVITE_PENDING',
+            message: '同じメールアドレス宛の招待が進行中です。しばらく時間をおいて再度お試しください。',
+          }, 409);
+        }
+      }
+
+      const metadata = { kind: 'clinicStaff' };
+      if (displayName) metadata.displayName = displayName;
+      const invitedBy = ensureAccountId(authContext.account);
+      const { invite, token } = await createInviteRecord(env, {
+        clinicId,
+        email,
+        role: inviteRole,
+        invitedBy,
+        metadata,
+      });
+
+      const pendingInvites = cleanClinicPendingInvites(clinic, now).filter((item) => item.id !== invite.id);
+      pendingInvites.push({
+        id: invite.id,
+        email: invite.email,
+        role: invite.role,
+        status: invite.status,
+        invitedAt: invite.invitedAt,
+        expiresAt: invite.expiresAt,
+        invitedBy,
+        metadata,
+      });
+      clinic.pendingInvites = pendingInvites;
+      await saveClinic(env, clinic);
+
+      const mailResult = await sendInviteEmail(env, { clinic, invite, token });
+
+      return jsonResponse({
+        ok: true,
+        invite: {
+          id: invite.id,
+          clinicId: invite.clinicId,
+          email: invite.email,
+          role: invite.role,
+          invitedAt: invite.invitedAt,
+          expiresAt: invite.expiresAt,
+          invitedBy,
+          metadata,
+        },
+        token,
+        mailStatus: mailResult?.ok ? 'sent' : 'failed',
+        mailProvider: mailResult?.provider || 'log',
+        ...(mailResult?.error ? { mailError: mailResult.error } : {}),
+      });
+    }
+
+    if (routeMatch(url, 'POST', 'auth/acceptInvite')) {
+      let body;
+      try {
+        body = await request.json();
+      } catch (err) {
+        return jsonResponse({ error: 'INVALID_JSON', message: 'リクエスト形式が不正です。' }, 400);
+      }
+      const token = nk(body?.token);
+      const password = body?.password;
+      const passwordConfirm = body?.passwordConfirm ?? body?.confirmPassword;
+      const displayName = nk(body?.displayName || body?.name);
+      const profileInput = normalizeProfileInput(body?.profile || {}, displayName);
+
+      if (!token) {
+        return jsonResponse({ error: 'INVALID_REQUEST', message: '招待トークンが必要です。' }, 400);
+      }
+      if (typeof password !== 'string' || password.length < 8) {
+        return jsonResponse({ error: 'INVALID_PASSWORD', message: 'パスワードは8文字以上で入力してください。' }, 400);
+      }
+      if (passwordConfirm !== undefined && passwordConfirm !== password) {
+        return jsonResponse({ error: 'PASSWORD_MISMATCH', message: 'パスワード（確認）が一致しません。' }, 400);
+      }
+
+      const inviteLookup = await getInviteByToken(env, token);
+      if (!inviteLookup) {
+        return jsonResponse({ error: 'INVITE_INVALID', message: '招待が見つかりません。' }, 400);
+      }
+      const { invite, tokenHash } = inviteLookup;
+      if (!invite || invite.status !== 'pending') {
+        return jsonResponse({ error: 'INVITE_INVALID', message: '有効な招待ではありません。' }, 400);
+      }
+      const now = Date.now();
+      const expiresAtMs = invite.expiresAt ? Date.parse(invite.expiresAt) : NaN;
+      if (Number.isFinite(expiresAtMs) && expiresAtMs <= now) {
+        await updateInviteStatus(env, invite.id, 'expired', { expiredAt: new Date().toISOString() });
+        await removeInviteLookup(env, tokenHash);
+        return jsonResponse({ error: 'INVITE_EXPIRED', message: '招待の有効期限が切れています。' }, 400);
+      }
+
+      const clinicId = nk(invite.clinicId);
+      const email = normalizeEmail(invite.email);
+      if (!clinicId || !email) {
+        return jsonResponse({ error: 'INVITE_INVALID', message: '招待情報が不完全です。' }, 400);
+      }
+      const clinic = await getClinicById(env, clinicId);
+      if (!clinic) {
+        return jsonResponse({ error: 'NOT_FOUND', message: '該当する施設が見つかりません。' }, 404);
+      }
+
+      const existingAccount = await findAccountByIdentifier(env, email);
+      if (existingAccount) {
+        return jsonResponse({ error: 'ALREADY_REGISTERED', message: 'このメールアドレスは既に登録済みです。' }, 409);
+      }
+
+      const role = normalizeRole(invite.role || 'clinicStaff', 'clinicStaff');
+      const profile = {
+        ...profileInput,
+        displayName: profileInput.displayName || invite.metadata?.displayName || '',
+      };
+
+      const { account, accountKey } = await createAccountRecord(env, {
+        email,
+        password,
+        role,
+        profile,
+        invitedBy: invite.invitedBy || null,
+      });
+
+      const membershipRoles = [role];
+      const membership = await createMembershipRecord(env, {
+        clinicId,
+        accountId: account.id,
+        roles: membershipRoles,
+        invitedBy: invite.invitedBy || null,
+      });
+
+      const membershipSet = new Set(Array.isArray(account.membershipIds) ? account.membershipIds : []);
+      membershipSet.add(membership.id);
+      account.membershipIds = Array.from(membershipSet);
+      await saveAccountRecord(env, account);
+
+      const staffMemberships = new Set(Array.isArray(clinic.staffMemberships) ? clinic.staffMemberships : []);
+      staffMemberships.add(membership.id);
+      clinic.staffMemberships = Array.from(staffMemberships);
+
+      if (role === 'clinicAdmin') {
+        const managers = new Set(Array.isArray(clinic.managerAccounts) ? clinic.managerAccounts : []);
+        managers.add(account.id);
+        clinic.managerAccounts = Array.from(managers);
+      }
+
+      clinic.pendingInvites = cleanClinicPendingInvites(clinic, now).filter((item) => item.id !== invite.id);
+      await saveClinic(env, clinic);
+
+      await updateInviteStatus(env, invite.id, 'accepted', {
+        acceptedAt: new Date().toISOString(),
+        accountId: account.id,
+        membershipId: membership.id,
+      });
+      await removeInviteLookup(env, tokenHash);
+
+      const sessionId = generateSessionId();
+      const membershipIds = normalizeMembershipIds(account);
+      const accessTokenData = await createToken(
+        { sub: account.id, role, membershipIds, tokenType: 'access' },
+        { env, sessionId, ttlSeconds: ACCESS_TOKEN_TTL_SECONDS },
+      );
+      const refreshTokenData = await createToken(
+        { sub: account.id, role, membershipIds, tokenType: 'refresh', remember: false },
+        { env, sessionId, ttlSeconds: REFRESH_TOKEN_TTL_SECONDS },
+      );
+      await writeSessionMeta(env, sessionId, {
+        accountId: account.id,
+        role,
+        membershipIds,
+        remember: false,
+        createdAt: new Date(accessTokenData.issuedAt * 1000).toISOString(),
+        refreshExpiresAt: new Date(refreshTokenData.expiresAt * 1000).toISOString(),
+      }, REFRESH_TOKEN_TTL_SECONDS + 3600);
+
+      return jsonResponse({
+        ok: true,
+        account: publicAccountView(account),
+        membership: membership,
+        tokens: {
+          accessToken: accessTokenData.token,
+          accessTokenExpiresAt: new Date(accessTokenData.expiresAt * 1000).toISOString(),
+          refreshToken: refreshTokenData.token,
+          refreshTokenExpiresAt: new Date(refreshTokenData.expiresAt * 1000).toISOString(),
+          sessionId,
+        },
+      });
+    }
+
+    if (routeMatch(url, 'POST', 'auth/requestPasswordReset')) {
+      let body;
+      try {
+        body = await request.json();
+      } catch (err) {
+        return jsonResponse({ error: 'INVALID_JSON', message: 'リクエスト形式が不正です。' }, 400);
+      }
+      const email = normalizeEmail(body?.email);
+      if (!email || !EMAIL_REGEX.test(email)) {
+        // 無効な形式でも成功レスポンスを返し、情報漏えいを防ぐ
+        return jsonResponse({ ok: true });
+      }
+
+      const lookup = await findAccountByIdentifier(env, email);
+      if (!lookup || !lookup.account) {
+        return jsonResponse({ ok: true });
+      }
+      const account = lookup.account;
+      const accountId = ensureAccountId(account, lookup.pointer);
+      if ((nk(account.status) || 'active') !== 'active') {
+        return jsonResponse({ ok: true });
+      }
+
+      const token = generateInviteToken();
+      const { record } = await storeResetToken(env, {
+        token,
+        accountId,
+        requestedBy: accountId,
+      });
+      const mailResult = await sendPasswordResetEmail(env, { account, token });
+      const returnToken = envFlag(env?.RETURN_RESET_TOKEN);
+
+      return jsonResponse({
+        ok: true,
+        resetId: record.id,
+        mailStatus: mailResult?.ok ? 'sent' : 'failed',
+        mailProvider: mailResult?.provider || 'log',
+        ...(mailResult?.error ? { mailError: mailResult.error } : {}),
+        ...(returnToken ? { token } : {}),
+      });
+    }
+
+    if (routeMatch(url, 'POST', 'auth/resetPassword')) {
+      let body;
+      try {
+        body = await request.json();
+      } catch (err) {
+        return jsonResponse({ error: 'INVALID_JSON', message: 'リクエスト形式が不正です。' }, 400);
+      }
+      const token = nk(body?.token);
+      const password = body?.password;
+      const passwordConfirm = body?.passwordConfirm ?? body?.confirmPassword;
+      if (!token) {
+        return jsonResponse({ error: 'INVALID_REQUEST', message: 'トークンが必要です。' }, 400);
+      }
+      if (!validatePasswordStrength(password)) {
+        return jsonResponse({ error: 'INVALID_PASSWORD', message: `パスワードは${MIN_PASSWORD_LENGTH}文字以上で入力してください。` }, 400);
+      }
+      if (passwordConfirm !== undefined && password !== passwordConfirm) {
+        return jsonResponse({ error: 'PASSWORD_MISMATCH', message: 'パスワード（確認）が一致しません。' }, 400);
+      }
+
+      const lookup = await getResetRecordByToken(env, token);
+      if (!lookup || !lookup.record) {
+        return jsonResponse({ error: 'RESET_INVALID', message: '有効なトークンではありません。' }, 400);
+      }
+      const { record, tokenHash } = lookup;
+      if (record.status !== 'pending') {
+        return jsonResponse({ error: 'RESET_INVALID', message: 'このトークンは使用済みです。' }, 400);
+      }
+      const now = Date.now();
+      const expiresAtMs = record.expiresAt ? Date.parse(record.expiresAt) : NaN;
+      if (Number.isFinite(expiresAtMs) && expiresAtMs <= now) {
+        await updateResetRecord(env, record.id, { status: 'expired', expiredAt: new Date().toISOString() });
+        await env.SETTINGS.delete(resetLookupKey(tokenHash)).catch(() => {});
+        return jsonResponse({ error: 'RESET_EXPIRED', message: 'トークンの有効期限が切れています。' }, 400);
+      }
+
+      const account = await getAccountById(env, record.accountId);
+      if (!account) {
+        await updateResetRecord(env, record.id, { status: 'invalid', invalidatedAt: new Date().toISOString() });
+        await env.SETTINGS.delete(resetLookupKey(tokenHash)).catch(() => {});
+        return jsonResponse({ error: 'RESET_INVALID', message: 'アカウントが見つかりません。' }, 404);
+      }
+
+      account.passwordHash = await hashPassword(password);
+      await saveAccountRecord(env, account);
+      await updateResetRecord(env, record.id, { status: 'completed', completedAt: new Date().toISOString() });
+      await env.SETTINGS.delete(resetLookupKey(tokenHash)).catch(() => {});
+
+      return jsonResponse({ ok: true });
+    }
+
+    if (routeMatch(url, 'POST', 'auth/login')) {
+      let body;
+      try {
+        body = await request.json();
+      } catch (err) {
+        return new Response(JSON.stringify({ error: 'INVALID_JSON', message: 'リクエスト形式が不正です。' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      const identifierRaw = body?.identifier ?? body?.loginId ?? body?.email;
+      const password = typeof body?.password === 'string' ? body.password : '';
+      if (!identifierRaw || !password) {
+        return new Response(JSON.stringify({ error: 'INVALID_CREDENTIALS', message: 'ID またはパスワードが不足しています。' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      const lookup = await findAccountByIdentifier(env, identifierRaw);
+      if (!lookup || !(await verifyAccountPasswordValue(lookup.account, password))) {
+        await new Promise((resolve) => setTimeout(resolve, 100)); // mitigate timing attacks
+        return new Response(JSON.stringify({ error: 'AUTH_FAILED', message: 'ID またはパスワードが正しくありません。' }), {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      const account = lookup.account;
+      const accountId = ensureAccountId(account, lookup.pointer);
+      const status = nk(account.status) || 'active';
+      if (status !== 'active') {
+        return new Response(JSON.stringify({ error: 'ACCOUNT_INACTIVE', message: 'アカウントが無効化されています。' }), {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      const role = nk(account.role) || 'clinicStaff';
+      const membershipIds = normalizeMembershipIds(account);
+      const remember = Boolean(body?.remember);
+      const sessionId = generateSessionId();
+      const sessionStore = getSessionStore(env);
+      let accessTokenData;
+      let refreshTokenData;
+      try {
+        accessTokenData = await createToken(
+          { sub: accountId, role, membershipIds, tokenType: 'access' },
+          { env, sessionId, ttlSeconds: ACCESS_TOKEN_TTL_SECONDS },
+        );
+        const refreshTtl = remember ? REFRESH_TOKEN_TTL_REMEMBER_SECONDS : REFRESH_TOKEN_TTL_SECONDS;
+        refreshTokenData = await createToken(
+          { sub: accountId, role, membershipIds, tokenType: 'refresh', remember },
+          { env, sessionId, ttlSeconds: refreshTtl },
+        );
+      } catch (err) {
+        console.error('failed to create JWT', err);
+        return new Response(JSON.stringify({ error: 'SERVER_ERROR', message: 'トークンを発行できませんでした。' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      const refreshTtlSeconds = Math.max(
+        (refreshTokenData.expiresAt || 0) - (refreshTokenData.issuedAt || 0),
+        remember ? REFRESH_TOKEN_TTL_REMEMBER_SECONDS : REFRESH_TOKEN_TTL_SECONDS,
+      );
+      await writeSessionMeta(env, sessionId, {
+        accountId,
+        role,
+        membershipIds,
+        remember,
+        createdAt: new Date(accessTokenData.issuedAt * 1000).toISOString(),
+        refreshExpiresAt: new Date(refreshTokenData.expiresAt * 1000).toISOString(),
+      }, refreshTtlSeconds + 3600);
+
+      const responsePayload = {
+        ok: true,
+        account: publicAccountView(account),
+        tokens: {
+          accessToken: accessTokenData.token,
+          accessTokenExpiresAt: new Date(accessTokenData.expiresAt * 1000).toISOString(),
+          refreshToken: refreshTokenData.token,
+          refreshTokenExpiresAt: new Date(refreshTokenData.expiresAt * 1000).toISOString(),
+          sessionId,
+        },
+      };
+      return new Response(JSON.stringify(responsePayload), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (routeMatch(url, 'POST', 'auth/logout')) {
+      let body = {};
+      try {
+        body = await request.json();
+      } catch (err) {
+        body = {};
+      }
+      const refreshToken = typeof body.refreshToken === 'string' ? body.refreshToken.trim() : '';
+      let sessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : '';
+      let decodedPayload = null;
+      if (refreshToken) {
+        try {
+          ({ payload: decodedPayload } = await verifyToken(refreshToken, {
+            env,
+            allowExpired: true,
+            sessionStore: getSessionStore(env),
+          }));
+          sessionId = sessionId || decodedPayload?.sessionId || '';
+        } catch (err) {
+          // ignore verification errors to keep logout idempotent
+        }
+      }
+      if (sessionId) {
+        await invalidateSession(sessionId, { env, sessionStore: getSessionStore(env) }).catch(() => {});
+        await deleteSessionMeta(env, sessionId);
+      }
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (routeMatch(url, 'POST', 'auth/refresh')) {
+      let body;
+      try {
+        body = await request.json();
+      } catch (err) {
+        return new Response(JSON.stringify({ error: 'INVALID_JSON', message: 'リクエスト形式が不正です。' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      const refreshToken = typeof body?.refreshToken === 'string' ? body.refreshToken.trim() : '';
+      if (!refreshToken) {
+        return new Response(JSON.stringify({ error: 'INVALID_REQUEST', message: 'refreshToken が必要です。' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      let payload;
+      try {
+        ({ payload } = await verifyToken(refreshToken, {
+          env,
+          sessionStore: getSessionStore(env),
+        }));
+      } catch (err) {
+        return new Response(JSON.stringify({ error: 'AUTH_FAILED', message: 'トークンを再発行できません。' }), {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      if (payload.tokenType !== 'refresh') {
+        return new Response(JSON.stringify({ error: 'INVALID_TOKEN', message: 'refreshToken が不正です。' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      const account = await getAccountById(env, payload.sub);
+      if (!account || (nk(account.status) || 'active') !== 'active') {
+        await invalidateSession(payload.sessionId, { env, sessionStore: getSessionStore(env) }).catch(() => {});
+        await deleteSessionMeta(env, payload.sessionId);
+        return new Response(JSON.stringify({ error: 'ACCOUNT_INACTIVE', message: 'アカウントが無効化されています。' }), {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      const accountId = ensureAccountId(account, payload.sub);
+      const role = nk(account.role) || payload.role || 'clinicStaff';
+      const membershipIds = normalizeMembershipIds(account);
+      const remember = Boolean(payload.remember);
+      const newSessionId = generateSessionId();
+      let accessTokenData;
+      let refreshTokenData;
+      try {
+        accessTokenData = await createToken(
+          { sub: accountId, role, membershipIds, tokenType: 'access' },
+          { env, sessionId: newSessionId, ttlSeconds: ACCESS_TOKEN_TTL_SECONDS },
+        );
+        const refreshTtl = remember ? REFRESH_TOKEN_TTL_REMEMBER_SECONDS : REFRESH_TOKEN_TTL_SECONDS;
+        refreshTokenData = await createToken(
+          { sub: accountId, role, membershipIds, tokenType: 'refresh', remember },
+          { env, sessionId: newSessionId, ttlSeconds: refreshTtl },
+        );
+      } catch (err) {
+        console.error('failed to create JWT', err);
+        return new Response(JSON.stringify({ error: 'SERVER_ERROR', message: 'トークンを発行できませんでした。' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      const refreshTtlSeconds = Math.max(
+        (refreshTokenData.expiresAt || 0) - (refreshTokenData.issuedAt || 0),
+        remember ? REFRESH_TOKEN_TTL_REMEMBER_SECONDS : REFRESH_TOKEN_TTL_SECONDS,
+      );
+      await writeSessionMeta(env, newSessionId, {
+        accountId,
+        role,
+        membershipIds,
+        remember,
+        createdAt: new Date(accessTokenData.issuedAt * 1000).toISOString(),
+        refreshExpiresAt: new Date(refreshTokenData.expiresAt * 1000).toISOString(),
+      }, refreshTtlSeconds + 3600);
+      await invalidateSession(payload.sessionId, { env, sessionStore: getSessionStore(env) }).catch(() => {});
+      await deleteSessionMeta(env, payload.sessionId);
+
+      return new Response(JSON.stringify({
+        ok: true,
+        account: publicAccountView(account),
+        tokens: {
+          accessToken: accessTokenData.token,
+          accessTokenExpiresAt: new Date(accessTokenData.expiresAt * 1000).toISOString(),
+          refreshToken: refreshTokenData.token,
+          refreshTokenExpiresAt: new Date(refreshTokenData.expiresAt * 1000).toISOString(),
+          sessionId: newSessionId,
+        },
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     const MEDIA_SLOTS = new Set(["logoSmall", "logoLarge", "facade"]);
     const MODE_MASTER_PREFIX = 'master:mode:';

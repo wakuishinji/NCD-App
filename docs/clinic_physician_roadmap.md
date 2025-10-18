@@ -102,4 +102,290 @@
 
 ---
 
+## 8. コラボレーション機能構想（SkilBank / NCD 共通）
+- **チャット基盤**: NCD 内に Slack 風のリアルタイムチャットを実装し、組織や診療科単位でグループを作成できるようにする。アカウント登録済みユーザー（システム管理者／施設管理者／スタッフ）が参加し、権限に応じたグループ可視性を制御する。
+- **議題管理**: グループ内で議題（トピック）を登録し、チャットタイムラインと紐づけて議事録を残す。議題ごとに参照ドキュメントやリンクを設定し、いつでも履歴を振り返られるようにする。
+- **ファイル共有**: グループ専用のファイル倉庫を用意し、チャットで共有されたファイルを自動的に整理・保存する。アクセス制御はグループメンバーと権限ロールに連動させる。
+- **SkilBank 連携**: スタッフプロフィールやスキル情報とチャットの議題／タスクを連携し、議論中に参照すべき個人スキル・履歴書を即座に開ける導線を整備する。
+- **監査・アーカイブ**: 医療情報を扱う前提で監査ログ、履歴保存、エクスポート手段を整備し、退職者のアカウントや共有ファイルの扱いも含めたガバナンスを定義する。
+
+---
+
+## 9. モジュール別実装フェーズ整理
+- **フェーズA: 施設データベース基盤（①）**  
+  - 目的: 診療所中心の入力・管理フローを完成させ、病院データ拡張の土台を整える。  
+  - 機能範囲: 新規施設登録→施設管理者初期アカウント発行、施設詳細/設備/サービス/検査入力、マスター管理、Schema Version 2 への移行スクリプト。  
+  - データ/インフラ: Cloudflare Workers + KV を継続利用しつつ、病院向け追加フィールド（病床数、診療科構成など）を設計。認証基盤にアカウント種別（システム管理者／施設管理者／スタッフ）を導入。  
+  - 検証/出口: 施設管理者が自施設データを一通り更新でき、既存診療所データがマイグレーション後も整合すること。監査ログの最小実装とユニット/E2E テストを整備。
+  - タスク詳細:
+    - データモデル更新: `clinic` スキーマに病院対応フィールド・`managerAccounts`・スタッフ参照を追加し、スキーマバージョン2の整合チェックを実装。
+    - 認証/権限: ログインAPIとミドルウェアを刷新し、システム管理者/施設管理者/スタッフのロール判定とトークン管理を実装。トップ画面→管理者ログイン動線を更新。
+    - UI/UX: 新規施設登録後の施設管理者アカウント作成フォーム（氏名・生年月日・職種・初期PW）を追加。施設ホームでスタッフカードから登録導線を整備。
+    - API拡張: 施設管理者によるスタッフCRUD API、初期パスワード発行、スタッフ一覧取得、施設データの編集履歴保存を追加。
+    - マイグレーション: 既存施設データをスキーマ2へ変換するスクリプトとバックアップ手順を整備。テストデータで移行検証。
+    - QA/モニタリング: 主要シナリオのE2Eテスト、権限別アクセス制御テスト、監査ログ検証。Workersのログとアラート設定を更新。
+  - 詳細設計メモ:
+    - `clinic` スキーマ v2 主要フィールド  
+      - `id`（UUID）、`schemaVersion`（固定 2）、`basic`（名称・住所・連絡先・位置情報）、`clinicType`（診療所/病院など）、`facilityAttributes`（病床数、診療科構成、在宅対応等）、`services/tests/qualifications`（既存配列）、`searchFacets`（絞り込み用キャッシュ）。  
+      - 管理関連: `managerAccounts`（アカウントID配列）、`staffMemberships`（membershipId配列）、`status`（active/inactive/pending）、`auditTrail`（最新変更のサマリ）。  
+      - メタデータ: `createdAt/updatedAt`, `createdBy/updatedBy`, `notes`. 将来の病院連携に備え `parentOrganizationId` や `groupCodes` を予約フィールドとして定義。
+    - `clinic` スキーマ v2 詳細  
+      - 構造概要  
+        | フィールド | 型 | 概要 |
+        |------------|----|------|
+        | `id` | string(UUID) | 施設固有ID。 |
+        | `schemaVersion` | number | 常に `2` を保持。 |
+        | `basic` | object | 名称・名称カナ・住所・連絡先・URL 等の基本情報。 |
+        | `location` | object | 緯度経度・座標精度・住所正規化情報。 |
+        | `clinicType` | string | `clinic` / `hospital` / `dental` 等。 |
+        | `facilityAttributes` | object | 病床数、診療科構成、在宅対応、救急区分など。 |
+        | `services` / `tests` / `qualifications` | array | 既存のマスター参照リスト。 |
+        | `managerAccounts` | string[] | 施設管理者アカウントID。 |
+        | `staffMemberships` | string[] | `membership:<uuid>` リスト。 |
+        | `status` | string | `active` / `inactive` / `pending`。 |
+        | `searchFacets` | string[] | 検索用キャッシュ（`department:内科` 等）。 |
+        | `auditTrail` | object | 最新変更の概要（`lastUpdatedBy` / `lastUpdatedAt` / `lastAction`）。 |
+        | `metadata` | object | `createdAt` / `updatedAt` / `createdBy` / `updatedBy` / 備考。 |
+        | `reserved` | object | 将来用の `parentOrganizationId` / `groupCodes` 等。 |
+      - サンプル
+      ```json
+      {
+        "id": "clinic:3f7c9b90-3b77-4b9f-9e42-6c0e88dba4d5",
+        "schemaVersion": 2,
+        "basic": {
+          "name": "なかのクリニック",
+          "nameKana": "ナカノクリニック",
+          "postalCode": "1640001",
+          "address": "東京都中野区中野1-1-1",
+          "phone": "03-0000-0000",
+          "fax": "03-0000-0001",
+          "website": "https://example-clinic.jp",
+          "openingHours": [
+            {"day": "mon", "am": "09:00-12:00", "pm": "14:00-17:30"}
+          ]
+        },
+        "location": {
+          "lat": 35.706,
+          "lng": 139.665,
+          "geocodeStatus": "ok",
+          "geocodeSource": "google",
+          "rawAddress": "東京都中野区中野1-1-1"
+        },
+        "clinicType": "clinic",
+        "facilityAttributes": {
+          "bedCount": 0,
+          "departments": ["内科", "小児科"],
+          "homeCare": true,
+          "emergencyLevel": "none"
+        },
+        "services": [
+          {"masterId": "service:diabetes", "notes": "糖尿病専門外来"}
+        ],
+        "tests": [],
+        "qualifications": [],
+        "managerAccounts": ["account:1b2c3d"],
+        "staffMemberships": ["membership:89ab"],
+        "status": "active",
+        "searchFacets": [
+          "department:内科",
+          "service:糖尿病専門外来",
+          "homeCare:true"
+        ],
+        "auditTrail": {
+          "lastUpdatedBy": "account:1b2c3d",
+          "lastUpdatedAt": "2025-10-15T09:00:00Z",
+          "lastAction": "CLINIC_UPDATE"
+        },
+        "metadata": {
+          "createdAt": "2025-01-10T05:00:00Z",
+          "createdBy": "account:sysadmin",
+          "updatedAt": "2025-10-15T09:00:00Z",
+          "updatedBy": "account:1b2c3d",
+          "notes": "在宅診療エリア拡張予定"
+        },
+        "reserved": {
+          "parentOrganizationId": null,
+          "groupCodes": []
+        }
+      }
+      ```
+    - `account` エンティティ  
+      - キー: `account:<uuid>`。  
+      - フィールド: `primaryEmail`（必須）、`loginId`（施設向けID重複防止用）、`role`（`systemAdmin` / `clinicAdmin` / `clinicStaff`）、`passwordHash`、`passwordVersion`（ハッシュアルゴリズム管理）、`status`（active/locked/invited）、`profile`（氏名・氏名カナ・生年月日・職種）、`mfa` 設定、`createdAt/updatedAt`。  
+      - システム管理者のみが複数施設を跨るロールを直接付与できる。施設管理者は自施設限定でスタッフを作成。スタッフは `clinicStaff` ロール固定。
+      - サンプル
+      ```json
+      {
+        "id": "account:1b2c3d",
+        "role": "clinicAdmin",
+        "primaryEmail": "manager@example-clinic.jp",
+        "loginId": "nakano-admin",
+        "passwordHash": "$argon2id$v=19$m=4096,t=3,p=1$...",
+        "passwordVersion": "argon2id_v19",
+        "status": "active",
+        "profile": {
+          "displayName": "中野 太郎",
+          "displayNameKana": "ナカノ タロウ",
+          "birthDate": "1980-04-12",
+          "profession": "hospitalAdministrator",
+          "phone": "03-0000-0000"
+        },
+        "mfa": {
+          "methods": ["totp"],
+          "totpEnrolled": true
+        },
+        "membershipIds": ["membership:89ab"],
+        "createdAt": "2025-02-01T00:00:00Z",
+        "updatedAt": "2025-07-05T12:30:00Z"
+      }
+      ```
+    - `staffMembership`（施設との紐付け中間テーブル）  
+      - キー: `membership:<uuid>`。  
+      - フィールド: `clinicId`, `accountId`, `roles`（`["editor"]` など）、`invitedBy`, `invitedAt`, `joinedAt`, `initialPasswordSet`（bool）、`employmentStatus`（active/onLeave/retired）、`metadata`（所属部署、肩書）。  
+      - 複数施設所属を許容し、施設側の削除で membership を退職扱いに更新。SkilBank 連携時に `skillProfileId` を紐付け予定。
+      - サンプル
+      ```json
+      {
+        "id": "membership:89ab",
+        "clinicId": "clinic:3f7c9b90-3b77-4b9f-9e42-6c0e88dba4d5",
+        "accountId": "account:1b2c3d",
+        "roles": ["clinicAdmin"],
+        "invitedBy": "account:sysadmin",
+        "invitedAt": "2025-02-01T00:00:00Z",
+        "joinedAt": "2025-02-02T03:00:00Z",
+        "initialPasswordSet": true,
+        "employmentStatus": "active",
+        "metadata": {
+          "department": "事務",
+          "title": "事務長"
+        }
+      }
+      ```
+    - `auditLog`（監査ログ）  
+      - 最小構成として KV または R2 に `audit:<date>:<uuid>` 形式で保存。  
+      - 主要フィールド: `actorAccountId`, `actorRole`, `clinicId`, `actionType`（`CLINIC_UPDATE`/`STAFF_CREATE` 等）、`diff`（変更内容サマリ）、`ipAddress`, `userAgent`, `timestamp`.  
+      - 将来的にBI/分析用にエクスポートできるよう JSON Lines を想定。
+    - 役割と権限  
+      - `systemAdmin`: 全施設・アカウント・マスター・監査ログの閲覧/編集。  
+      - `clinicAdmin`: 自施設の `clinic`／`staffMembership`／`skill` 関連APIのフルアクセス、招待リンク/初期PW設定、監査ログの自施設分閲覧。  
+      - `clinicStaff`: 自施設データの編集可否はロールタグで制御（例: `["profileEditor","skillEditor"]`）。初期実装では `clinicStaff` は閲覧＋一部項目編集まで。  
+      - 認証トークン: JWT で `sub`=accountId、`role`、`membershipIds` を埋め込み、Workers のミドルウェアで検証。`X-Clinic-Context` ヘッダーで操作対象施設を指定し、権限検査時に membership を確認。
+    - スキーマ移行手順  
+      - スクリプトで既存 `clinic` レコードを走査し、v1→v2 変換（`schemaVersion` 更新、`managerAccounts` 初期化、住所正規化等）。  
+      - マスターや検索キャッシュが未設定の場合はデフォルト値を補完。変換前後の JSON を R2 にバックアップ。  
+      - マイグレーション後に整合性チェック API (`GET /api/admin/validateClinics`) を実装し、欠損や重複を検出。
+    - スキーマ移行計画  
+      - スクリプト構成:  
+        1. `scripts/exportClinicsV1.mjs` で既存データをR2へバックアップ（JSON Lines形式）。  
+        2. `scripts/migrateClinicsToV2.mjs` でフィールド補完・正規化を実行し、Dry Runモード（`--dry-run`）で差分レポートを出力。  
+        3. 成功後に `scripts/verifyClinicsV2.mjs` で schemaVersion/必須フィールド/参照整合性を検証し、レポート（`--report`）を出力。  
+      - バリデーション:  
+        - `basic.name/nameKana` 未設定チェック、住所必須検証、緯度経度欠損時の警告。  
+        - `managerAccounts` 空の場合は `pending` ステータスを自動付与。  
+        - `services/tests/qualifications` の `masterId` がマスタに存在するかクロスチェック。  
+      - ロールバック:  
+        - 変換前バックアップから `scripts/restoreClinicsFromBackup.mjs` を用意し、`schemaVersion` を1へ戻すオプションを実装。  
+        - Cloudflare KV では一括復旧が難しいため、Backup→Purge→復元の順序をドキュメント化し、処理中はWorkersをメンテナンスモードに切り替える。  
+      - 運用手順:  
+        - ステージング環境で移行 → `verify` → E2Eテスト → 本番で同手順を実行。  
+        - 実行ログはすべて R2 `logs/migration/<timestamp>.log` に保存し、異常時に即座に復旧できるよう手順書（Runbook）を用意。
+    - 認証/認可ミドルウェア実装チェックリスト  
+      - 新規: `/api/auth/registerFacilityAdmin`, `/api/auth/login`, `/api/auth/logout`, `/api/auth/refresh`。  
+      - JWT発行ロジック: role / membershipIds / expiry を署名し、Workers KV にセッションブラックリストを管理。  
+      - `requireRole` ヘルパー: ハンドラー単位で `requireRole(["systemAdmin"])` のように宣言できるデコレータ型関数を実装。  
+      - `resolveClinicContext` ミドルウェア: `X-Clinic-Context` ヘッダーまたはURLパラメータを解析し、対象施設の membership 権限を検証。  
+      - エラーハンドリング: 未認証（401）・権限不足（403）・施設不一致（409）を明示。  
+      - 監査ログ: 認証イベント（ログイン成功/失敗、パスワード変更）を `auditLog` に保存。  
+      - テスト: ロール別アクセス、セッション失効、初期パスワード更新、CSRF/リプレイ対策の単体テストとE2Eテストを準備。
+    - 認証・権限タスクチケット（優先順）  
+      1. **AUTH-01** 高: JWT発行・検証モジュール作成（HS/RS鍵管理、失効リスト、`requireRole` ヘルパー実装）。  
+      2. **AUTH-02** 高: `/api/auth/login` `/api/auth/logout` `/api/auth/refresh` エンドポイント実装とテスト。（2025-10-16 実装済み）  
+      3. **AUTH-03** 高: `/api/auth/registerFacilityAdmin`（新規施設登録後の管理者招待API）・`/api/auth/inviteStaff`・`/api/auth/acceptInvite`・`/api/auth/requestPasswordReset`・`/api/auth/resetPassword`。ステータス: API 実装済み（メール送信は `lib/mail` 経由、UI接続は今後対応）。  
+      4. **AUTH-04** 中: `resolveClinicContext` ミドルウェア + 施設対象APIへの適用。  
+      5. **AUTH-05** 中: 監査ログ書き込みユーティリティとログビューアAPI。  
+      6. **AUTH-06** 中: E2Eテスト（システム管理者/施設管理者/スタッフ）と権限逸脱時の検証。  
+      7. **AUTH-07** 低: MFA/TOTP登録UIとバックエンド（余裕があればフェーズA後半で対応）。  
+    - 施設管理者/スタッフ招待フロー  
+      - 診療所一覧：管理者列を追加し、`未設定` / `招待中` / `〇〇さん`（複数表示可）で状態を明示。システム管理者はここから招待モーダルを開き、メールアドレスを入力すると有効期限付きの招待リンクを送信。  
+      - 施設ホーム：カードをモード切替。管理者未設定時は「管理者アカウントを設定」カードとして招待を発行。管理者が設定済みになれば「スタッフアカウントを招待」カードに切り替え、施設管理者が自施設スタッフを招待できる。  
+      - 招待メール：ワンタイムURL（初回のみ使用可、24時間程度で失効）を送付。受信者はリンク経由で氏名・パスワード設定・利用規約同意を完了するとアカウントが有効化される。  
+      - パスワードリセット：ログイン画面から「パスワードを忘れた」→メールアドレス入力→ワンタイムリンク発行→新パスワード設定。トークンは短期有効（30分～1時間）、使用後即失効。  
+      - 監査ログ：招待発行・初回ログイン・パスワードリセットなどのイベントを `auditLog` へ記録し、必要に応じてシステム管理者へ通知。  
+      - 今後の拡張：MFA（TOTP/SMS）、複数管理者の権限分担（主担当/副担当）やスタッフロール細分化を見越し、UIとデータ構造を汎用的に設計する。
+    - 実装タスク分解（管理者/スタッフ招待 + パスワードリセット）  
+      - **API**: 招待発行(`/api/auth/registerFacilityAdmin`, `/api/auth/inviteStaff`)、招待受諾(`/api/auth/acceptInvite`)、パスワード再設定(`/api/auth/requestPasswordReset`, `/api/auth/resetPassword`)、現状確認(`/api/auth/me`) を実装。  
+      - **データ/KV**: `invite:<uuid>` にメール・施設ID・ロール・期限を保存、トークンは `AUTH_SESSIONS` や専用KVで管理。既存施設データには管理者ステータス表示用フィールドを追加。  
+      - **フロント**: 診療所一覧に管理者列と招待ボタン、施設ホームで管理者未設定時は「管理者設定」モード、設定後は「スタッフ招待」モードを表示。招待受諾/パスワード再設定ページを用意。  
+    - **メール/通知**: 招待・再設定メールテンプレート、期限切れ時の再招待、送信失敗アラートを整備。  
+    - **テスト/移行**: 既存施設に仮管理者を投入するスクリプト、API単体テストとE2E（招待→承認→ログイン→スタッフ招待）、トークン失効のセキュリティ検証。
+    - メール配送方針  
+      - 配信手段: Cloudflare Workers から直接 SMTP を叩く場合は SendGrid などの API 経由が現実的。代替案として自前サーバーに Webhook を送り、そこからメール送信する構成も検討。  
+      - テンプレート: 招待メール（管理者用/スタッフ用）、招待再送メール、パスワードリセット、失効通知を HTML + プレーンテキストのマルチパートで用意。URL には https 強制＋トラッキング無効化。  
+      - 差出人/送信元: 共通の `no-reply@ncd.local`（仮）を想定。Reply-To をシステム管理者メールに設定し、ユーザーが直接問い合わせできるようにする。  
+      - ログとリトライ: 送信結果を KV へ保存（成功/失敗、送信ID、宛先）。失敗時はリトライキューに入れ、一定回数失敗したらシステム管理者へアラート。  
+      - セキュリティ: 招待/リセット用リンクは 1 回のみ使用可・短期有効。URL にはトークンのみ含め、個人情報を載せない。  
+    - UI 接続案  
+      - 診療所一覧: 管理者列に「未設定」「招待中（再送）」ボタンを配置。クリックで招待モーダルを開き、招待成功後にトースト表示。  
+      - 施設ホーム: 管理者未設定モードではガイド文を表示し、招待が存在するときはステータスと再送/取消リンクを出す。  
+      - 招待受諾画面: Token 付き URL にアクセスすると、施設名・担当者名を表示→パスワード設定フォーム→完了後にダッシュボードへリダイレクト。  
+      - 失効時のUX: 期限切れ表示を出し、「再招待を依頼」ボタンからシステム管理者宛に通知（メール or API）を送る導線を検討。
+      - フロント実装メモ:  
+        - `web/admin/clinicList.html` に管理者列とモーダルを追加。API疎通は Fetch で `/api/auth/registerFacilityAdmin` を呼び、結果に応じてリストを再読込。  
+        - `web/clinicHome.html` のカードを状態で切替（管理者未設定時: 招待フォーム／設定済み時: スタッフ招待フォーム）。招待一覧は `pendingInvites` を表示し、再送・取消ボタンを配置。  
+        - `web/auth/accept-invite.html`（新規ページ）を作成し、トークン入力画面 → フォーム送信で `/api/auth/acceptInvite`。成功時は `localStorage` にトークン保存＆ダッシュボードへ遷移。  
+        - `web/auth/reset-password.html`（新規）でパスワードリセットを実施。`requestPasswordReset` / `resetPassword` の結果をハンドリングし、完了時に案内を表示。  
+        - 共通JSモジュールにトースト通知・エラーハンドリングの共通化を加え、認証失敗時はログインページへ誘導。  
+        - メールリンクでアクセスした際、トークンをURLから取り出し、存在しない・失効済みならエラーメッセージ＋再依頼導線を表示。
+      - API連携メモ:  
+        - 管理者招待/スタッフ招待は Bearer トークン必須。システム管理者は `/api/auth/registerFacilityAdmin`、施設管理者は `/api/auth/inviteStaff` を使用。レスポンスの `mailStatus` をチェックして再送エラーを表示。  
+        - 招待受諾後に返却される access/refresh トークンは既存ログイン処理と同様に保存（`localStorage` or `sessionStorage`）。  
+        - パスワード再設定はメール入力後に常に成功レスポンスを返すため、UI では「送信しました」と表示し続ける。トークンが無効/期限切れの場合は API のエラーコードに応じてメッセージを切替。  
+        - API通信は共通 `fetchJSON` ラッパーで行い、401/403 時はログイン画面へ、429/500 はトースト通知や再試行案内を出す。  
+        - ログイン後の状態は `me` エンドポイント（将来追加予定）で再同期できるよう、クライアント側にフックポイントを用意しておく。
+    - パスワードリセット設計  
+      - フロー: `requestPasswordReset` でメールアドレスを受け付け → 有効なアカウントならリセットトークンを生成しメール送信（宛先が存在しなくても「送信した」と返す） → トークン付きリンクから `resetPassword` で新パスワードを設定。  
+      - トークン処理: `resetToken:<hash>` キーに招待と同様のハッシュを保存、30分程度で失効、1回使用で即削除。  
+      - UI: ログイン画面に「パスワードを忘れた」リンク → メール送信完了ページ → リンク先では新パスワード入力＋確認欄。成功後はログイン画面 or 自動ログインに遷移。  
+      - セキュリティ: パスワードは8文字以上＋英数混在など基本ポリシーをガイド。トークンは 6 桁コード併用も検討。短時間に連続利用された場合はレート制限を導入。  
+      - 通知: リセットが実行された場合、登録メール宛に「パスワードが更新されました」通知を送付。未実施なら警告に利用できる。  
+      - 監査ログ: リセットリクエスト、成功/失敗を `auditLog` に記録し、不審な連続試行のモニタリングに活用。
+    - 実装タスク（メール連携・パスワードリセット）  
+      - メール送信モジュール: `lib/mail` を作成し、プロバイダAPIクライアント（SendGrid想定）とダミー送信（開発用ロガー）を切り替え可能にする。Secrets へ API キーを追加、`.env` に説明を記載し `wrangler.toml` は触らない。  
+      - 招待メール統合: `/api/auth/registerFacilityAdmin` / `/api/auth/inviteStaff` でトークンを発行後、メールテンプレートへ差し込み、失敗時はログに残してシステム管理者へ通知。再送API／失効APIも検討。  
+      - パスワードリセットAPI: `/api/auth/requestPasswordReset`, `/api/auth/resetPassword` を実装し、トークン保管・失効処理・通知メール送信を組み込む。成功後は既存セッションを無効化。  
+      - UI改修: ログイン画面の「パスワードを忘れた」導線、招待受諾フォーム、診療所一覧／施設ホームでの状態表示と再送ボタンを開発。  
+      - テスト: メール送信をスタブ化したユニットテスト、リセット・招待エンドポイントの統合テスト、E2Eで招待→受諾→ログイン→リセットを検証。  
+      - 運用: メール送信失敗時のリトライ戦略とダッシュボード通知、監査ログの項目拡張、送信統計（成功/失敗件数）を簡易閲覧できるようにする。
+    - JWT モジュール仕様（AUTH-01）  
+      - 署名方式: HS256 を初期実装とし、Secret は Cloudflare KV Secret `JWT_SECRET` から取得（Workers 環境変数）。将来的な RS256 切替に備え、アルゴリズム指定を設定ファイルで切替可能にする。  
+      - トークン形式:  
+        - `sub`: `account:<uuid>`  
+        - `role`: `systemAdmin` / `clinicAdmin` / `clinicStaff`  
+        - `membershipIds`: 所属中 `membership:<uuid>` 配列  
+        - `sessionId`: 失効リスト用の UUID  
+        - `iat` / `exp`: 発行時間と有効期限（アクセス 15分、リフレッシュ 7日を基本）  
+      - ライブラリ構成: `functions/lib/auth/jwt.js` に `createToken(payload, options)` / `verifyToken(token, { allowExpired, type })` / `invalidateSession(sessionId)` / `isSessionRevoked(sessionId)` を実装。  
+      - 失効管理: KV Namespace `AUTH_SESSIONS` を使用し、`session:<uuid>` をキーに `{"status":"revoked","revokedAt":...}` を保存。TTL はトークン期限+1日。ログアウト時・パスワードリセット時に登録。  
+      - エラーハンドリング: 検証失敗時は `AppError('AUTH_INVALID_TOKEN', 401)` を投げ、Cloudflare Worker 全体で捕捉。  
+      - ログ: 失敗トークンは `console.warn` に `sessionId`/`accountId` を最小限出力。監査ログ統合時に `auditLog` へ委譲。  
+      - テスト方針: Mini Vitest で `createToken` / `verifyToken` の往復、失効後の拒否、タイムスキュー許容（±60秒）を検証。
+- **フェーズB: 医療者データベース / SkilBank（②）**  
+  - 目的: 医療従事者の個人情報・スキル・経歴を登録し、複数施設所属や履歴書生成が可能な SkilBank を構築。  
+  - 機能範囲: 医療者アカウント登録・所属管理、職種マスター整備、スキル・資格・学歴・業績入力UI、履歴書/デジタルポートフォリオ生成、施設管理者によるスタッフ招待・初期パスワード設定。  
+  - データ/インフラ: 医療者テーブルと施設・医療者の中間エンティティを追加。Cloudflare Workers 上で API を拡張しつつ、将来的なRDB移行を見据えた抽象化レイヤーを用意。個人情報保護対策（アクセス制御・暗号化方針）を策定。  
+  - 検証/出口: 施設管理者がスタッフを登録→SkilBankに誘導→本人がプロフィールを更新→履歴書を出力できる一連の導線が成立。複数施設所属時の表示整合性とアクセス権限が確認できる。
+- **フェーズC: コラボレーション機能（③）**  
+  - 目的: 施設内外で利用できるチャット・議題管理・ファイル共有を提供し、医療者同士の協働を支援。  
+  - 機能範囲: グループ作成（施設内/外）、議題登録と紐づくチャットタイムライン、ファイルアップロードとグループ別ストレージ、議事録の自動整理、参照ドキュメント設定、通知機能。  
+  - データ/インフラ: Durable Objects や独立したリアルタイムサーバーを導入検討。ファイル保存は Cloudflare R2 などオブジェクトストレージを利用し、アクセス制御は共通認証と連携。ログ監査・メッセージ保持期間ポリシーを定義。  
+  - 検証/出口: パイロットグループでの運用を通じて、1) メッセージやファイルの遅延が許容範囲、2) 権限逸脱がない、3) 議事録と参照資料が継続利用可能、を確認。SLA/障害時対応を決めてベータ公開。
+- **フェーズD: 医療施設検索・紹介サイト（④）**  
+  - 目的: 病院⇔診療所⇔患者の三者が施設・医療者を検索し、予約や紹介状作成まで完結できる公開サイトを構築。  
+  - 機能範囲: パブリック検索UI、条件フィルタ（診療科・設備・医療者スキル等）、施設・医療者の詳細ページ、オンライン予約/仮予約、紹介状テンプレート生成・送信、アクセス解析。  
+  - データ/インフラ: 検索性能向上のため Algolia / Meilisearch / D1 などの検索基盤を導入。公開APIを別ワークロードとして切り出し、施設/医療者データと非公開フィールドを適切に分離。予約・紹介状はトランザクション管理を考慮し、必要に応じて専用バックエンドを追加。  
+  - 検証/出口: 想定利用者（病院紹介担当・診療所事務・患者）が主要シナリオを完了できることをUXテストで確認。SEO・パフォーマンス指標を満たし、公開後の運用体制（サポート/監視）を確立。
+- **共通施策**: 認証・アカウント管理、監査ログ、権限モデル、通知/チャットID管理、CI/CD、インフラ監視はフェーズ横断で統一ポリシーを整備。各フェーズ開始時にスキーマ互換性と移行スクリプトを用意する。
+
+---
+
 本ドキュメントは初期たたき台。詳細設計に合わせて随時アップデートする。

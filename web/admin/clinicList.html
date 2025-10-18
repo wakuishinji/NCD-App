@@ -84,6 +84,7 @@
                   <th class="border px-2 py-1">名称</th>
                   <th class="border px-2 py-1">住所</th>
                   <th class="border px-2 py-1">最終更新</th>
+                  <th class="border px-2 py-1">管理者</th>
                   <th class="border px-2 py-1">操作</th>
                 </tr>
               </thead>
@@ -170,13 +171,22 @@
         const tr = document.createElement('tr');
         const nameCell = escapeHtml(clinic.name || '');
         const addressCell = escapeHtml(clinic.address || '');
+        const managers = Array.isArray(clinic.managerAccounts) ? clinic.managerAccounts : [];
+        const pendingInvites = Array.isArray(clinic.pendingInvites) ? clinic.pendingInvites.filter(inv => inv.status === 'pending') : [];
+        const managerDisplay = managers.length
+          ? managers.map(id => `<span class="inline-flex items-center gap-1 rounded border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">${escapeHtml(id)}</span>`).join(' ')
+          : pendingInvites.length
+            ? `<span class="inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs text-amber-700">招待中 ${pendingInvites.length}件</span>`
+            : '<span class="inline-flex items-center gap-1 rounded border border-slate-300 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">未設定</span>';
         tr.innerHTML = `
           <td class="border px-2 py-1">${escapeHtml(clinic.id || '')}</td>
           <td class="border px-2 py-1">${nameCell}</td>
           <td class="border px-2 py-1">${addressCell}</td>
           <td class="border px-2 py-1">${escapeHtml(formatDate(clinic.updated_at))}</td>
-          <td class="border px-2 py-1">
+          <td class="border px-2 py-1 min-w-[160px]">${managerDisplay}</td>
+          <td class="border px-2 py-1 whitespace-nowrap">
             <button class="mr-2 text-blue-700 underline" data-action="select">選択</button>
+            <button class="mr-2 text-sky-700 underline" data-action="invite">管理者招待</button>
             <button class="text-red-700 underline" data-action="delete">削除</button>
           </td>
         `;
@@ -282,6 +292,8 @@
         const data = JSON.parse(decodeURIComponent(tr.dataset.clinic || ''));
         if (action === 'select') {
           selectClinic(data);
+        } else if (action === 'invite') {
+          openInviteModal(data);
         } else if (action === 'delete') {
           deleteClinic(data);
         }
@@ -295,5 +307,130 @@
       loadClinics(true);
     });
   </script>
+
+  <div id="inviteModal" class="fixed inset-0 hidden items-center justify-center bg-black/40 p-4">
+    <div class="w-full max-w-md rounded-lg border border-slate-200 bg-white shadow-lg">
+      <div class="border-b px-4 py-3">
+        <h3 class="text-base font-semibold text-slate-800">施設管理者の招待</h3>
+      </div>
+      <div class="px-4 py-3 space-y-3">
+        <div>
+          <label class="block text-sm font-medium text-slate-700">施設</label>
+          <div id="inviteClinicName" class="text-sm text-slate-500 bg-slate-100 border rounded px-2 py-1"></div>
+        </div>
+        <div>
+          <label for="inviteEmail" class="block text-sm font-medium text-slate-700">メールアドレス</label>
+          <input id="inviteEmail" type="email" class="mt-1 w-full rounded border px-3 py-2 text-sm" placeholder="manager@example.com" required />
+        </div>
+        <div>
+          <label for="inviteDisplayName" class="block text-sm font-medium text-slate-700">氏名（任意）</label>
+          <input id="inviteDisplayName" type="text" class="mt-1 w-full rounded border px-3 py-2 text-sm" placeholder="管理 太郎" />
+        </div>
+        <div id="inviteStatus" class="text-xs text-slate-500"></div>
+      </div>
+      <div class="flex justify-end gap-2 border-t px-4 py-3">
+        <button id="inviteCancel" class="rounded border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100">閉じる</button>
+        <button id="inviteSubmit" class="rounded bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700">招待を送信</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let inviteTargetClinic = null;
+    const inviteModal = document.getElementById('inviteModal');
+    const inviteClinicName = document.getElementById('inviteClinicName');
+    const inviteEmailInput = document.getElementById('inviteEmail');
+    const inviteDisplayNameInput = document.getElementById('inviteDisplayName');
+    const inviteStatus = document.getElementById('inviteStatus');
+
+    function openInviteModal(clinic) {
+      inviteTargetClinic = clinic;
+      inviteClinicName.textContent = clinic.name || clinic.id || '施設';
+      inviteEmailInput.value = '';
+      inviteDisplayNameInput.value = '';
+      inviteStatus.textContent = '';
+      inviteModal.classList.remove('hidden');
+      inviteModal.classList.add('flex');
+      inviteEmailInput.focus();
+    }
+
+    function closeInviteModal() {
+      inviteModal.classList.add('hidden');
+      inviteModal.classList.remove('flex');
+      inviteTargetClinic = null;
+    }
+
+    document.getElementById('inviteCancel').addEventListener('click', () => {
+      closeInviteModal();
+    });
+
+    inviteModal.addEventListener('click', (event) => {
+      if (event.target === inviteModal) {
+        closeInviteModal();
+      }
+    });
+
+    document.getElementById('inviteSubmit').addEventListener('click', async () => {
+      if (!inviteTargetClinic) return;
+      const email = inviteEmailInput.value.trim();
+      const displayName = inviteDisplayNameInput.value.trim();
+      if (!email) {
+        inviteStatus.textContent = 'メールアドレスを入力してください。';
+        inviteStatus.className = 'text-xs text-red-600';
+        return;
+      }
+
+      const payload = {
+        clinicId: inviteTargetClinic.id,
+        email,
+        displayName: displayName || undefined,
+      };
+
+      const executor = async () => {
+        const res = await fetch(`${BASE}/api/auth/registerFacilityAdmin`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: getAuthHeader(),
+          },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const error = await res.json().catch(() => ({}));
+          throw new Error(error.message || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        inviteStatus.textContent = data.mailStatus === 'sent'
+          ? '招待メールを送信しました。'
+          : '招待を作成しました（メール送信に失敗した可能性があります）。';
+        inviteStatus.className = 'text-xs text-emerald-600';
+        await loadClinics();
+        setTimeout(() => {
+          closeInviteModal();
+        }, 1500);
+      };
+
+      try {
+        await wrapWithLoading(executor, '招待メールを送信中...', inviteModal.querySelector('.flex-1') || inviteModal);
+      } catch (error) {
+        console.error('failed to send invite', error);
+        inviteStatus.textContent = '招待に失敗しました。';
+        inviteStatus.className = 'text-xs text-red-600';
+      }
+    });
+
+    function getAuthHeader() {
+      try {
+        const raw = localStorage.getItem('ncdAuth');
+        if (!raw) return undefined;
+        const data = JSON.parse(raw);
+        if (data && data.tokens && data.tokens.accessToken) {
+          return `Bearer ${data.tokens.accessToken}`;
+        }
+      } catch (_) {}
+      return undefined;
+    }
+  </script>
+
 </body>
 </html>

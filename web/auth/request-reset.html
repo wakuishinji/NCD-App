@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>パスワード再設定メールの送信 - NCD</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-100 text-slate-800">
+  <main class="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4 py-12">
+    <section class="rounded-lg bg-white p-6 shadow">
+      <header class="mb-4">
+        <h1 class="text-xl font-semibold text-blue-900">パスワード再設定</h1>
+        <p class="mt-1 text-sm text-slate-500">登録済みのメールアドレスを入力すると、再設定用のリンクを送信します。届かない場合は迷惑メールフォルダもご確認ください。</p>
+      </header>
+
+      <form id="requestForm" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-slate-700" for="resetEmail">メールアドレス</label>
+          <input id="resetEmail" type="email" required class="mt-1 w-full rounded border px-3 py-2 text-sm" placeholder="you@example.com" />
+        </div>
+        <div id="requestStatus" class="text-sm text-slate-500"></div>
+        <button type="submit" class="w-full rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700">メールを送信</button>
+      </form>
+
+      <div id="requestComplete" class="mt-4 hidden rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+        入力いただいたメールアドレス宛にパスワード再設定用のリンクを送信しました。メールをご確認ください。
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const API_BASE = (function resolveBase() {
+      try {
+        const stored = localStorage.getItem('ncdApiBase') || localStorage.getItem('ncdApiBaseUrl');
+        if (stored) return stored.replace(/\/$/, '');
+      } catch (_) {}
+      return 'https://ncd-app.altry.workers.dev';
+    }());
+
+    document.getElementById('requestForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const statusEl = document.getElementById('requestStatus');
+      statusEl.textContent = '';
+      const email = document.getElementById('resetEmail').value.trim();
+      if (!email) {
+        statusEl.textContent = 'メールアドレスを入力してください。';
+        statusEl.className = 'text-sm text-red-600';
+        return;
+      }
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/requestPasswordReset`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        if (!res.ok) {
+          throw new Error('送信に失敗しました。時間をおいて再度試してください。');
+        }
+        document.getElementById('requestForm').classList.add('hidden');
+        document.getElementById('requestComplete').classList.remove('hidden');
+      } catch (error) {
+        console.error('request password reset failed', error);
+        statusEl.textContent = error.message || '送信に失敗しました。';
+        statusEl.className = 'text-sm text-red-600';
+      }
+    });
+  </script>
+</body>
+</html>
