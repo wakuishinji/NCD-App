@@ -7,12 +7,14 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- FontAwesome -->
   <script src="https://kit.fontawesome.com/a2d9d6b3e2.js" crossorigin="anonymous"></script>
+  <script src="./js/auth.js" defer></script>
+  <script src="./js/loginPrompt.js" defer></script>
 </head>
 <body class="bg-gray-100 min-h-screen flex flex-col">
 
   <!-- 右上 管理者ダッシュボードリンク -->
   <div style="position: absolute; top: 1rem; right: 1rem;">
-    <a href="admin/admin.html" 
+    <a href="admin/admin.html" data-admin-link
        style="background: #2563eb; color: white; padding: 0.5rem 1rem; border-radius: 0.375rem; text-decoration: none; display: flex; align-items: center; gap: 0.5rem;">
       <i class="fas fa-cog"></i> 管理ダッシュボード
     </a>
@@ -22,7 +24,7 @@
   <section class="relative isolate overflow-hidden min-h-[60vh] md:min-h-[72vh] flex items-center">
     <!-- 管理リンク（右上） -->
     <nav class="absolute top-4 right-4 z-10">
-      <a href="/admin/admin.html" class="inline-flex items-center gap-2 rounded-md bg-white/15 text-white px-3 py-1.5 backdrop-blur hover:bg-white/25">
+      <a href="/admin/admin.html" class="inline-flex items-center gap-2 rounded-md bg-white/15 text-white px-3 py-1.5 backdrop-blur hover:bg-white/25" data-admin-link>
         <i class="fas fa-cog"></i>
         管理
       </a>
@@ -107,15 +109,81 @@
     </a>
   </main>
 
+  <div class="mt-6 text-center text-sm text-slate-500">
+    パスワードをお忘れの場合は
+    <a href="auth/request-reset.html" class="text-blue-600 underline hover:text-blue-700">こちら</a>
+    から再設定メールを送信できます。
+  </div>
+
   <!-- フッター -->
   <footer class="bg-gray-200 text-gray-700 text-center py-4">
     <p class="text-sm">このサイトは、ALTRY Technologies株式会社が作成した中野区医師会の「中野区診療所データベース（Nakano Clinic Database, NCD）」です。</p>
     <p class="text-xs mt-1">&copy; 2025 中野区医師会 / ALTRY Technologies株式会社</p>
   </footer>
+
+  <!-- 管理者ログインモーダル -->
+  <div
+    id="adminLoginOverlay"
+    class="fixed inset-0 z-50 hidden flex items-center justify-center bg-slate-900/80 px-4"
+    aria-hidden="true"
+  >
+    <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
+      <h2 class="text-lg font-semibold text-slate-900">システム管理者としてログインがひつようです</h2>
+      <p class="mt-2 text-sm text-slate-600">
+        管理機能へアクセスするには、systemRoot アカウントで認証してください。
+      </p>
+      <form id="adminLoginForm" class="mt-4 space-y-4">
+        <div>
+          <label for="adminLoginEmail" class="block text-sm font-medium text-slate-700">メールアドレス</label>
+          <input
+            id="adminLoginEmail"
+            type="email"
+            class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+            placeholder="wakui@altry-med.or.jp"
+            required
+          />
+        </div>
+        <div>
+          <label for="adminLoginPassword" class="block text-sm font-medium text-slate-700">パスワード</label>
+          <input
+            id="adminLoginPassword"
+            type="password"
+            class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+            autocomplete="current-password"
+            required
+          />
+        </div>
+        <div class="flex items-center justify-between text-xs text-slate-500">
+          <label class="inline-flex items-center gap-2">
+            <input
+              id="adminLoginRemember"
+              type="checkbox"
+              class="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+              checked
+            />
+            ログイン状態を保持する
+          </label>
+          <a href="/auth/request-reset.html" class="text-blue-600 underline hover:text-blue-700">パスワードをお忘れの場合</a>
+        </div>
+        <p id="adminLoginMessage" class="hidden text-sm font-medium text-red-600"></p>
+        <div class="flex justify-end gap-2">
+          <button
+            type="button"
+            id="adminLoginCancel"
+            class="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
+          >
+            キャンセル
+          </button>
+          <button
+            type="submit"
+            id="adminLoginSubmit"
+            class="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
+          >
+            <span>ログイン</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
 </body>
 </html>
-    <div class="mt-6 text-center text-sm text-slate-500">
-      パスワードをお忘れの場合は
-      <a href="auth/request-reset.html" class="text-blue-600 underline hover:text-blue-700">こちら</a>
-      から再設定メールを送信できます。
-    </div>

@@ -1,0 +1,20 @@
+{
+  "id": "account:a27f4179-7002-4d27-9309-244c613339ae",
+  "loginId": "root",
+  "primaryEmail": "wakui@altry-med.or.jp",
+  "role": "systemRoot",
+  "status": "active",
+  "passwordHash": {
+    "algorithm": "pbkdf2-sha256",
+    "iterations": 150000,
+    "salt": "seoJ1Un8YS3OMxKL2QND_w",
+    "hash": "p1IMKFqODe_3HdIKZ4vIDmmcLPHFjtos3vrn4kIKzMo",
+    "keyLength": 32
+  },
+  "profile": {
+    "displayName": "和久井 真司"
+  },
+  "membershipIds": [],
+  "createdAt": "2025-01-01T00:00:00Z",
+  "updatedAt": "2025-01-01T00:00:00Z"
+}
