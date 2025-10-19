@@ -760,9 +760,17 @@
     await loadSymptoms();
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+  function start() {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init, { once: true });
+    } else {
+      init();
+    }
+  }
+
+  if (window.NcdSessionGuard && window.NcdSessionGuard.ready) {
+    window.NcdSessionGuard.ready.then(() => start()).catch(() => {});
   } else {
-    init();
+    start();
   }
 })();

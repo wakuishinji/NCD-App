@@ -5,8 +5,10 @@
   <title>NCD 管理ハブ</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="../js/auth.js" defer></script>
+  <script src="../js/sessionGuard.js" defer></script>
 </head>
-<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col" data-require-role="systemRoot" data-guard-message="システム管理者専用ページです。トップページへ戻ります。">
   <header class="bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 text-white shadow">
     <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
       <a href="/index.html" class="inline-flex items-center gap-2 rounded bg-white/10 px-3 py-2 text-sm font-semibold tracking-wide transition hover:bg-white/20">

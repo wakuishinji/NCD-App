@@ -443,5 +443,9 @@
     ]);
   }
 
-  document.addEventListener('DOMContentLoaded', init);
+  if (window.NcdSessionGuard && window.NcdSessionGuard.ready) {
+    window.NcdSessionGuard.ready.then(() => init()).catch(() => {});
+  } else {
+    document.addEventListener('DOMContentLoaded', init);
+  }
 })();

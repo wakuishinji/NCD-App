@@ -5,6 +5,8 @@
   <title>予防接種マスター管理 - NCD</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="../js/auth.js" defer></script>
+  <script src="../js/sessionGuard.js" defer></script>
   <script src="../js/loading.js" defer></script>
   <script src="../js/masterPage.js" defer></script>
   <style>
@@ -40,7 +42,7 @@
     }
   </style>
 </head>
-<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col" data-require-role="systemRoot" data-guard-message="システム管理者専用ページです。トップページへ戻ります。">
   <header class="ncd-sticky-header bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 text-white shadow">
     <div class="ncd-header-condensed max-w-5xl mx-auto px-4 py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div class="flex flex-wrap items-center gap-2">

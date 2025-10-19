@@ -6,6 +6,22 @@
   const STORAGE_KEY = 'ncdAuth';
   const DEFAULT_API_BASE = 'https://ncd-app.altry.workers.dev';
   const EXPIRY_SKEW_MS = 30 * 1000;
+  const ROLE_CANONICAL = {
+    systemroot: 'systemRoot',
+    sysroot: 'systemRoot',
+    root: 'systemRoot',
+    systemadmin: 'systemAdmin',
+    admin: 'clinicAdmin',
+    clinicadmin: 'clinicAdmin',
+    clinicstaff: 'clinicStaff',
+    staff: 'clinicStaff',
+  };
+  const ROLE_INHERITANCE = {
+    systemRoot: ['systemRoot', 'systemAdmin', 'clinicAdmin', 'clinicStaff'],
+    systemAdmin: ['systemAdmin', 'clinicAdmin', 'clinicStaff'],
+    clinicAdmin: ['clinicAdmin', 'clinicStaff'],
+    clinicStaff: ['clinicStaff'],
+  };
 
   let cachedAuth = null;
   let refreshPromise = null;
@@ -91,6 +107,35 @@
     try {
       global.localStorage?.removeItem(STORAGE_KEY);
     } catch (_) {}
+  }
+
+  function normalizeRole(role, fallback = '') {
+    const raw = (role ?? '').toString().trim();
+    if (!raw) return fallback;
+    const canonical = ROLE_CANONICAL[raw.toLowerCase()];
+    return canonical || raw;
+  }
+
+  function roleIncludes(role, targetRole) {
+    const canonical = normalizeRole(role);
+    const required = normalizeRole(targetRole);
+    if (!canonical || !required) return false;
+    const inherited = ROLE_INHERITANCE[canonical] || [canonical];
+    return inherited.includes(required);
+  }
+
+  function getCurrentRole(auth = getStoredAuth()) {
+    if (!auth) return '';
+    if (auth.account && auth.account.role) {
+      return normalizeRole(auth.account.role);
+    }
+    if (auth.role) {
+      return normalizeRole(auth.role);
+    }
+    if (auth.tokens && auth.tokens.role) {
+      return normalizeRole(auth.tokens.role);
+    }
+    return '';
   }
 
   function buildAuthError(cause) {
@@ -233,6 +278,23 @@
     return response;
   }
 
+  async function requireRole(requiredRoles, options = {}) {
+    const roles = Array.isArray(requiredRoles) ? requiredRoles : [requiredRoles];
+    const normalizedRoles = roles.map((role) => normalizeRole(role)).filter(Boolean);
+    const auth = await ensureAuth({ optional: Boolean(options.optional) });
+    if (!normalizedRoles.length) {
+      return auth;
+    }
+    const currentRole = getCurrentRole(auth);
+    const authorized = normalizedRoles.some((role) => roleIncludes(currentRole, role));
+    if (!authorized) {
+      const error = new Error('INSUFFICIENT_ROLE');
+      error.code = 'INSUFFICIENT_ROLE';
+      throw error;
+    }
+    return auth;
+  }
+
   global.NcdAuth = {
     STORAGE_KEY,
     resolveApiBase,
@@ -243,5 +305,10 @@
     refreshAuth,
     getAuthHeader,
     authorizedFetch,
+    normalizeRole,
+    roleIncludes,
+    getCurrentRole,
+    requireRole,
+    roleHierarchy: ROLE_INHERITANCE,
   };
 })(window);

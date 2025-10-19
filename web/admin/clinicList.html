@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="../js/auth.js" defer></script>
+  <script src="../js/sessionGuard.js" defer></script>
   <script src="../js/loading.js" defer></script>
   <style>
     :root {
@@ -40,7 +41,7 @@
     }
   </style>
 </head>
-<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col" data-require-role="systemRoot" data-guard-message="システム管理者専用ページです。トップページへ戻ります。">
   <header class="ncd-sticky-header bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 text-white shadow">
     <div class="ncd-header-condensed max-w-6xl mx-auto px-4 py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div class="flex flex-wrap items-center gap-2">
@@ -284,33 +285,6 @@
       }
     }
 
-    document.getElementById('clinicOrder').addEventListener('change', renderClinics);
-    document.getElementById('clinicQ').addEventListener('input', renderClinics);
-    document.getElementById('clinicReload').addEventListener('click', () => loadClinics(true));
-
-    document.getElementById('clinicsTbody').addEventListener('click', (event) => {
-      const action = event.target.dataset.action;
-      if (!action) return;
-      const tr = event.target.closest('tr');
-      if (!tr) return;
-      try {
-        const data = JSON.parse(decodeURIComponent(tr.dataset.clinic || ''));
-        if (action === 'select') {
-          selectClinic(data);
-        } else if (action === 'invite') {
-          openInviteModal(data);
-        } else if (action === 'delete') {
-          deleteClinic(data);
-        }
-      } catch (error) {
-        console.error('failed to parse clinic data', error);
-        alert('操作に失敗しました');
-      }
-    });
-
-    document.addEventListener('DOMContentLoaded', () => {
-      loadClinics(true);
-    });
   </script>
 
   <div id="inviteModal" class="fixed inset-0 hidden items-center justify-center bg-black/40 p-4">
@@ -342,90 +316,181 @@
 
   <script>
     let inviteTargetClinic = null;
-    const inviteModal = document.getElementById('inviteModal');
-    const inviteClinicName = document.getElementById('inviteClinicName');
-    const inviteEmailInput = document.getElementById('inviteEmail');
-    const inviteDisplayNameInput = document.getElementById('inviteDisplayName');
-    const inviteStatus = document.getElementById('inviteStatus');
+    let inviteModal;
+    let inviteClinicName;
+    let inviteEmailInput;
+    let inviteDisplayNameInput;
+    let inviteStatus;
 
     function openInviteModal(clinic) {
       inviteTargetClinic = clinic;
-      inviteClinicName.textContent = clinic.name || clinic.id || '施設';
-      inviteEmailInput.value = '';
-      inviteDisplayNameInput.value = '';
-      inviteStatus.textContent = '';
-      inviteModal.classList.remove('hidden');
-      inviteModal.classList.add('flex');
-      inviteEmailInput.focus();
+      if (inviteClinicName) {
+        inviteClinicName.textContent = clinic.name || clinic.id || '施設';
+      }
+      if (inviteEmailInput) {
+        inviteEmailInput.value = '';
+        inviteEmailInput.focus();
+      }
+      if (inviteDisplayNameInput) {
+        inviteDisplayNameInput.value = '';
+      }
+      if (inviteStatus) {
+        inviteStatus.textContent = '';
+        inviteStatus.className = 'text-xs text-slate-500';
+      }
+      if (inviteModal) {
+        inviteModal.classList.remove('hidden');
+        inviteModal.classList.add('flex');
+      }
     }
 
     function closeInviteModal() {
-      inviteModal.classList.add('hidden');
-      inviteModal.classList.remove('flex');
+      if (inviteModal) {
+        inviteModal.classList.add('hidden');
+        inviteModal.classList.remove('flex');
+      }
       inviteTargetClinic = null;
     }
 
-    document.getElementById('inviteCancel').addEventListener('click', () => {
-      closeInviteModal();
-    });
-
-    inviteModal.addEventListener('click', (event) => {
-      if (event.target === inviteModal) {
-        closeInviteModal();
-      }
-    });
-
-    document.getElementById('inviteSubmit').addEventListener('click', async () => {
-      if (!inviteTargetClinic) return;
-      const email = inviteEmailInput.value.trim();
-      const displayName = inviteDisplayNameInput.value.trim();
-      if (!email) {
-        inviteStatus.textContent = 'メールアドレスを入力してください。';
-        inviteStatus.className = 'text-xs text-red-600';
-        return;
-      }
-
-      const payload = {
-        clinicId: inviteTargetClinic.id,
-        email,
-        displayName: displayName || undefined,
-      };
-
-      const executor = async () => {
-        if (!window.NcdAuth || typeof window.NcdAuth.authorizedFetch !== 'function') {
-          throw new Error('認証モジュールの初期化に失敗しました。');
-        }
-        const res = await window.NcdAuth.authorizedFetch(`${BASE}/api/auth/registerFacilityAdmin`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        if (!res.ok) {
-          const error = await res.json().catch(() => ({}));
-          throw new Error(error.message || `HTTP ${res.status}`);
-        }
-        const data = await res.json();
-        inviteStatus.textContent = data.mailStatus === 'sent'
-          ? '招待メールを送信しました。'
-          : '招待を作成しました（メール送信に失敗した可能性があります）。';
-        inviteStatus.className = 'text-xs text-emerald-600';
-        await loadClinics();
-        setTimeout(() => {
-          closeInviteModal();
-        }, 1500);
-      };
-
+    function handleClinicTableClick(event) {
+      const action = event.target.dataset.action;
+      if (!action) return;
+      const tr = event.target.closest('tr');
+      if (!tr) return;
       try {
-        await wrapWithLoading(executor, '招待メールを送信中...', inviteModal.querySelector('.flex-1') || inviteModal);
+        const data = JSON.parse(decodeURIComponent(tr.dataset.clinic || ''));
+        if (action === 'select') {
+          selectClinic(data);
+        } else if (action === 'invite') {
+          openInviteModal(data);
+        } else if (action === 'delete') {
+          deleteClinic(data);
+        }
       } catch (error) {
-        console.error('failed to send invite', error);
-        const message = error && error.code === 'AUTH_REQUIRED'
-          ? AUTH_TIMEOUT_MESSAGE
-          : (error?.message ? `招待に失敗しました: ${error.message}` : '招待に失敗しました。');
-        inviteStatus.textContent = message;
-        inviteStatus.className = 'text-xs text-red-600';
+        console.error('failed to parse clinic data', error);
+        alert('操作に失敗しました');
       }
-    });
+    }
+
+    function initializeClinicListPage() {
+      const orderSelect = document.getElementById('clinicOrder');
+      const searchInput = document.getElementById('clinicQ');
+      const reloadButton = document.getElementById('clinicReload');
+      const clinicTable = document.getElementById('clinicsTbody');
+
+      inviteModal = document.getElementById('inviteModal');
+      inviteClinicName = document.getElementById('inviteClinicName');
+      inviteEmailInput = document.getElementById('inviteEmail');
+      inviteDisplayNameInput = document.getElementById('inviteDisplayName');
+      inviteStatus = document.getElementById('inviteStatus');
+
+      if (orderSelect) {
+        orderSelect.addEventListener('change', renderClinics);
+      }
+      if (searchInput) {
+        searchInput.addEventListener('input', renderClinics);
+      }
+      if (reloadButton) {
+        reloadButton.addEventListener('click', () => loadClinics(true));
+      }
+      if (clinicTable) {
+        clinicTable.addEventListener('click', handleClinicTableClick);
+      }
+
+      const inviteCancelButton = document.getElementById('inviteCancel');
+      if (inviteCancelButton) {
+        inviteCancelButton.addEventListener('click', closeInviteModal);
+      }
+
+      if (inviteModal) {
+        inviteModal.addEventListener('click', (event) => {
+          if (event.target === inviteModal) {
+            closeInviteModal();
+          }
+        });
+      }
+
+      const inviteSubmitButton = document.getElementById('inviteSubmit');
+      if (inviteSubmitButton) {
+        inviteSubmitButton.addEventListener('click', async () => {
+          if (!inviteTargetClinic) return;
+          const email = (inviteEmailInput?.value || '').trim();
+          const displayName = (inviteDisplayNameInput?.value || '').trim();
+          if (!email) {
+            if (inviteStatus) {
+              inviteStatus.textContent = 'メールアドレスを入力してください。';
+              inviteStatus.className = 'text-xs text-red-600';
+            }
+            return;
+          }
+
+          const payload = {
+            clinicId: inviteTargetClinic.id,
+            email,
+            displayName: displayName || undefined,
+          };
+
+          const executor = async () => {
+            if (!window.NcdAuth || typeof window.NcdAuth.authorizedFetch !== 'function') {
+              throw new Error('認証モジュールの初期化に失敗しました。');
+            }
+            const res = await window.NcdAuth.authorizedFetch(`${BASE}/api/auth/registerFacilityAdmin`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+            if (!res.ok) {
+              const error = await res.json().catch(() => ({}));
+              throw new Error(error.message || `HTTP ${res.status}`);
+            }
+            const data = await res.json();
+            if (inviteStatus) {
+              inviteStatus.textContent = data.mailStatus === 'sent'
+                ? '招待メールを送信しました。'
+                : '招待を作成しました（メール送信に失敗した可能性があります）。';
+              inviteStatus.className = 'text-xs text-emerald-600';
+            }
+            await loadClinics();
+            setTimeout(() => {
+              closeInviteModal();
+            }, 1500);
+          };
+
+          try {
+            await wrapWithLoading(
+              executor,
+              '招待メールを送信中...',
+              (inviteModal && inviteModal.querySelector('.flex-1')) || inviteModal || document.getElementById('clinicsPanel')
+            );
+          } catch (error) {
+            console.error('failed to send invite', error);
+            if (inviteStatus) {
+              const message = error && error.code === 'AUTH_REQUIRED'
+                ? AUTH_TIMEOUT_MESSAGE
+                : (error?.message ? `招待に失敗しました: ${error.message}` : '招待に失敗しました。');
+              inviteStatus.textContent = message;
+              inviteStatus.className = 'text-xs text-red-600';
+            }
+          }
+        });
+      }
+
+      loadClinics(true);
+    }
+
+    function runClinicListPage() {
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeClinicListPage, { once: true });
+      } else {
+        initializeClinicListPage();
+      }
+    }
+
+    if (window.NcdSessionGuard && window.NcdSessionGuard.ready) {
+      window.NcdSessionGuard.ready.then(() => runClinicListPage()).catch(() => {});
+    } else {
+      runClinicListPage();
+    }
   </script>
 
 </body>

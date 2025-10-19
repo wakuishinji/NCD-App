@@ -226,21 +226,39 @@ export default {
       }
     }
 
+    const ROLE_CANONICAL = {
+      systemroot: 'systemRoot',
+      sysroot: 'systemRoot',
+      root: 'systemRoot',
+      systemadmin: 'systemAdmin',
+      admin: 'clinicAdmin',
+      clinicadmin: 'clinicAdmin',
+      clinicstaff: 'clinicStaff',
+      staff: 'clinicStaff',
+    };
+
+    const ROLE_INHERITANCE = {
+      systemRoot: ['systemRoot', 'systemAdmin', 'clinicAdmin', 'clinicStaff'],
+      systemAdmin: ['systemAdmin', 'clinicAdmin', 'clinicStaff'],
+      clinicAdmin: ['clinicAdmin', 'clinicStaff'],
+      clinicStaff: ['clinicStaff'],
+    };
+
     function hasRole(payload, roles) {
       if (!payload) return false;
+      const role = normalizeRole(payload.role);
+      if (!role) return false;
       const allowed = Array.isArray(roles) ? roles : [roles];
-      return allowed.includes(payload.role);
+      const inherited = ROLE_INHERITANCE[role] || [role];
+      return allowed.some((required) => inherited.includes(normalizeRole(required)));
     }
 
     function normalizeRole(input, fallback = 'clinicStaff') {
-      const raw = nk(input).toLowerCase();
-      if (raw === 'systemadmin') return 'systemAdmin';
-      if (raw === 'clinicadmin') return 'clinicAdmin';
-      if (raw === 'clinicstaff') return 'clinicStaff';
-      if (raw === 'staff') return 'clinicStaff';
-      if (raw === 'admin') return 'clinicAdmin';
-      if (raw) return raw;
-      return fallback;
+      const raw = nk(input);
+      if (!raw) return fallback;
+      const canonical = ROLE_CANONICAL[raw.toLowerCase()];
+      if (canonical) return canonical;
+      return raw;
     }
 
     function validatePasswordStrength(password) {
@@ -1314,7 +1332,7 @@ export default {
       if (!clinic) {
         return jsonResponse({ error: 'NOT_FOUND', message: '該当する施設が見つかりません。' }, 404);
       }
-      if (isClinicAdmin) {
+      if (isClinicAdmin && !isSystemAdmin) {
         const managers = new Set(Array.isArray(clinic.managerAccounts) ? clinic.managerAccounts : []);
         if (!managers.has(ensureAccountId(authContext.account))) {
           return jsonResponse({ error: 'FORBIDDEN', message: '指定した施設の管理権限がありません。' }, 403);

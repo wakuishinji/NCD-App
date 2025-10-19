@@ -5,11 +5,13 @@
   <title>診療形態マスター管理 - NCD</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="../js/auth.js" defer></script>
+  <script src="../js/sessionGuard.js" defer></script>
   <script src="../js/loading.js" defer></script>
   <script src="../js/header.js" defer></script>
   <script src="../js/clinicModes.js" defer></script>
 </head>
-<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col" data-require-role="systemRoot" data-guard-message="システム管理者専用ページです。トップページへ戻ります。">
   <header class="bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 text-white shadow">
     <div class="max-w-5xl mx-auto px-4 py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div class="flex items-center gap-2">
