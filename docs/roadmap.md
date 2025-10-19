@@ -463,7 +463,7 @@
 - **監視/ロギング**: 共通監視基盤（Grafana Cloud 等）に集約し、サービス毎にアラートポリシーを設定。リアルタイムサービスはSLOを別途管理。
 
 ### 10.7 今後の整理タスク
-1. `docs/clinic_physician_roadmap.md` 内の各フェーズと、SkilBank/Medical Orchestra/MedicalDraft のロードマップ整合を定期的に見直す。  
+1. `docs/roadmap.md` 内の各フェーズと、SkilBank/Medical Orchestra/MedicalDraft のロードマップ整合を定期的に見直す。  
 2. 役割・権限表に `systemRoot` を追加し、管理画面アクセスの切替タイミングを明記。  
 3. ドメイン割当・SSL・DNS設定の棚卸しを行い、リリース順にフェーズ分けしたチェックリストを作成。  
 4. Private β 以前に必要となる法的手当（個人情報保護、利用規約、契約書テンプレート）を整理し、MedicalDraft開始時のToDoに追記。  
