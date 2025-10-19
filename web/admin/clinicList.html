@@ -5,6 +5,7 @@
   <title>診療所リスト管理 - NCD</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="../js/auth.js" defer></script>
   <script src="../js/loading.js" defer></script>
   <style>
     :root {
@@ -103,6 +104,9 @@
   <script>
     const DEFAULT_API_BASE = "https://ncd-app.altry.workers.dev";
     function resolveApiBase() {
+      if (window.NcdAuth && typeof window.NcdAuth.resolveApiBase === 'function') {
+        return window.NcdAuth.resolveApiBase();
+      }
       if (typeof window !== 'undefined' && typeof window.API_BASE_OVERRIDE === 'string') {
         const override = window.API_BASE_OVERRIDE.trim();
         if (override) {
@@ -119,7 +123,8 @@
     }
 
     const BASE = resolveApiBase();
-    window.NCD_API_BASE = window.NCD_API_BASE || BASE;
+    window.NCD_API_BASE = BASE;
+    const AUTH_TIMEOUT_MESSAGE = '権限の有効期限が切れています。再度ログインしてから操作してください。';
     let clinicsRaw = [];
 
     function formatDate(ts) {
@@ -387,12 +392,12 @@
       };
 
       const executor = async () => {
-        const res = await fetch(`${BASE}/api/auth/registerFacilityAdmin`, {
+        if (!window.NcdAuth || typeof window.NcdAuth.authorizedFetch !== 'function') {
+          throw new Error('認証モジュールの初期化に失敗しました。');
+        }
+        const res = await window.NcdAuth.authorizedFetch(`${BASE}/api/auth/registerFacilityAdmin`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: getAuthHeader(),
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
         if (!res.ok) {
@@ -414,22 +419,13 @@
         await wrapWithLoading(executor, '招待メールを送信中...', inviteModal.querySelector('.flex-1') || inviteModal);
       } catch (error) {
         console.error('failed to send invite', error);
-        inviteStatus.textContent = '招待に失敗しました。';
+        const message = error && error.code === 'AUTH_REQUIRED'
+          ? AUTH_TIMEOUT_MESSAGE
+          : (error?.message ? `招待に失敗しました: ${error.message}` : '招待に失敗しました。');
+        inviteStatus.textContent = message;
         inviteStatus.className = 'text-xs text-red-600';
       }
     });
-
-    function getAuthHeader() {
-      try {
-        const raw = localStorage.getItem('ncdAuth');
-        if (!raw) return undefined;
-        const data = JSON.parse(raw);
-        if (data && data.tokens && data.tokens.accessToken) {
-          return `Bearer ${data.tokens.accessToken}`;
-        }
-      } catch (_) {}
-      return undefined;
-    }
   </script>
 
 </body>

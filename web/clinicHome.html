@@ -5,6 +5,7 @@
   <title>施設ホーム - NCD</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="js/auth.js" defer></script>
   <script src="js/header.js" defer></script>
 </head>
 <body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col">
@@ -181,6 +182,9 @@
     }
 
     const API_BASE = (function resolveApiBase() {
+      if (window.NcdAuth && typeof window.NcdAuth.resolveApiBase === 'function') {
+        return window.NcdAuth.resolveApiBase();
+      }
       try {
         const override = localStorage.getItem('ncdApiBase') || localStorage.getItem('ncdApiBaseUrl');
         if (override) return override.replace(/\/$/, '');
@@ -188,25 +192,26 @@
       return 'https://ncd-app.altry.workers.dev';
     }());
 
-    function getAuthHeader() {
+    const AUTH_TIMEOUT_MESSAGE = '権限の有効期限が切れています。再度ログインしてから操作してください。';
+
+    async function maybeGetAuthHeader() {
+      if (!window.NcdAuth || typeof window.NcdAuth.getAuthHeader !== 'function') {
+        return undefined;
+      }
       try {
-        const raw = localStorage.getItem('ncdAuth');
-        if (!raw) return undefined;
-        const data = JSON.parse(raw);
-        if (data && data.tokens && data.tokens.accessToken) {
-          return `Bearer ${data.tokens.accessToken}`;
-        }
-      } catch (_) {}
-      return undefined;
+        return await window.NcdAuth.getAuthHeader({ optional: true });
+      } catch (_) {
+        return undefined;
+      }
     }
 
     async function fetchClinicDetail(id) {
-      const res = await fetch(`${API_BASE}/api/clinicDetail?id=${encodeURIComponent(id)}`, {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: getAuthHeader(),
-        },
-      });
+      const headers = { 'Content-Type': 'application/json' };
+      const authHeader = await maybeGetAuthHeader();
+      if (authHeader) {
+        headers.Authorization = authHeader;
+      }
+      const res = await fetch(`${API_BASE}/api/clinicDetail?id=${encodeURIComponent(id)}`, { headers });
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
@@ -340,12 +345,12 @@
       };
       try {
         await wrapWithLoading(async () => {
-          const res = await fetch(`${API_BASE}${path}`, {
+          if (!window.NcdAuth || typeof window.NcdAuth.authorizedFetch !== 'function') {
+            throw new Error('認証モジュールの初期化に失敗しました。');
+          }
+          const res = await window.NcdAuth.authorizedFetch(`${API_BASE}${path}`, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: getAuthHeader(),
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
           });
           if (!res.ok) {
@@ -360,7 +365,11 @@
         }, '招待処理中...', document.getElementById('staffCard'));
       } catch (err) {
         console.error('failed to send invite', err);
-        alert('招待に失敗しました。');
+        if (err && err.code === 'AUTH_REQUIRED') {
+          alert(AUTH_TIMEOUT_MESSAGE);
+        } else {
+          alert(err?.message ? `招待に失敗しました: ${err.message}` : '招待に失敗しました。');
+        }
       }
     }
 
