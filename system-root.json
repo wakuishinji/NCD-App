@@ -14,7 +14,9 @@
   "profile": {
     "displayName": "和久井 真司"
   },
-  "membershipIds": [],
+  "membershipIds": [
+    "membership:40e4a651-82a2-4fd7-b071-0fa687d8d11b"
+  ],
   "createdAt": "2025-01-01T00:00:00Z",
-  "updatedAt": "2025-01-01T00:00:00Z"
+  "updatedAt": "2025-10-20T16:33:50.379Z"
 }
