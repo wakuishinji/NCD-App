@@ -512,9 +512,9 @@
               inviteLinkWrapper.classList.add('hidden');
             }
             await loadClinics();
-            setTimeout(() => {
-              closeInviteModal();
-            }, 1500);
+            if (inviteMessage) {
+              inviteMessage.textContent += ' （閉じるボタンでモーダルを閉じてください）';
+            }
           };
 
           try {
