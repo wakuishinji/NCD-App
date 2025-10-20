@@ -305,7 +305,16 @@
           <label for="inviteDisplayName" class="block text-sm font-medium text-slate-700">氏名（任意）</label>
           <input id="inviteDisplayName" type="text" class="mt-1 w-full rounded border px-3 py-2 text-sm" placeholder="管理 太郎" />
         </div>
-        <div id="inviteStatus" class="text-xs text-slate-500"></div>
+        <div id="inviteStatus" class="text-xs text-slate-500 space-y-2">
+          <div id="inviteMessage"></div>
+          <div id="inviteLinkWrapper" class="hidden">
+            <p class="text-xs text-slate-600">テスト用に下記リンクをコピーして招待された方へ共有できます。</p>
+            <div class="flex items-center gap-2">
+              <input id="inviteLink" type="text" readonly class="flex-1 rounded border px-2 py-1 text-xs text-slate-600 bg-slate-50" />
+              <button id="inviteCopy" type="button" class="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-100">コピー</button>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="flex justify-end gap-2 border-t px-4 py-3">
         <button id="inviteCancel" class="rounded border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100">閉じる</button>
@@ -321,6 +330,35 @@
     let inviteEmailInput;
     let inviteDisplayNameInput;
     let inviteStatus;
+    let inviteMessage;
+    let inviteLinkWrapper;
+    let inviteLinkInput;
+    let inviteCopyButton;
+
+    function resolveAcceptInviteUrl(token) {
+      if (!token) return '';
+      const base = (window.location && window.location.origin) || '';
+      return `${base}/auth/accept-invite.html?token=${encodeURIComponent(token)}`;
+    }
+
+    async function copyInviteLink() {
+      if (!inviteLinkInput) return;
+      const value = inviteLinkInput.value;
+      if (!value) return;
+      try {
+        await navigator.clipboard.writeText(value);
+        if (inviteMessage) {
+          inviteMessage.textContent = '招待リンクをコピーしました。';
+          inviteMessage.className = 'text-xs text-emerald-600';
+        }
+      } catch (err) {
+        console.error('failed to copy invite link', err);
+        if (inviteMessage) {
+          inviteMessage.textContent = 'クリップボードへのコピーに失敗しました。リンクを手動でコピーしてください。';
+          inviteMessage.className = 'text-xs text-red-600';
+        }
+      }
+    }
 
     function openInviteModal(clinic) {
       inviteTargetClinic = clinic;
@@ -334,9 +372,15 @@
       if (inviteDisplayNameInput) {
         inviteDisplayNameInput.value = '';
       }
-      if (inviteStatus) {
-        inviteStatus.textContent = '';
-        inviteStatus.className = 'text-xs text-slate-500';
+      if (inviteMessage) {
+        inviteMessage.textContent = '';
+        inviteMessage.className = 'text-xs text-slate-500';
+      }
+      if (inviteLinkWrapper) {
+        inviteLinkWrapper.classList.add('hidden');
+      }
+      if (inviteLinkInput) {
+        inviteLinkInput.value = '';
       }
       if (inviteModal) {
         inviteModal.classList.remove('hidden');
@@ -383,6 +427,13 @@
       inviteEmailInput = document.getElementById('inviteEmail');
       inviteDisplayNameInput = document.getElementById('inviteDisplayName');
       inviteStatus = document.getElementById('inviteStatus');
+      inviteMessage = document.getElementById('inviteMessage');
+      inviteLinkWrapper = document.getElementById('inviteLinkWrapper');
+      inviteLinkInput = document.getElementById('inviteLink');
+      inviteCopyButton = document.getElementById('inviteCopy');
+      if (inviteCopyButton) {
+        inviteCopyButton.addEventListener('click', copyInviteLink);
+      }
 
       if (orderSelect) {
         orderSelect.addEventListener('change', renderClinics);
@@ -417,9 +468,12 @@
           const email = (inviteEmailInput?.value || '').trim();
           const displayName = (inviteDisplayNameInput?.value || '').trim();
           if (!email) {
-            if (inviteStatus) {
-              inviteStatus.textContent = 'メールアドレスを入力してください。';
-              inviteStatus.className = 'text-xs text-red-600';
+            if (inviteMessage) {
+              inviteMessage.textContent = 'メールアドレスを入力してください。';
+              inviteMessage.className = 'text-xs text-red-600';
+            }
+            if (inviteLinkWrapper) {
+              inviteLinkWrapper.classList.add('hidden');
             }
             return;
           }
@@ -444,11 +498,18 @@
               throw new Error(error.message || `HTTP ${res.status}`);
             }
             const data = await res.json();
-            if (inviteStatus) {
-              inviteStatus.textContent = data.mailStatus === 'sent'
+            const link = data?.token ? resolveAcceptInviteUrl(data.token) : '';
+            if (inviteMessage) {
+              inviteMessage.textContent = data.mailStatus === 'sent'
                 ? '招待メールを送信しました。'
                 : '招待を作成しました（メール送信に失敗した可能性があります）。';
-              inviteStatus.className = 'text-xs text-emerald-600';
+              inviteMessage.className = 'text-xs text-emerald-600';
+            }
+            if (link && inviteLinkWrapper && inviteLinkInput) {
+              inviteLinkInput.value = link;
+              inviteLinkWrapper.classList.remove('hidden');
+            } else if (inviteLinkWrapper) {
+              inviteLinkWrapper.classList.add('hidden');
             }
             await loadClinics();
             setTimeout(() => {
@@ -464,12 +525,15 @@
             );
           } catch (error) {
             console.error('failed to send invite', error);
-            if (inviteStatus) {
+            if (inviteMessage) {
               const message = error && error.code === 'AUTH_REQUIRED'
                 ? AUTH_TIMEOUT_MESSAGE
                 : (error?.message ? `招待に失敗しました: ${error.message}` : '招待に失敗しました。');
-              inviteStatus.textContent = message;
-              inviteStatus.className = 'text-xs text-red-600';
+              inviteMessage.textContent = message;
+              inviteMessage.className = 'text-xs text-red-600';
+            }
+            if (inviteLinkWrapper) {
+              inviteLinkWrapper.classList.add('hidden');
             }
           }
         });
