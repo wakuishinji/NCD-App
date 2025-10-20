@@ -3,7 +3,9 @@
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-const DEFAULT_ITERATIONS = 150000;
+// Cloudflare Workers currently reject PBKDF2 iteration counts above ~100k.
+const DEFAULT_ITERATIONS = 100000;
+const MAX_ITERATIONS = 100000;
 const DEFAULT_KEY_LENGTH = 32; // bytes
 
 function getCrypto() {
@@ -53,7 +55,7 @@ function normalizeIterations(value) {
   if (!Number.isFinite(num) || num < 50000) {
     return DEFAULT_ITERATIONS;
   }
-  return Math.min(num, 500000);
+  return Math.min(num, MAX_ITERATIONS);
 }
 
 export async function hashPassword(password, {

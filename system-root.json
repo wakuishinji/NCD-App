@@ -6,9 +6,9 @@
   "status": "active",
   "passwordHash": {
     "algorithm": "pbkdf2-sha256",
-    "iterations": 150000,
-    "salt": "seoJ1Un8YS3OMxKL2QND_w",
-    "hash": "p1IMKFqODe_3HdIKZ4vIDmmcLPHFjtos3vrn4kIKzMo",
+    "iterations": 100000,
+    "salt": "r7bzDVHE7q1CPYvQ8KEzvg",
+    "hash": "QK5qrpS8RCp15imW2OolVJtDNWXBND8eIcbMB3GXreg",
     "keyLength": 32
   },
   "profile": {

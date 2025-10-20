@@ -108,4 +108,19 @@
 
 ---
 
+## 7. 現状の不具合・対応状況（2025-10-21）
+
+- **systemRoot ログイン不可（解消済み）**  
+  - 原因: PBKDF2 の iteration `150000` が Workers Runtime で許容されず `NotSupportedError` が発生。  
+  - 対応: `functions/lib/auth/password.js` の既定/最大 iteration を `100000` に引き下げ、`system-root.json` の `passwordHash` を再生成して Cloudflare KV（本番/プレビュー）へ再投入。  
+  - 結果: `wakui@altry-med.or.jp` / `keishinyuusaku@1043` でログイン成功を確認済み。
+- **JWT_SECRET 未設定（解消済み）**  
+  - ログイン後のトークン発行が `JWT secret is not configured` で失敗。  
+  - 対応: Cloudflare シークレットに 64 文字のランダム文字列を `JWT_SECRET` として設定。  
+  - 結果: アクセストークン／リフレッシュトークン発行が正常化。
+- **パスワード再設定メール未送信（継続課題）**  
+  - 現状 `mailProvider: "log"` でダミー送信。今後 SendGrid 等の本番設定が必要。
+- **ログ監視**  
+  - Workers Logs を有効化し、`wrangler tail` で現象切り分け可能な状態に更新。
+
 本ロードマップは定期的にアップデートする。新しい要件が出た場合は、本ドキュメントを更新しつつ、詳細設計書や運用 Runbook を別途切り出していく。次回の見直しタイミングでは、各フェーズの進捗／リソースへの影響／ドメイン運用状況をレビューする。
