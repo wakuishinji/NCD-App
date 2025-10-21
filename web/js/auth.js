@@ -67,6 +67,24 @@
     }
   }
 
+  function emitAuthChanged(auth, reason = 'update') {
+    if (typeof document === 'undefined' || typeof CustomEvent === 'undefined') {
+      return;
+    }
+    try {
+      document.dispatchEvent(
+        new CustomEvent('ncd:auth-changed', {
+          detail: {
+            auth: auth ? cloneAuth(auth) : null,
+            reason,
+          },
+        }),
+      );
+    } catch (_) {
+      // ignore dispatch failures (e.g. during unload)
+    }
+  }
+
   function getStoredAuth() {
     if (cachedAuth) {
       return cachedAuth;
@@ -89,24 +107,26 @@
     }
   }
 
-  function saveAuth(auth) {
+  function saveAuth(auth, reason = 'save') {
+    if (!auth) {
+      clearAuth();
+      return;
+    }
     cachedAuth = cloneAuth(auth);
     try {
-      if (!auth) {
-        global.localStorage?.removeItem(STORAGE_KEY);
-      } else {
-        global.localStorage?.setItem(STORAGE_KEY, JSON.stringify(auth));
-      }
+      global.localStorage?.setItem(STORAGE_KEY, JSON.stringify(auth));
     } catch (err) {
       console.warn('[auth] failed to persist credentials', err);
     }
+    emitAuthChanged(cachedAuth, reason);
   }
 
-  function clearAuth() {
+  function clearAuth(reason = 'clear') {
     cachedAuth = null;
     try {
       global.localStorage?.removeItem(STORAGE_KEY);
     } catch (_) {}
+    emitAuthChanged(null, reason);
   }
 
   function normalizeRole(role, fallback = '') {
@@ -185,7 +205,7 @@
           ...('membership' in data ? { membership: data.membership } : {}),
           tokens: data.tokens,
         });
-        saveAuth(updated);
+        saveAuth(updated, 'refresh');
         return updated;
       } catch (err) {
         clearAuth();
@@ -295,12 +315,40 @@
     return auth;
   }
 
+  async function logout(options = {}) {
+    const auth = getStoredAuth();
+    const apiBase = resolveApiBase();
+    const refreshToken = auth?.tokens?.refreshToken;
+    const sessionId = auth?.tokens?.sessionId;
+    const payload = {};
+    if (refreshToken) {
+      payload.refreshToken = refreshToken;
+    }
+    if (sessionId) {
+      payload.sessionId = sessionId;
+    }
+    if (refreshToken || sessionId) {
+      try {
+        await fetch(`${apiBase}/api/auth/logout`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      } catch (err) {
+        console.warn('[auth] logout request failed', err);
+      }
+    }
+    clearAuth('logout');
+    return { ok: true };
+  }
+
   global.NcdAuth = {
     STORAGE_KEY,
     resolveApiBase,
     getStoredAuth,
     saveAuth,
     clearAuth,
+    logout,
     ensureAuth,
     refreshAuth,
     getAuthHeader,
