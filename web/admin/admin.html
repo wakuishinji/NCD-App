@@ -10,13 +10,19 @@
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col" data-require-role="systemRoot" data-guard-message="システム管理者専用ページです。トップページへ戻ります。">
   <header class="bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 text-white shadow">
-    <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+    <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between gap-3">
       <a href="/index.html" class="inline-flex items-center gap-2 rounded bg-white/10 px-3 py-2 text-sm font-semibold tracking-wide transition hover:bg-white/20">
         <span aria-hidden="true">⌂</span>
         Top
       </a>
       <h1 class="text-lg font-semibold tracking-wide">NCD 管理ハブ</h1>
-      <span class="text-sm text-white/80">Nakano Clinic Database</span>
+      <div class="flex items-center gap-2">
+        <span class="hidden sm:inline text-sm text-white/80">Nakano Clinic Database</span>
+        <button id="adminLogout" class="inline-flex items-center gap-2 rounded bg-white/10 px-3 py-2 text-xs font-semibold tracking-wide transition hover:bg-red-500/80 hover:text-white">
+          <span class="hidden sm:inline">ログアウト</span>
+          <span class="sm:hidden">退出</span>
+        </button>
+      </div>
     </div>
   </header>
 
@@ -186,5 +192,55 @@
       © 2025 中野区医師会 Nakano Clinic Database
     </div>
   </footer>
+  <script>
+    (function setupAdminLogout(global) {
+      const DEFAULT_API_BASE = 'https://ncd-app.altry.workers.dev';
+
+      function resolveApiBase() {
+        if (global.NcdAuth && typeof global.NcdAuth.resolveApiBase === 'function') {
+          return global.NcdAuth.resolveApiBase();
+        }
+        return DEFAULT_API_BASE;
+      }
+
+      async function executeLogout() {
+        const apiBase = resolveApiBase();
+        const auth = global.NcdAuth?.getStoredAuth?.();
+        const payload = auth?.tokens ? {
+          refreshToken: auth.tokens.refreshToken,
+          sessionId: auth.tokens.sessionId,
+        } : {};
+        try {
+          await fetch(`${apiBase}/api/auth/logout`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+        } catch (error) {
+          console.warn('[adminLogout] logout request failed', error);
+        } finally {
+          try {
+            global.NcdAuth?.clearAuth?.();
+          } catch (_) {}
+          global.location.replace('/index.html');
+        }
+      }
+
+      function init() {
+        const button = document.getElementById('adminLogout');
+        if (!button) return;
+        button.addEventListener('click', () => {
+          button.disabled = true;
+          executeLogout();
+        });
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init, { once: true });
+      } else {
+        init();
+      }
+    })(window);
+  </script>
 </body>
 </html>
