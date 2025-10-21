@@ -457,12 +457,8 @@
 
       card.classList.remove('pointer-events-none', 'opacity-60');
       card.dataset.disabled = 'false';
-      if (canEdit) {
-        inviteButton.classList.remove('hidden');
-      } else {
-        inviteButton.classList.add('hidden');
-        card.classList.add('pointer-events-none', 'opacity-60');
-      }
+      inviteButton.classList.add('hidden');
+      card.classList.add('pointer-events-none', 'opacity-60');
 
       const managers = Array.isArray(clinic.managerAccounts) ? clinic.managerAccounts : [];
       const pending = Array.isArray(clinic.pendingInvites) ? clinic.pendingInvites.filter(inv => inv.role === 'clinicAdmin' && inv.status === 'pending') : [];
@@ -513,17 +509,13 @@
         return;
       }
 
-      card.classList.remove('pointer-events-none', 'opacity-60');
-      card.dataset.disabled = 'false';
-
       const managers = Array.isArray(clinic.managerAccounts) ? clinic.managerAccounts : [];
       const isAdmin = managers.length > 0;
-      if (!canEdit) {
-        card.classList.add('pointer-events-none', 'opacity-60');
-        inviteButton.classList.add('hidden');
-        info.innerHTML = '<div>スタッフ招待を行うには管理者としてログインしてください。</div>';
-        return;
-      }
+      card.classList.add('pointer-events-none', 'opacity-60');
+      card.dataset.disabled = 'true';
+      inviteButton.classList.add('hidden');
+      info.innerHTML = '<div>スタッフ招待を行うには管理者としてログインしてください。</div>';
+      if (!canEdit) return;
 
       if (!isAdmin) {
         info.innerHTML = '<div>スタッフ招待を利用するには、先に施設管理者を設定してください。</div>';
