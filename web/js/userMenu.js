@@ -19,6 +19,21 @@
     error: ['bg-red-600', 'text-white'],
   };
 
+  const VARIANT_CLASSES = {
+    dark: {
+      button: 'inline-flex items-center gap-2 rounded bg-white/10 px-3 py-1.5 text-sm font-semibold text-white hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 transition',
+      avatar: 'inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-xs font-bold uppercase',
+      menu: 'absolute right-0 z-30 mt-2 w-60 min-w-[12rem] origin-top-right rounded-md border border-slate-200 bg-white text-slate-700 shadow-lg ring-1 ring-black/5 hidden',
+      login: 'inline-flex items-center gap-2 rounded bg-white/10 px-3 py-1.5 text-sm font-semibold text-white hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 transition',
+    },
+    light: {
+      button: 'inline-flex items-center gap-2 rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 transition',
+      avatar: 'inline-flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-xs font-bold uppercase text-blue-700',
+      menu: 'absolute right-0 z-30 mt-2 w-60 min-w-[12rem] origin-top-right rounded-md border border-slate-200 bg-white text-slate-700 shadow-lg ring-1 ring-black/5 hidden',
+      login: 'inline-flex items-center gap-2 rounded border border-blue-500 bg-blue-500 px-3 py-1.5 text-sm font-semibold text-white shadow hover:bg-blue-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 transition',
+    },
+  };
+
   function ensureNoticeElement() {
     if (typeof document === 'undefined') {
       return null;
@@ -129,13 +144,24 @@
     const initials = (Array.from(initialsSource.trim())[0] || '？').toUpperCase();
     return { displayName, email, role, accountId, initials };
   }
+  function resolveVariant(node) {
+    if (!node) return 'dark';
+    const attr = node.getAttribute('data-user-menu-variant');
+    if (attr && VARIANT_CLASSES[attr]) {
+      return attr;
+    }
+    return 'dark';
+  }
+
 
   function renderLoggedOut(state) {
     const { node } = state;
+    const variant = resolveVariant(node);
+    const classes = VARIANT_CLASSES[variant] || VARIANT_CLASSES.dark;
     node.innerHTML = `
       <button
         type="button"
-        class="inline-flex items-center gap-2 rounded bg-white/10 px-3 py-1.5 text-sm font-semibold text-white hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+        class="${classes.login}"
         data-user-menu-action="login"
       >
         ログイン
@@ -150,21 +176,23 @@
   function renderLoggedIn(state, auth) {
     const { node } = state;
     const info = resolveDisplayInfo(auth);
+    const variant = resolveVariant(node);
+    const classes = VARIANT_CLASSES[variant] || VARIANT_CLASSES.dark;
     node.innerHTML = `
       <button
         type="button"
-        class="inline-flex items-center gap-2 rounded bg-white/10 px-3 py-1.5 text-sm font-semibold text-white hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+        class="${classes.button}"
         data-user-menu-action="toggle"
         aria-haspopup="true"
         aria-expanded="false"
       >
         <span class="hidden sm:inline" data-user-menu-label>${escapeHtml(info.displayName || info.email || 'ログイン済み')}</span>
-        <span class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-xs font-bold uppercase">
+        <span class="${classes.avatar}">
           ${escapeHtml(info.initials)}
         </span>
       </button>
       <div
-        class="absolute right-0 z-30 mt-2 w-60 min-w-[12rem] origin-top-right rounded-md border border-slate-200 bg-white text-slate-700 shadow-lg ring-1 ring-black/5 hidden"
+        class="${classes.menu}"
         data-user-menu-panel
         role="menu"
         aria-hidden="true"

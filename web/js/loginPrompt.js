@@ -202,4 +202,10 @@
     open: openModal,
     close: closeModal,
   };
+
+  document.addEventListener('ncd:auth-login-request', () => {
+    if (overlay) {
+      openModal();
+    }
+  });
 })(window);

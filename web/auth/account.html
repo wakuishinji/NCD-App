@@ -49,6 +49,7 @@
         <button id="logoutButton" type="button" class="inline-flex items-center justify-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700">
           ログアウト
         </button>
+        <p id="logoutStatus" class="text-xs text-slate-500"></p>
       </div>
     </section>
   </main>
@@ -64,6 +65,7 @@
       const emailEl = document.getElementById('accountEmail');
       const membershipsEl = document.getElementById('accountMemberships');
       const logoutButton = document.getElementById('logoutButton');
+      const logoutStatusEl = document.getElementById('logoutStatus');
       let membershipDetails = [];
       const clinicNameCache = new Map();
 
@@ -233,11 +235,28 @@
 
       if (logoutButton) {
         logoutButton.addEventListener('click', () => {
-          if (global.NcdAuth && typeof global.NcdAuth.logout === 'function') {
-            global.NcdAuth.logout().then(() => {
-              window.location.replace('/index.html');
-            });
+          if (!global.NcdAuth || typeof global.NcdAuth.logout !== 'function') {
+            return;
           }
+          logoutButton.disabled = true;
+          if (logoutStatusEl) {
+            logoutStatusEl.textContent = 'ログアウト処理中です…';
+          }
+          global.NcdAuth.logout().then(() => {
+            if (logoutStatusEl) {
+              logoutStatusEl.textContent = 'ログアウトしました。トップページへ移動します。';
+            }
+            setTimeout(() => {
+              window.location.replace('/index.html');
+            }, 400);
+          }).catch((err) => {
+            console.error('[account] logout failed', err);
+            if (logoutStatusEl) {
+              logoutStatusEl.textContent = 'ログアウトに失敗しました。時間をおいて再試行してください。';
+            }
+          }).finally(() => {
+            logoutButton.disabled = false;
+          });
         });
       }
 
