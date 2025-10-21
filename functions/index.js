@@ -559,6 +559,28 @@ export default {
       return membershipRecord;
     }
 
+    async function getMembershipById(env, membershipId) {
+      if (!membershipId) return null;
+      return kvGetJSON(env, membershipId);
+    }
+
+    function sanitizeMembershipRecord(record) {
+      if (!record || typeof record !== 'object') return null;
+      const roles = Array.isArray(record.roles) ? record.roles.filter(Boolean) : [];
+      const primaryRole = record.primaryRole || (roles.length ? roles[0] : null);
+      return {
+        id: record.id || null,
+        clinicId: record.clinicId || null,
+        accountId: record.accountId || null,
+        roles,
+        primaryRole,
+        status: record.status || 'active',
+        invitedBy: record.invitedBy || null,
+        createdAt: record.createdAt || null,
+        updatedAt: record.updatedAt || null,
+      };
+    }
+
     const EXPLANATION_STATUS_SET = new Set(["draft", "published", "archived"]);
 
     function sanitizeExplanationStatus(value) {
@@ -1859,6 +1881,23 @@ export default {
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
+    }
+
+    if (routeMatch(url, 'GET', 'memberships')) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      const membershipIds = normalizeMembershipIds(authContext.account);
+      const memberships = [];
+      for (const membershipId of membershipIds) {
+        const record = await getMembershipById(env, membershipId);
+        const sanitized = sanitizeMembershipRecord(record);
+        if (sanitized) {
+          memberships.push(sanitized);
+        }
+      }
+      return jsonResponse({ ok: true, memberships });
     }
 
     const MEDIA_SLOTS = new Set(["logoSmall", "logoLarge", "facade"]);

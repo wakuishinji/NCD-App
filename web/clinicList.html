@@ -7,6 +7,8 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- ローディング機能 -->
   <script src="js/loading.js"></script>
+  <script src="js/auth.js" defer></script>
+  <script src="js/userMenu.js" defer></script>
 </head>
 <body class="bg-gray-50 text-gray-800 min-h-screen">
 
@@ -16,6 +18,11 @@
        class="bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700">
       Top
     </a>
+  </div>
+
+  <!-- 右上 ユーザーメニュー -->
+  <div class="absolute top-4 right-4 flex items-center gap-2">
+    <div class="relative" data-user-menu></div>
   </div>
 
   <div class="max-w-3xl mx-auto pt-20 p-6">

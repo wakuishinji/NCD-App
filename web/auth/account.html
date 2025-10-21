@@ -63,11 +63,14 @@
 
   <script>
     (function initAccountPage(global) {
+      const DEFAULT_API_BASE = 'https://ncd-app.altry.workers.dev';
       const displayNameEl = document.getElementById('accountDisplayName');
       const emailEl = document.getElementById('accountEmail');
       const roleEl = document.getElementById('accountRole');
       const membershipsEl = document.getElementById('accountMemberships');
       const logoutButton = document.getElementById('logoutButton');
+      let membershipDetails = [];
+      const clinicNameCache = new Map();
 
       function escapeHtml(value) {
         return String(value ?? '')
@@ -76,6 +79,19 @@
           .replace(/>/g, '&gt;')
           .replace(/"/g, '&quot;')
           .replace(/'/g, '&#039;');
+      }
+
+      function resolveApiBase() {
+        if (global.NcdAuth && typeof global.NcdAuth.resolveApiBase === 'function') {
+          return global.NcdAuth.resolveApiBase();
+        }
+        try {
+          const stored = global.localStorage?.getItem('ncdApiBase') || global.localStorage?.getItem('ncdApiBaseUrl');
+          if (stored) {
+            return stored.trim().replace(/\/$/, '');
+          }
+        } catch (_) {}
+        return DEFAULT_API_BASE;
       }
 
       function normalizeMembershipEntries(rawList) {
@@ -88,6 +104,72 @@
         return rawList.map((value) => (typeof value === 'string'
           ? { id: value, label: value }
           : { id: value?.id || String(value ?? ''), label: value?.label || value?.id || String(value ?? '') }));
+      }
+
+      function membershipRoles(entry) {
+        const roles = Array.isArray(entry?.roles) ? entry.roles : [];
+        if (!roles.length && entry?.primaryRole) {
+          roles.push(entry.primaryRole);
+        }
+        return roles;
+      }
+
+      async function loadClinicName(clinicId, apiBase) {
+        if (!clinicId) return clinicId || '';
+        if (clinicNameCache.has(clinicId)) {
+          return clinicNameCache.get(clinicId);
+        }
+        try {
+          const res = await fetch(`${apiBase}/api/clinicDetail?id=${encodeURIComponent(clinicId)}`);
+          if (res.ok) {
+            const data = await res.json();
+            const name = data?.clinic?.name || clinicId;
+            clinicNameCache.set(clinicId, name);
+            return name;
+          }
+        } catch (err) {
+          console.warn('[account] failed to fetch clinic name', clinicId, err);
+        }
+        clinicNameCache.set(clinicId, clinicId);
+        return clinicId;
+      }
+
+      async function renderMembershipList(entries) {
+        if (!membershipsEl) return;
+        if (!entries || !entries.length) {
+          membershipsEl.innerHTML = '<span class="text-slate-500">所属なし</span>';
+          return;
+        }
+        const apiBase = resolveApiBase();
+        const rendered = [];
+        for (const entry of entries) {
+          const clinicId = entry?.clinicId || '';
+          const clinicName = await loadClinicName(clinicId, apiBase);
+          const roles = membershipRoles(entry);
+          const roleLabels = roles.length
+            ? roles.map((role) => (global.NcdAuth && typeof global.NcdAuth.getRoleLabel === 'function'
+              ? global.NcdAuth.getRoleLabel(role)
+              : role)).join(' / ')
+            : '未設定';
+          const status = entry?.status || 'active';
+          const statusBadge = status === 'active'
+            ? '<span class="text-xs font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">有効</span>'
+            : `<span class="text-xs font-semibold text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">${escapeHtml(status)}</span>`;
+
+          rendered.push(`
+            <div class="rounded border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm">
+              <div class="flex items-center justify-between gap-3">
+                <span class="font-semibold text-blue-800">${escapeHtml(clinicName || '(施設未設定)')}</span>
+                ${statusBadge}
+              </div>
+              <div class="mt-2 text-xs text-slate-600">
+                ロール: <span class="font-medium text-slate-800">${escapeHtml(roleLabels)}</span>
+              </div>
+              <div class="mt-1 text-[11px] text-slate-400">membership: ${escapeHtml(entry?.id || '')}</div>
+            </div>
+          `);
+        }
+        membershipsEl.innerHTML = rendered.join('');
       }
 
       function renderAuth(auth) {
@@ -105,15 +187,7 @@
         if (displayNameEl) displayNameEl.innerHTML = escapeHtml(displayName);
         if (emailEl) emailEl.innerHTML = escapeHtml(email);
         if (roleEl) roleEl.innerHTML = escapeHtml(roleLabel || '未設定');
-        if (membershipsEl) {
-          if (!memberships.length) {
-            membershipsEl.innerHTML = '<span class="text-slate-500">所属なし</span>';
-          } else {
-            membershipsEl.innerHTML = memberships
-              .map((entry) => `<span class="mr-2 inline-flex items-center rounded border border-slate-300 bg-slate-100 px-2 py-0.5 text-xs font-medium">${escapeHtml(entry.label || entry.id || '')}</span>`)
-              .join('');
-          }
-        }
+        renderMembershipList(membershipDetails.length ? membershipDetails : memberships);
 
         global.__NcdAccountSnapshot = {
           displayName,
@@ -121,7 +195,33 @@
           role: roleKey,
           roleLabel,
           memberships,
+          membershipDetails,
         };
+      }
+
+      async function fetchMembershipDetails() {
+        if (!global.NcdAuth || typeof global.NcdAuth.authorizedFetch !== 'function') {
+          return;
+        }
+        const apiBase = resolveApiBase();
+        try {
+          const res = await global.NcdAuth.authorizedFetch(`${apiBase}/api/memberships`);
+          if (!res.ok) {
+            const errPayload = await res.json().catch(() => null);
+            const message = errPayload?.message || `HTTP ${res.status}`;
+            throw new Error(message);
+          }
+          const data = await res.json();
+          const items = Array.isArray(data?.memberships) ? data.memberships : [];
+          membershipDetails = items;
+          await renderMembershipList(membershipDetails);
+        } catch (err) {
+          console.error('[account] failed to load memberships', err);
+          membershipDetails = [];
+          if (membershipsEl) {
+            membershipsEl.innerHTML = `<span class="text-red-600 text-sm">所属情報を取得できませんでした: ${escapeHtml(err.message || 'Unknown error')}</span>`;
+          }
+        }
       }
 
       async function ensureAndRender() {
@@ -131,6 +231,7 @@
         try {
           const auth = await global.NcdAuth.ensureAuth();
           renderAuth(auth);
+          await fetchMembershipDetails();
         } catch (err) {
           console.error('[account] failed to resolve auth', err);
         }
@@ -150,6 +251,7 @@
         const auth = event?.detail?.auth || null;
         if (auth) {
           renderAuth(auth);
+          fetchMembershipDetails();
         } else {
           window.location.replace('/index.html');
         }

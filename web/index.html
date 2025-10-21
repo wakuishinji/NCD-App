@@ -8,27 +8,22 @@
   <!-- FontAwesome -->
   <script src="https://kit.fontawesome.com/a2d9d6b3e2.js" crossorigin="anonymous"></script>
   <script src="./js/auth.js" defer></script>
+  <script src="./js/userMenu.js" defer></script>
   <script src="./js/loginPrompt.js" defer></script>
 </head>
 <body class="bg-gray-100 min-h-screen flex flex-col">
 
-  <!-- 右上 管理者ダッシュボードリンク -->
-  <div style="position: absolute; top: 1rem; right: 1rem;">
+  <!-- 右上 管理者ダッシュボードリンク + ユーザーメニュー -->
+  <div class="absolute top-4 right-4 z-20 flex items-center gap-2">
     <a href="admin/admin.html" data-admin-link
-       style="background: #2563eb; color: white; padding: 0.5rem 1rem; border-radius: 0.375rem; text-decoration: none; display: flex; align-items: center; gap: 0.5rem;">
+       class="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow hover:bg-blue-700 transition">
       <i class="fas fa-cog"></i> 管理ダッシュボード
     </a>
+    <div class="relative" data-user-menu></div>
   </div>
 
   <!-- ヒーロー（写真＋グラデ） -->
   <section class="relative isolate overflow-hidden min-h-[60vh] md:min-h-[72vh] flex items-center">
-    <!-- 管理リンク（右上） -->
-    <nav class="absolute top-4 right-4 z-10">
-      <a href="/admin/admin.html" class="inline-flex items-center gap-2 rounded-md bg-white/15 text-white px-3 py-1.5 backdrop-blur hover:bg-white/25" data-admin-link>
-        <i class="fas fa-cog"></i>
-        管理
-      </a>
-    </nav>
     <!-- 抽象背景（外部画像なし） -->
     <div class="absolute inset-0 -z-10 bg-gradient-to-b from-blue-950 via-slate-900 to-slate-950"></div>
     <!-- サブtleパターン（SVGグリッド） -->
