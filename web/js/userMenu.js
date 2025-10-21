@@ -10,6 +10,78 @@
   const states = new Map();
   const STORAGE_KEY = (global.NcdAuth && global.NcdAuth.STORAGE_KEY) || 'ncdAuth';
 
+  let noticeHideTimer = null;
+  let noticeRemoveTimer = null;
+
+  const NOTICE_TYPE_CLASS_MAP = {
+    info: ['bg-slate-900/90', 'text-white'],
+    success: ['bg-emerald-600', 'text-white'],
+    error: ['bg-red-600', 'text-white'],
+  };
+
+  function ensureNoticeElement() {
+    if (typeof document === 'undefined') {
+      return null;
+    }
+    let el = document.querySelector('[data-user-menu-notice]');
+    if (!el) {
+      el = document.createElement('div');
+      el.dataset.userMenuNotice = 'true';
+      el.classList.add(
+        'fixed',
+        'top-4',
+        'right-4',
+        'z-50',
+        'rounded-md',
+        'px-3',
+        'py-2',
+        'text-sm',
+        'font-semibold',
+        'shadow-lg',
+        'transition-opacity',
+        'duration-200',
+        'pointer-events-none',
+        'hidden',
+      );
+      el.style.opacity = '0';
+      if (document.body) {
+        document.body.appendChild(el);
+      }
+    }
+    return el;
+  }
+
+  function showNotice(text, type = 'info') {
+    if (!text) return;
+    const el = ensureNoticeElement();
+    if (!el) return;
+    if (noticeHideTimer) {
+      clearTimeout(noticeHideTimer);
+      noticeHideTimer = null;
+    }
+    if (noticeRemoveTimer) {
+      clearTimeout(noticeRemoveTimer);
+      noticeRemoveTimer = null;
+    }
+    const prevType = el.dataset.noticeType;
+    if (prevType && NOTICE_TYPE_CLASS_MAP[prevType]) {
+      el.classList.remove(...NOTICE_TYPE_CLASS_MAP[prevType]);
+    }
+    const nextType = NOTICE_TYPE_CLASS_MAP[type] ? type : 'info';
+    el.classList.add(...NOTICE_TYPE_CLASS_MAP[nextType]);
+    el.dataset.noticeType = nextType;
+    el.textContent = text;
+    el.classList.remove('hidden');
+    el.style.opacity = '1';
+    noticeHideTimer = setTimeout(() => {
+      el.style.opacity = '0';
+      noticeRemoveTimer = setTimeout(() => {
+        el.classList.add('hidden');
+        el.style.opacity = '1';
+      }, 250);
+    }, 2200);
+  }
+
   function escapeHtml(value) {
     return String(value ?? '')
       .replace(/&/g, '&amp;')
@@ -234,6 +306,16 @@
     });
   }
 
+  function handleAuthChanged(event) {
+    updateAll();
+    const reason = event && event.detail ? event.detail.reason : undefined;
+    if (reason === 'save') {
+      showNotice('ログインしました', 'success');
+    } else if (reason === 'logout') {
+      showNotice('ログアウトしました', 'info');
+    }
+  }
+
   function initNodes() {
     const nodes = document.querySelectorAll('[data-user-menu]');
     nodes.forEach((node) => {
@@ -264,7 +346,7 @@
     initNodes();
     document.addEventListener('click', handleDocumentClick);
     document.addEventListener('keydown', handleKeydown);
-    document.addEventListener('ncd:auth-changed', updateAll);
+    document.addEventListener('ncd:auth-changed', handleAuthChanged);
     window.addEventListener('storage', handleStorageEvent);
   }
 

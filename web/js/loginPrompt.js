@@ -10,6 +10,11 @@
   const passwordInput = document.getElementById('adminLoginPassword');
   const rememberInput = document.getElementById('adminLoginRemember');
   const messageArea = document.getElementById('adminLoginMessage');
+  const MESSAGE_TYPE_CLASSES = {
+    info: 'text-slate-600',
+    success: 'text-emerald-600',
+    error: 'text-red-600',
+  };
   const submitButton = document.getElementById('adminLoginSubmit');
   const cancelButton = document.getElementById('adminLoginCancel');
   const submitLabel = submitButton ? submitButton.querySelector('span') : null;
@@ -31,11 +36,15 @@
     if (messageArea) {
       messageArea.textContent = '';
       messageArea.classList.add('hidden');
+      Object.values(MESSAGE_TYPE_CLASSES).forEach((cls) => messageArea.classList.remove(cls));
     }
   }
 
-  function showMessage(text) {
+  function showMessage(text, type = 'info') {
     if (!messageArea) return;
+    Object.values(MESSAGE_TYPE_CLASSES).forEach((cls) => messageArea.classList.remove(cls));
+    const cls = MESSAGE_TYPE_CLASSES[type] || MESSAGE_TYPE_CLASSES.info;
+    messageArea.classList.add(cls);
     messageArea.textContent = text || '';
     messageArea.classList.remove('hidden');
   }
@@ -112,7 +121,7 @@
     const remember = rememberInput ? rememberInput.checked : true;
 
     if (!identifier || !password) {
-      showMessage('メールアドレスとパスワードを入力してください。');
+      showMessage('メールアドレスとパスワードを入力してください。', 'error');
       return;
     }
 
@@ -137,18 +146,23 @@
         const errorMessage =
           (payload && payload.message) ||
           'ログインに失敗しました。ID またはパスワードをご確認ください。';
-        showMessage(errorMessage);
+        showMessage(errorMessage, 'error');
         setLoading(false);
         return;
       }
       if (global.NcdAuth && typeof global.NcdAuth.saveAuth === 'function') {
         global.NcdAuth.saveAuth(payload);
       }
-      closeModal();
-      window.location.href = pendingRedirect || DEFAULT_TARGET;
+      showMessage('ログインしました。画面を切り替えます…', 'success');
+      setLoading(false);
+      setTimeout(() => {
+        closeModal();
+        window.location.href = pendingRedirect || DEFAULT_TARGET;
+      }, 600);
+      return;
     } catch (err) {
       console.error('[adminLogin] login request failed', err);
-      showMessage('ネットワークエラーが発生しました。時間をおいて再試行してください。');
+      showMessage('ネットワークエラーが発生しました。時間をおいて再試行してください。', 'error');
       setLoading(false);
     }
   }

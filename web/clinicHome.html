@@ -318,7 +318,7 @@
         if (window.NcdAuth && typeof window.NcdAuth.saveAuth === 'function') {
           window.NcdAuth.saveAuth(payload);
         }
-        setLoginStatus('ログインに成功しました。画面をリロードしています…', 'success');
+        setLoginStatus('ログインしました。権限を更新しています…', 'success');
         toggleLoginForm(false);
       } catch (error) {
         console.error('[clinicHome] inline login failed', error);

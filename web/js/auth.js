@@ -83,6 +83,13 @@
     } catch (_) {
       // ignore dispatch failures (e.g. during unload)
     }
+    try {
+      if (global.NcdUserMenu && typeof global.NcdUserMenu.refresh === 'function') {
+        global.NcdUserMenu.refresh();
+      }
+    } catch (_) {
+      // ignore refresh failures
+    }
   }
 
   function getStoredAuth() {
