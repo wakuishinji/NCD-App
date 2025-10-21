@@ -43,13 +43,9 @@
           <dt class="font-medium text-slate-600">ロール</dt>
           <dd id="accountRole" class="mt-1 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-slate-900">-</dd>
         </div>
-        <div>
-          <dt class="font-medium text-slate-600">アカウントID</dt>
-          <dd id="accountId" class="mt-1 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-slate-900 break-all">-</dd>
-        </div>
         <div class="sm:col-span-2">
-          <dt class="font-medium text-slate-600">所属（Membership）</dt>
-          <dd id="accountMemberships" class="mt-1 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-slate-900 break-all">-</dd>
+          <dt class="font-medium text-slate-600">所属</dt>
+          <dd id="accountMemberships" class="mt-1 space-y-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-slate-900">-</dd>
         </div>
       </dl>
       <div class="mt-6 flex flex-col gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
@@ -70,7 +66,6 @@
       const displayNameEl = document.getElementById('accountDisplayName');
       const emailEl = document.getElementById('accountEmail');
       const roleEl = document.getElementById('accountRole');
-      const accountIdEl = document.getElementById('accountId');
       const membershipsEl = document.getElementById('accountMemberships');
       const logoutButton = document.getElementById('logoutButton');
 
@@ -83,25 +78,50 @@
           .replace(/'/g, '&#039;');
       }
 
+      function normalizeMembershipEntries(rawList) {
+        if (!Array.isArray(rawList)) {
+          return [];
+        }
+        if (global.NcdAuth && typeof global.NcdAuth.getMembershipLabels === 'function') {
+          return global.NcdAuth.getMembershipLabels(rawList);
+        }
+        return rawList.map((value) => (typeof value === 'string'
+          ? { id: value, label: value }
+          : { id: value?.id || String(value ?? ''), label: value?.label || value?.id || String(value ?? '') }));
+      }
+
       function renderAuth(auth) {
         const profile = auth?.account?.profile || {};
         const displayName = profile.displayName || profile.name || auth?.account?.primaryEmail || auth?.account?.id || '-';
         const email = auth?.account?.primaryEmail || '-';
-        const role = (global.NcdAuth && typeof global.NcdAuth.getCurrentRole === 'function')
+        const roleKey = (global.NcdAuth && typeof global.NcdAuth.getCurrentRole === 'function')
           ? global.NcdAuth.getCurrentRole(auth)
-          : auth?.account?.role || '-';
-        const accountId = auth?.account?.id || '-';
-        const memberships = Array.isArray(auth?.account?.membershipIds) ? auth.account.membershipIds : [];
+          : auth?.account?.role || '';
+        const roleLabel = (global.NcdAuth && typeof global.NcdAuth.getRoleLabel === 'function')
+          ? global.NcdAuth.getRoleLabel(roleKey)
+          : (roleKey || '未設定');
+        const memberships = normalizeMembershipEntries(auth?.account?.membershipIds);
 
         if (displayNameEl) displayNameEl.innerHTML = escapeHtml(displayName);
         if (emailEl) emailEl.innerHTML = escapeHtml(email);
-        if (roleEl) roleEl.innerHTML = escapeHtml(role || '-');
-        if (accountIdEl) accountIdEl.innerHTML = escapeHtml(accountId);
+        if (roleEl) roleEl.innerHTML = escapeHtml(roleLabel || '未設定');
         if (membershipsEl) {
-          membershipsEl.innerHTML = memberships.length
-            ? memberships.map((id) => `<span class="mr-2 inline-flex items-center rounded border border-slate-300 bg-slate-100 px-2 py-0.5 text-xs font-medium">${escapeHtml(String(id))}</span>`).join('')
-            : '<span class="text-slate-500">未登録</span>';
+          if (!memberships.length) {
+            membershipsEl.innerHTML = '<span class="text-slate-500">所属なし</span>';
+          } else {
+            membershipsEl.innerHTML = memberships
+              .map((entry) => `<span class="mr-2 inline-flex items-center rounded border border-slate-300 bg-slate-100 px-2 py-0.5 text-xs font-medium">${escapeHtml(entry.label || entry.id || '')}</span>`)
+              .join('');
+          }
         }
+
+        global.__NcdAccountSnapshot = {
+          displayName,
+          email,
+          role: roleKey,
+          roleLabel,
+          memberships,
+        };
       }
 
       async function ensureAndRender() {

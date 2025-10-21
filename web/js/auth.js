@@ -165,6 +165,54 @@
     return '';
   }
 
+  const ROLE_LABELS = {
+    systemRoot: 'システムルート管理者',
+    systemAdmin: 'システム管理者',
+    clinicAdmin: '施設管理者',
+    clinicStaff: '施設スタッフ',
+  };
+
+  function getRoleLabel(role) {
+    if (!role) return '未設定';
+    const normalized = normalizeRole(role);
+    return ROLE_LABELS[normalized] || normalized;
+  }
+
+  const MEMBERSHIP_OVERRIDES = [
+    { test: /nakano.*medical.*association/i, label: '中野区医師会' },
+  ];
+
+  function humanizeMembership(value) {
+    const id = String(value ?? '');
+    let core = id.replace(/^membership:/i, '');
+    const normalized = core.toLowerCase();
+
+    for (const { test, label } of MEMBERSHIP_OVERRIDES) {
+      if (test.test(normalized)) {
+        return { id, label };
+      }
+    }
+
+    const uuidLike = /^[0-9a-f-]{10,}$/i.test(core.replace(/-/g, ''));
+    if (uuidLike) {
+      return { id, label: `所属コード: ${core}` };
+    }
+
+    core = core
+      .split(/[-_]/g)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+    return { id, label: core || id };
+  }
+
+  function getMembershipLabels(memberships) {
+    if (!Array.isArray(memberships) || !memberships.length) {
+      return [];
+    }
+    return memberships.map((value) => humanizeMembership(value));
+  }
+
   function buildAuthError(cause) {
     const error = new Error('AUTH_REQUIRED');
     error.code = 'AUTH_REQUIRED';
@@ -363,6 +411,8 @@
     normalizeRole,
     roleIncludes,
     getCurrentRole,
+    getRoleLabel,
+    getMembershipLabels,
     requireRole,
     roleHierarchy: ROLE_INHERITANCE,
   };
