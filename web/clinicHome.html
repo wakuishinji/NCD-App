@@ -147,19 +147,65 @@
       }
     }
 
-    function updateActionLinks(clinic) {
+    function getStoredAuth() {
+      if (!window.NcdAuth || typeof window.NcdAuth.getStoredAuth !== 'function') {
+        return null;
+      }
+      try {
+        return window.NcdAuth.getStoredAuth();
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function roleAllowsGlobalEdit(role) {
+      if (!role || !window.NcdAuth || typeof window.NcdAuth.roleIncludes !== 'function') {
+        return false;
+      }
+      return window.NcdAuth.roleIncludes(role, 'systemRoot') || window.NcdAuth.roleIncludes(role, 'systemAdmin');
+    }
+
+    function hasClinicEditAccess(clinic) {
+      if (!clinic || !clinic.id) return false;
+      const managers = Array.isArray(clinic.managerAccounts) ? clinic.managerAccounts : [];
+      // 管理者未設定の施設は従来通り誰でも編集可能
+      if (!managers.length) return true;
+      const auth = getStoredAuth();
+      if (!auth) return false;
+      const role = window.NcdAuth?.getCurrentRole?.(auth);
+      if (roleAllowsGlobalEdit(role)) return true;
+      const accountId = auth?.account?.id;
+      if (accountId && managers.includes(accountId)) return true;
+      const membershipIds = Array.isArray(auth?.account?.membershipIds) ? auth.account.membershipIds : [];
+      const staffMemberships = Array.isArray(clinic.staffMemberships) ? clinic.staffMemberships : [];
+      if (membershipIds.some((id) => staffMemberships.includes(id))) return true;
+      return false;
+    }
+
+    function updateActionLinks(clinic, options = {}) {
+      const canEdit = options.canEdit !== false;
       const links = document.querySelectorAll('[data-clinic-link]');
       links.forEach((link) => {
         const baseHref = link.dataset.baseHref || link.getAttribute('href') || '#';
         link.dataset.baseHref = baseHref;
         if (clinic && clinic.id) {
           link.href = buildClinicLink(baseHref, clinic);
-          link.classList.remove('pointer-events-none', 'opacity-60');
-          link.dataset.disabled = 'false';
+          if (canEdit) {
+            link.classList.remove('pointer-events-none', 'opacity-60');
+            link.removeAttribute('aria-disabled');
+            link.removeAttribute('title');
+            link.dataset.disabled = 'false';
+          } else {
+            link.classList.add('pointer-events-none', 'opacity-60');
+            link.dataset.disabled = 'true';
+            link.setAttribute('aria-disabled', 'true');
+            link.title = '管理者としてログインすると編集できます。';
+          }
         } else {
           link.href = '#';
           link.classList.add('pointer-events-none', 'opacity-60');
           link.dataset.disabled = 'true';
+          link.setAttribute('aria-disabled', 'true');
         }
       });
     }
@@ -176,7 +222,7 @@
       document.getElementById('clinicId').textContent = "ID: " + (c.id || '-');
       document.getElementById('clinicAddr').textContent = "住所: " + (c.address || '-');
       updateSummaryLink(c);
-      updateActionLinks(c);
+      updateActionLinks(c, { canEdit: false });
       window.selectedClinicId = c.id;
       refreshClinicDetails(c.id);
     }
@@ -225,17 +271,21 @@
         await wrapWithLoading(async () => {
           const data = await fetchClinicDetail(id);
           const clinic = data?.clinic || {};
-          updateManagerSection(clinic);
-          updateStaffSection(clinic);
+          const canEdit = hasClinicEditAccess(clinic);
+          updateActionLinks(clinic, { canEdit });
+          updateManagerSection(clinic, { canEdit });
+          updateStaffSection(clinic, { canEdit });
         }, '施設情報を取得中...', card);
       } catch (err) {
         console.error('failed to fetch clinic detail', err);
         updateManagerSection(null);
         updateStaffSection(null);
+        updateActionLinks(null, { canEdit: false });
       }
     }
 
-    function updateManagerSection(clinic) {
+    function updateManagerSection(clinic, options = {}) {
+      const canEdit = options.canEdit !== false;
       const card = document.getElementById('managerCard');
       const info = document.getElementById('managerInfo');
       const inviteButton = document.getElementById('managerInviteButton');
@@ -249,8 +299,13 @@
       }
 
       card.classList.remove('pointer-events-none', 'opacity-60');
-      inviteButton.classList.remove('hidden');
       card.dataset.disabled = 'false';
+      if (canEdit) {
+        inviteButton.classList.remove('hidden');
+      } else {
+        inviteButton.classList.add('hidden');
+        card.classList.add('pointer-events-none', 'opacity-60');
+      }
 
       const managers = Array.isArray(clinic.managerAccounts) ? clinic.managerAccounts : [];
       const pending = Array.isArray(clinic.pendingInvites) ? clinic.pendingInvites.filter(inv => inv.role === 'clinicAdmin' && inv.status === 'pending') : [];
@@ -275,12 +330,20 @@
         });
         fragments.push('</ul>');
       }
+      if (!canEdit) {
+        fragments.push('<div class="mt-3 text-xs text-slate-500">管理者としてログインすると招待操作ができます。</div>');
+      }
 
       info.innerHTML = fragments.join('');
-      inviteButton.onclick = () => openManagerInvitePrompt(clinic);
+      if (canEdit) {
+        inviteButton.onclick = () => openManagerInvitePrompt(clinic);
+      } else {
+        inviteButton.onclick = null;
+      }
     }
 
-    function updateStaffSection(clinic) {
+    function updateStaffSection(clinic, options = {}) {
+      const canEdit = options.canEdit !== false;
       const card = document.getElementById('staffCard');
       const info = document.getElementById('staffInfo');
       const inviteButton = document.getElementById('staffInviteButton');
@@ -293,11 +356,18 @@
         return;
       }
 
-      card.classList.remove('pointer-events:none', 'opacity-60');
+      card.classList.remove('pointer-events-none', 'opacity-60');
       card.dataset.disabled = 'false';
 
       const managers = Array.isArray(clinic.managerAccounts) ? clinic.managerAccounts : [];
       const isAdmin = managers.length > 0;
+      if (!canEdit) {
+        card.classList.add('pointer-events-none', 'opacity-60');
+        inviteButton.classList.add('hidden');
+        info.innerHTML = '<div>スタッフ招待を行うには管理者としてログインしてください。</div>';
+        return;
+      }
+
       if (!isAdmin) {
         info.innerHTML = '<div>スタッフ招待を利用するには、先に施設管理者を設定してください。</div>';
         inviteButton.classList.add('hidden');
