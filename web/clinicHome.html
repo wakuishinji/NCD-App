@@ -267,6 +267,7 @@
       const requiresLogin = Boolean(
         clinic && clinic.id && Array.isArray(clinic.managerAccounts) && clinic.managerAccounts.length && !canEdit
       );
+      console.debug('[clinicHome] updateLoginNotice', { requiresLogin, canEdit, managers: clinic?.managerAccounts });
       if (requiresLogin) {
         loginNotice.classList.remove('hidden');
       } else {
