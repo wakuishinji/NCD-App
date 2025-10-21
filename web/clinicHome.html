@@ -269,8 +269,10 @@
       );
       console.debug('[clinicHome] updateLoginNotice', { requiresLogin, canEdit, managers: clinic?.managerAccounts });
       if (requiresLogin) {
+        console.log('[clinicHome] showing login notice');
         loginNotice.classList.remove('hidden');
       } else {
+        console.log('[clinicHome] hiding login notice', { canEdit });
         loginNotice.classList.add('hidden');
         toggleLoginForm(false);
       }
