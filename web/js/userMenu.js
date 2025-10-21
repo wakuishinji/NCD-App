@@ -159,13 +159,16 @@
     const variant = resolveVariant(node);
     const classes = VARIANT_CLASSES[variant] || VARIANT_CLASSES.dark;
     node.innerHTML = `
-      <button
+      <div class="flex items-center gap-2">
+        <span class="inline-flex items-center rounded-full bg-slate-200 px-2 py-1 text-xs font-semibold text-slate-600">未ログイン</span>
+        <button
         type="button"
         class="${classes.login}"
         data-user-menu-action="login"
       >
         ログイン
       </button>
+      </div>
     `;
     state.button = node.querySelector('[data-user-menu-action="login"]');
     state.panel = null;
@@ -278,9 +281,11 @@
     if (action === 'login') {
       event.preventDefault();
       closeAll();
-      if (typeof document !== 'undefined') {
-        const loginEvent = new CustomEvent('ncd:auth-login-request', { detail: { source: 'user-menu' } });
-        document.dispatchEvent(loginEvent);
+      const loginHref = state.node?.getAttribute('data-user-menu-login') || '/auth/login.html';
+      try {
+        global.location.href = loginHref;
+      } catch (_) {
+        window.location.href = loginHref;
       }
       return;
     }

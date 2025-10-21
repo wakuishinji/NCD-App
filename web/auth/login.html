@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ログイン - NCD</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="../js/auth.js" defer></script>
+  <script src="../js/userMenu.js" defer></script>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen flex flex-col">
+  <header class="bg-white shadow">
+    <div class="mx-auto flex max-w-4xl items-center justify-between px-4 py-4">
+      <a href="/index.html" class="text-sm font-semibold text-blue-600 hover:text-blue-700">
+        ← Top へ戻る
+      </a>
+      <h1 class="text-lg font-bold text-slate-900">ログイン</h1>
+      <div class="relative" data-user-menu data-user-menu-variant="dark" data-user-menu-login="/auth/login.html"></div>
+    </div>
+  </header>
+
+  <main class="flex-1">
+    <section class="mx-auto mt-12 w-full max-w-md rounded-lg bg-white p-6 shadow">
+      <p class="text-sm text-slate-500">
+        メールアドレスとパスワードを入力し、「ログイン」をクリックしてください。施設管理者として招待された方は
+        招待メールに記載された初期パスワードをご利用いただけます。
+      </p>
+      <form id="loginForm" class="mt-6 space-y-4">
+        <div>
+          <label for="loginEmail" class="block text-sm font-medium text-slate-700">メールアドレス</label>
+          <input
+            id="loginEmail"
+            type="email"
+            class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+            required
+            autocomplete="username"
+          />
+        </div>
+        <div>
+          <label for="loginPassword" class="block text-sm font-medium text-slate-700">パスワード</label>
+          <input
+            id="loginPassword"
+            type="password"
+            class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+            required
+            autocomplete="current-password"
+          />
+        </div>
+        <div class="flex items-center justify-between text-xs text-slate-500">
+          <label class="inline-flex items-center gap-2">
+            <input
+              id="loginRemember"
+              type="checkbox"
+              class="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+              checked
+            />
+            ログイン状態を保持する
+          </label>
+          <a href="/auth/request-reset.html" class="text-blue-600 hover:text-blue-700">パスワードをお忘れの場合</a>
+        </div>
+        <button
+          id="loginSubmit"
+          type="submit"
+          class="inline-flex w-full items-center justify-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
+        >
+          ログイン
+        </button>
+        <p id="loginStatus" class="text-sm text-slate-500"></p>
+      </form>
+    </section>
+  </main>
+
+  <footer class="bg-slate-200 py-4 text-center text-xs text-slate-600">
+    © 2025 中野区医師会 - Nakano Clinic Database
+  </footer>
+
+  <script>
+    (function setupLoginForm(global) {
+      const form = document.getElementById('loginForm');
+      const emailInput = document.getElementById('loginEmail');
+      const passwordInput = document.getElementById('loginPassword');
+      const rememberInput = document.getElementById('loginRemember');
+      const submitButton = document.getElementById('loginSubmit');
+      const statusEl = document.getElementById('loginStatus');
+
+      function setStatus(message, type = 'info') {
+        if (!statusEl) return;
+        const color = type === 'error' ? 'text-red-600' : type === 'success' ? 'text-emerald-600' : 'text-slate-500';
+        statusEl.className = `text-sm ${color}`;
+        statusEl.textContent = message || '';
+      }
+
+      async function handleLogin(event) {
+        event.preventDefault();
+        if (!form) return;
+        const email = (emailInput.value || '').trim();
+        const password = passwordInput.value || '';
+        const remember = rememberInput.checked;
+        if (!email || !password) {
+          setStatus('メールアドレスとパスワードを入力してください。', 'error');
+          return;
+        }
+        submitButton.disabled = true;
+        setStatus('認証中です…', 'info');
+        try {
+          const apiBase = global.NcdAuth?.resolveApiBase?.() || 'https://ncd-app.altry.workers.dev';
+          const res = await fetch(`${apiBase}/api/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ identifier: email, password, remember }),
+          });
+          const payload = await res.json().catch(() => null);
+          if (!res.ok || !payload || payload.ok !== true) {
+            const message = payload?.message || 'ログインに失敗しました。ID またはパスワードをご確認ください。';
+            setStatus(message, 'error');
+            submitButton.disabled = false;
+            return;
+          }
+          if (global.NcdAuth && typeof global.NcdAuth.saveAuth === 'function') {
+            global.NcdAuth.saveAuth(payload, 'save');
+          }
+          setStatus('ログインしました。アカウント詳細へ移動します。', 'success');
+          setTimeout(() => {
+            global.location.replace('/auth/account.html');
+          }, 400);
+        } catch (err) {
+          console.error('[login] request failed', err);
+          setStatus('ネットワークエラーが発生しました。しばらくしてから再試行してください。', 'error');
+          submitButton.disabled = false;
+        }
+      }
+
+      if (form) {
+        form.addEventListener('submit', handleLogin);
+      }
+    })(window);
+  </script>
+</body>
+</html>

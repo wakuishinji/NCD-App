@@ -5,7 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>診療所一覧</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://kit.fontawesome.com/a2d9d6b3e2.js" crossorigin="anonymous"></script>
   <script src="js/header.js" defer></script>
+  <script src="js/auth.js" defer></script>
+  <script src="js/userMenu.js" defer></script>
 </head>
 <body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col">
   <!-- 共通ヘッダー -->
@@ -17,6 +20,9 @@
         </div>
         <h1 class="text-lg md:text-xl font-bold text-center md:text-left md:flex-1">登録済み 診療所一覧</h1>
         <a href="register.html" class="hidden md:inline-flex items-center rounded bg-white/20 px-3 py-1 text-sm font-semibold text-white transition hover:bg-white/30 whitespace-nowrap">新規登録へ</a>
+        <div class="hidden md:flex items-center gap-2">
+          <div class="relative" data-user-menu data-user-menu-variant="dark" data-user-menu-login="/auth/login.html"></div>
+        </div>
         <button type="button" class="inline-flex items-center justify-center rounded bg-white/10 px-3 py-2 text-sm font-semibold transition hover:bg-white/20 md:hidden" data-mobile-menu="#clinic-list-nav" aria-controls="clinic-list-nav" aria-expanded="false" aria-label="メニューを開く">
           <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M4 7h16M4 12h16M4 17h16" />
@@ -26,6 +32,9 @@
       <nav id="clinic-list-nav" data-mobile-menu-target class="mt-3 hidden flex-col gap-2 md:hidden">
         <a href="/index.html" class="inline-flex items-center rounded bg-white/20 px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/30">Top</a>
         <a href="register.html" class="inline-flex items-center rounded bg-white/20 px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/30">新規登録へ</a>
+        <div class="inline-flex items-center rounded bg-white/20 px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/30 md:hidden">
+          <div class="relative" data-user-menu data-user-menu-variant="dark" data-user-menu-login="/auth/login.html"></div>
+        </div>
       </nav>
     </div>
   </header>
