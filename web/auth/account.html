@@ -39,10 +39,6 @@
           <dt class="font-medium text-slate-600">メールアドレス</dt>
           <dd id="accountEmail" class="mt-1 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-slate-900">-</dd>
         </div>
-        <div>
-          <dt class="font-medium text-slate-600">ロール</dt>
-          <dd id="accountRole" class="mt-1 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-slate-900">-</dd>
-        </div>
         <div class="sm:col-span-2">
           <dt class="font-medium text-slate-600">所属</dt>
           <dd id="accountMemberships" class="mt-1 space-y-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-slate-900">-</dd>
@@ -66,7 +62,6 @@
       const DEFAULT_API_BASE = 'https://ncd-app.altry.workers.dev';
       const displayNameEl = document.getElementById('accountDisplayName');
       const emailEl = document.getElementById('accountEmail');
-      const roleEl = document.getElementById('accountRole');
       const membershipsEl = document.getElementById('accountMemberships');
       const logoutButton = document.getElementById('logoutButton');
       let membershipDetails = [];
@@ -186,7 +181,6 @@
 
         if (displayNameEl) displayNameEl.innerHTML = escapeHtml(displayName);
         if (emailEl) emailEl.innerHTML = escapeHtml(email);
-        if (roleEl) roleEl.innerHTML = escapeHtml(roleLabel || '未設定');
         renderMembershipList(membershipDetails.length ? membershipDetails : memberships);
 
         global.__NcdAccountSnapshot = {
