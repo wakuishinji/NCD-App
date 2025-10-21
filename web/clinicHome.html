@@ -251,7 +251,9 @@
       // 管理者未設定の施設は従来通り誰でも編集可能
       if (!managers.length) return true;
       const auth = getStoredAuth();
-      if (!auth) return false;
+      if (!auth || !auth.tokens || !auth.tokens.accessToken) {
+        return false;
+      }
       const role = window.NcdAuth?.getCurrentRole?.(auth);
       if (roleAllowsGlobalEdit(role)) return true;
       const accountId = auth?.account?.id;
