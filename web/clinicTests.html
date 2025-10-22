@@ -5,9 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>検査入力 - NCD</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="js/auth.js" defer></script>
+  <script src="js/clinicAccessGuard.js" defer></script>
+  <script src="js/sessionGuard.js" defer></script>
   <script src="js/header.js" defer></script>
 </head>
-<body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col">
+<body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col" data-require-role="clinicStaff" data-guard-message="検査情報の編集にはログインが必要です。施設ホームへ戻ります。" data-redirect-to="clinicHome.html" data-require-clinic="">
   <!-- ヘッダー -->
   <header class="bg-gradient-to-r from-blue-950 via-slate-900 to-blue-950 text-white shadow">
     <div class="max-w-4xl mx-auto px-4 py-4">
@@ -203,21 +206,29 @@ function setLoading(show) {
   els.overlay.classList.toggle("hidden", !show);
 }
 
-function loadSelectedClinic() {
+async function loadSelectedClinic() {
   try {
     const stored = localStorage.getItem("selectedClinic");
     if (!stored) {
       selectedClinic = null;
       els.selectedClinicName.textContent = "（選択されていません）";
       alert("施設を選択後に操作してください。");
+      window.location.replace('clinicHome.html');
       return;
     }
     selectedClinic = JSON.parse(stored);
     els.selectedClinicName.textContent = selectedClinic.name || "（名称未設定）";
+    if (selectedClinic?.id && window.NcdClinicAccessGuard?.verify) {
+      await window.NcdClinicAccessGuard.verify(selectedClinic.id, {
+        message: 'この施設の編集権限がありません。施設ホームへ戻ります。',
+        redirectTo: 'clinicHome.html',
+      });
+    }
   } catch (err) {
     console.error("failed to load selected clinic", err);
     selectedClinic = null;
     els.selectedClinicName.textContent = "（選択されていません）";
+    throw err;
   }
 }
 
@@ -278,6 +289,12 @@ async function loadClinicData() {
     const data = await res.json();
     const clinic = data?.clinic;
     if (!clinic) throw new Error("missing clinic");
+    if (clinic.id && window.NcdClinicAccessGuard?.verify) {
+      await window.NcdClinicAccessGuard.verify(clinic.id, {
+        message: 'この施設の編集権限がありません。施設ホームへ戻ります。',
+        redirectTo: 'clinicHome.html',
+      });
+    }
     clinicData = clinic;
     currentTests = Array.isArray(clinic.tests) ? [...clinic.tests] : [];
     localStorage.setItem("selectedClinic", JSON.stringify(clinic));
@@ -291,6 +308,12 @@ async function loadClinicData() {
       const clinics = Array.isArray(data?.clinics) ? data.clinics : [];
       clinicData = clinics.find(c => (selectedClinic.id && c.id === selectedClinic.id) || c.name === selectedClinic.name) || { id: selectedClinic?.id, name: selectedClinic?.name };
       currentTests = Array.isArray(clinicData?.tests) ? [...clinicData.tests] : [];
+      if (clinicData?.id && window.NcdClinicAccessGuard?.verify) {
+        await window.NcdClinicAccessGuard.verify(clinicData.id, {
+          message: 'この施設の編集権限がありません。施設ホームへ戻ります。',
+          redirectTo: 'clinicHome.html',
+        });
+      }
     } catch (fallbackErr) {
       console.error("failed to load clinic data", fallbackErr);
       clinicData = { id: selectedClinic?.id, name: selectedClinic?.name };
@@ -992,7 +1015,14 @@ if (els.selectedTemplates) {
 (async function init() {
   setLoading(true);
   try {
-    loadSelectedClinic();
+    try {
+      await loadSelectedClinic();
+    } catch (err) {
+      return;
+    }
+    if (!selectedClinic) {
+      return;
+    }
     await Promise.all([loadCategories(), loadTestMaster()]);
     populateCategoryOptions();
     clearForm();

@@ -5,9 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>個人資格・施設認定 - NCD</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="js/auth.js" defer></script>
+  <script src="js/clinicAccessGuard.js" defer></script>
+  <script src="js/sessionGuard.js" defer></script>
   <script src="js/header.js" defer></script>
 </head>
-<body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col">
+<body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col" data-require-role="clinicStaff" data-guard-message="資格情報の編集にはログインが必要です。施設ホームへ戻ります。" data-redirect-to="clinicHome.html" data-require-clinic="">
   <header class="bg-gradient-to-r from-blue-950 via-slate-900 to-blue-950 text-white shadow">
     <div class="max-w-5xl mx-auto px-4 py-4">
       <div class="flex items-center justify-between gap-3">
@@ -204,23 +207,31 @@
     els.overlay.classList.toggle("hidden", !show);
   }
 
-  function loadSelectedClinic() {
-    try {
-      const stored = localStorage.getItem("selectedClinic");
-      if (!stored) {
-        state.selectedClinic = null;
-        els.selectedClinicName.textContent = "（選択されていません）";
-        alert("施設を選択後に操作してください。");
-        return;
-      }
-      state.selectedClinic = JSON.parse(stored);
-      els.selectedClinicName.textContent = state.selectedClinic.name || "（名称未設定）";
-    } catch (err) {
-      console.error("failed to parse selected clinic", err);
+async function loadSelectedClinic() {
+  try {
+    const stored = localStorage.getItem("selectedClinic");
+    if (!stored) {
       state.selectedClinic = null;
       els.selectedClinicName.textContent = "（選択されていません）";
+      alert("施設を選択後に操作してください。");
+      window.location.replace('clinicHome.html');
+      return;
     }
+    state.selectedClinic = JSON.parse(stored);
+    els.selectedClinicName.textContent = state.selectedClinic.name || "（名称未設定）";
+    if (state.selectedClinic?.id && window.NcdClinicAccessGuard?.verify) {
+      await window.NcdClinicAccessGuard.verify(state.selectedClinic.id, {
+        message: 'この施設の編集権限がありません。施設ホームへ戻ります。',
+        redirectTo: 'clinicHome.html',
+      });
+    }
+  } catch (err) {
+    console.error("failed to parse selected clinic", err);
+    state.selectedClinic = null;
+    els.selectedClinicName.textContent = "（選択されていません）";
+    throw err;
   }
+}
 
   async function loadMedicalFields() {
     try {
@@ -1273,7 +1284,11 @@
   (async function init() {
     setLoading(true);
     try {
-      loadSelectedClinic();
+      try {
+        await loadSelectedClinic();
+      } catch (err) {
+        return;
+      }
       await loadMedicalFields();
       await loadPersonalMaster();
       await loadSocietyMaster();

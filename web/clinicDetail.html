@@ -8,6 +8,9 @@
   <!-- ローディング機能 -->
   <script src="js/googleMapsLoader.js"></script>
   <script src="js/loading.js"></script>
+  <script src="js/auth.js" defer></script>
+  <script src="js/clinicAccessGuard.js" defer></script>
+  <script src="js/sessionGuard.js" defer></script>
   <script src="js/header.js" defer></script>
   <style>
     /* 右下固定アクション */
@@ -17,7 +20,7 @@
     }
   </style>
 </head>
-<body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col">
+<body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col" data-require-role="clinicStaff" data-guard-message="施設の編集にはログインが必要です。施設ホームへ戻ります。" data-redirect-to="clinicHome.html" data-require-clinic="">
   <!-- ヘッダー -->
   <header class="bg-gradient-to-r from-blue-950 via-slate-900 to-blue-950 text-white shadow">
     <div class="max-w-6xl mx-auto px-4 py-4">
@@ -3140,6 +3143,16 @@ function buildClinicQuery(clinicRef, urlParams) {
   return result;
 }
 
+async function enforceClinicAccess(clinic) {
+  if (!clinic || !clinic.id) return;
+  if (window.NcdClinicAccessGuard && typeof window.NcdClinicAccessGuard.verify === 'function') {
+    await window.NcdClinicAccessGuard.verify(clinic.id, {
+      message: 'この施設の編集権限がありません。施設ホームへ戻ります。',
+      redirectTo: 'clinicHome.html',
+    });
+  }
+}
+
 // 選択済み施設から初期値ロード
 async function loadClinicDetail() {
   const storedClinic = getStoredSelectedClinic();
@@ -3195,6 +3208,12 @@ async function loadClinicDetail() {
     if (fetchError) {
       alert(`診療所情報を取得できませんでした: ${fetchError.message || fetchError}`);
     }
+    return;
+  }
+
+  try {
+    await enforceClinicAccess(clinic);
+  } catch (err) {
     return;
   }
 
