@@ -30,6 +30,10 @@ const PASSWORD_RESET_TTL_SECONDS = 60 * 30; // 30 minutes
 const PASSWORD_RESET_LOOKUP_PREFIX = 'resetToken:';
 const MIN_PASSWORD_LENGTH = 8;
 
+const ADMIN_REQUEST_PREFIX = 'adminRequest:';
+const ADMIN_REQUEST_PENDING_EMAIL_PREFIX = 'adminRequest:pendingEmail:';
+const ADMIN_REQUEST_DEFAULT_LIMIT = 20;
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -227,22 +231,25 @@ export default {
     }
 
     const ROLE_CANONICAL = {
-      systemroot: 'systemRoot',
-      sysroot: 'systemRoot',
-      root: 'systemRoot',
-      systemadmin: 'systemAdmin',
-      admin: 'clinicAdmin',
-      clinicadmin: 'clinicAdmin',
-      clinicstaff: 'clinicStaff',
-      staff: 'clinicStaff',
-    };
+    systemroot: 'systemRoot',
+    sysroot: 'systemRoot',
+    root: 'systemRoot',
+    systemadmin: 'systemAdmin',
+    adminreviewer: 'adminReviewer',
+    reviewer: 'adminReviewer',
+    admin: 'clinicAdmin',
+    clinicadmin: 'clinicAdmin',
+    clinicstaff: 'clinicStaff',
+    staff: 'clinicStaff',
+  };
 
-    const ROLE_INHERITANCE = {
-      systemRoot: ['systemRoot', 'systemAdmin', 'clinicAdmin', 'clinicStaff'],
-      systemAdmin: ['systemAdmin', 'clinicAdmin', 'clinicStaff'],
-      clinicAdmin: ['clinicAdmin', 'clinicStaff'],
-      clinicStaff: ['clinicStaff'],
-    };
+  const ROLE_INHERITANCE = {
+    systemRoot: ['systemRoot', 'systemAdmin', 'clinicAdmin', 'clinicStaff'],
+    systemAdmin: ['systemAdmin', 'clinicAdmin', 'clinicStaff'],
+    adminReviewer: ['adminReviewer', 'clinicStaff'],
+    clinicAdmin: ['clinicAdmin', 'clinicStaff'],
+    clinicStaff: ['clinicStaff'],
+  };
 
     function hasRole(payload, roles) {
       if (!payload) return false;
@@ -463,6 +470,248 @@ export default {
         });
       } catch (err) {
         console.error('[mail] failed to send password reset email', err);
+        return { ok: false, error: err.message };
+      }
+    }
+
+    function adminRequestKey(id) {
+      return `${ADMIN_REQUEST_PREFIX}${id}`;
+    }
+
+    function adminRequestEmailKey(emailLower) {
+      return `${ADMIN_REQUEST_PENDING_EMAIL_PREFIX}${emailLower}`;
+    }
+
+    function sanitizeAdminRequest(record) {
+      if (!record || typeof record !== 'object') return null;
+      return {
+        id: record.id || null,
+        status: record.status || 'pending',
+        email: record.email || null,
+        displayName: record.displayName || null,
+        clinicId: record.clinicId || null,
+        clinicName: record.clinicName || null,
+        notes: record.notes || '',
+        accountId: record.accountId || null,
+        requestedAt: record.requestedAt || null,
+        updatedAt: record.updatedAt || null,
+        processedBy: record.processedBy || null,
+        processedAt: record.processedAt || null,
+        decisionReason: record.decisionReason || null,
+        metadata: record.metadata || {},
+        inviteId: record.inviteId || null,
+        approvedMembershipId: record.approvedMembershipId || null,
+      };
+    }
+
+    async function getAdminRequestById(env, id) {
+      if (!id) return null;
+      return kvGetJSON(env, adminRequestKey(id));
+    }
+
+    async function saveAdminRequestRecord(env, record) {
+      if (!record || !record.id) {
+        throw new Error('Invalid admin request record');
+      }
+      record.updatedAt = new Date().toISOString();
+      await kvPutJSON(env, adminRequestKey(record.id), record);
+      return record;
+    }
+
+    async function createAdminRequestRecord(env, record) {
+      if (!record || !record.id) {
+        throw new Error('Invalid admin request record');
+      }
+      await kvPutJSON(env, adminRequestKey(record.id), record);
+      return record;
+    }
+
+    async function setPendingAdminRequestEmail(env, emailLower, requestId) {
+      const key = adminRequestEmailKey(emailLower);
+      if (!requestId) {
+        await env.SETTINGS.delete(key).catch(() => {});
+        return;
+      }
+      await env.SETTINGS.put(key, requestId);
+    }
+
+    async function clearPendingAdminRequestEmail(env, emailLower, requestId) {
+      if (!emailLower) return;
+      const key = adminRequestEmailKey(emailLower);
+      try {
+        const stored = await env.SETTINGS.get(key);
+        if (!stored) return;
+        if (!requestId || stored === requestId) {
+          await env.SETTINGS.delete(key);
+        }
+      } catch (err) {
+        console.warn('[adminRequest] failed to clear pending email index', err);
+      }
+    }
+
+    async function listAdminRequests(env, {
+      status,
+      limit = ADMIN_REQUEST_DEFAULT_LIMIT,
+      cursor,
+    } = {}) {
+      const normalizedStatus = status ? status.toString().trim().toLowerCase() : '';
+      const collected = [];
+      let nextCursor = cursor;
+      let listComplete = false;
+      const maxIterations = 10;
+      let iterations = 0;
+
+      while (collected.length < limit && !listComplete && iterations < maxIterations) {
+        const listResponse = await env.SETTINGS.list({
+          prefix: ADMIN_REQUEST_PREFIX,
+          cursor: nextCursor,
+          limit: 100,
+        });
+        nextCursor = listResponse.cursor;
+        listComplete = listResponse.list_complete;
+        iterations += 1;
+
+        for (const entry of listResponse.keys) {
+          const record = await kvGetJSON(env, entry.name);
+          if (!record) continue;
+          if (normalizedStatus && (record.status || '').toLowerCase() !== normalizedStatus) {
+            continue;
+          }
+          collected.push(sanitizeAdminRequest(record));
+          if (collected.length >= limit) break;
+        }
+      }
+
+      return {
+        requests: collected,
+        cursor: listComplete || !nextCursor ? undefined : nextCursor,
+      };
+    }
+
+    function getAdminNotifyRecipients(env) {
+      const raw = nk(env?.ADMIN_NOTIFY_EMAILS);
+      if (!raw) return [];
+      return raw
+        .split(/[,\s]+/)
+        .map((item) => normalizeEmail(item))
+        .filter(Boolean);
+    }
+
+    async function sendAdminRequestReceivedEmail(env, { request, clinicName }) {
+      try {
+        const recipient = normalizeEmail(request?.email);
+        if (!recipient) return { ok: false, skipped: true, reason: 'missingEmail' };
+        const mail = createMailClient(env);
+        const namePart = request.displayName ? `${request.displayName} 様` : '申請者様';
+        const lines = [
+          namePart,
+          '',
+          'NCD（中野区診療所データベース）の管理者権限申請を受け付けました。',
+          clinicName ? `対象施設: ${clinicName}` : '',
+          '',
+          '審査完了まで数日かかる場合があります。承認が完了すると、別途メールでお知らせいたします。',
+        ].filter(Boolean);
+        const text = lines.join('\n');
+        const html = lines.map((line) => `<p>${line || '&nbsp;'}</p>`).join('');
+        return await mail.send({
+          to: recipient,
+          subject: '[NCD] 管理者権限申請を受け付けました',
+          text,
+          html,
+        });
+      } catch (err) {
+        console.error('[mail] failed to send admin request received email', err);
+        return { ok: false, error: err.message };
+      }
+    }
+
+    async function sendAdminRequestNotifyEmail(env, { request, clinicName }) {
+      try {
+        const recipients = getAdminNotifyRecipients(env);
+        if (!recipients.length) {
+          return { ok: false, skipped: true, reason: 'noRecipients' };
+        }
+        const mail = createMailClient(env);
+        const text = [
+          '新しい管理者権限の申請が届きました。',
+          '',
+          `申請ID: ${request.id}`,
+          `申請者: ${request.displayName || '未入力'} (${request.email})`,
+          clinicName ? `施設: ${clinicName}` : '',
+          request.notes ? `備考: ${request.notes}` : '',
+          '',
+          '管理画面から承認または却下の対応を行ってください。',
+        ].filter(Boolean).join('\n');
+        const html = text.split('\n').map((line) => `<p>${line || '&nbsp;'}</p>`).join('');
+        return await mail.send({
+          to: recipients,
+          subject: '[NCD] 管理者権限の新しい申請が届きました',
+          text,
+          html,
+        });
+      } catch (err) {
+        console.error('[mail] failed to send admin request notify email', err);
+        return { ok: false, error: err.message };
+      }
+    }
+
+    async function sendAdminRequestApprovedEmail(env, { request, clinicName, loginUrl }) {
+      try {
+        const recipient = normalizeEmail(request?.email);
+        if (!recipient) return { ok: false, skipped: true, reason: 'missingEmail' };
+        const mail = createMailClient(env);
+        const lines = [
+          request.displayName ? `${request.displayName} 様` : '申請者様',
+          '',
+          'NCD（中野区診療所データベース）の管理者権限が有効になりました。',
+          clinicName ? `施設: ${clinicName}` : '',
+          '',
+          loginUrl ? `以下のリンクからログインし、施設管理を開始してください。\n${loginUrl}` : '通常のログインページからアクセスしてください。',
+        ];
+        const text = lines.join('\n');
+        const html = lines.map((line) => {
+          if (!line) return '<p>&nbsp;</p>';
+          if (loginUrl && line.includes(loginUrl)) {
+            return `<p><a href="${loginUrl}">${loginUrl}</a></p>`;
+          }
+          return `<p>${line}</p>`;
+        }).join('');
+        return await mail.send({
+          to: recipient,
+          subject: '[NCD] 管理者権限が有効になりました',
+          text,
+          html,
+        });
+      } catch (err) {
+        console.error('[mail] failed to send admin request approved email', err);
+        return { ok: false, error: err.message };
+      }
+    }
+
+    async function sendAdminRequestDeniedEmail(env, { request, clinicName, reason }) {
+      try {
+        const recipient = normalizeEmail(request?.email);
+        if (!recipient) return { ok: false, skipped: true, reason: 'missingEmail' };
+        const mail = createMailClient(env);
+        const lines = [
+          request.displayName ? `${request.displayName} 様` : '申請者様',
+          '',
+          '管理者権限の申請について、今回は見送らせていただきました。',
+          clinicName ? `対象施設: ${clinicName}` : '',
+          reason ? `理由: ${reason}` : '',
+          '',
+          'ご不明な点があれば、医師会事務局までお問い合わせください。',
+        ];
+        const text = lines.join('\n');
+        const html = lines.map((line) => `<p>${line || '&nbsp;'}</p>`).join('');
+        return await mail.send({
+          to: recipient,
+          subject: '[NCD] 管理者権限申請の結果について',
+          text,
+          html,
+        });
+      } catch (err) {
+        console.error('[mail] failed to send admin request denied email', err);
         return { ok: false, error: err.message };
       }
     }
@@ -1739,6 +1988,92 @@ export default {
       return jsonResponse({ ok: true });
     }
 
+    if (routeMatch(url, 'POST', 'auth/requestAdminAccess')) {
+      let body;
+      try {
+        body = await request.json();
+      } catch (err) {
+        return jsonResponse({ error: 'INVALID_JSON', message: 'リクエスト形式が不正です。' }, 400);
+      }
+
+      const email = normalizeEmail(body?.email);
+      if (!email || !EMAIL_REGEX.test(email)) {
+        return jsonResponse({ error: 'INVALID_EMAIL', message: 'メールアドレスの形式が正しくありません。' }, 400);
+      }
+      const displayName = nk(body?.displayName || body?.name);
+      const clinicIdInput = nk(body?.clinicId);
+      const clinicNameInput = nk(body?.clinicName);
+      const notes = nk(body?.notes);
+      if (!clinicIdInput && !clinicNameInput) {
+        return jsonResponse({ error: 'INVALID_REQUEST', message: '対象施設を指定してください。' }, 400);
+      }
+
+      const emailLower = email;
+      const pendingEmailKey = adminRequestEmailKey(emailLower);
+      let existingPendingId = await env.SETTINGS.get(pendingEmailKey);
+      if (existingPendingId) {
+        const existingPending = await getAdminRequestById(env, existingPendingId);
+        if (existingPending && (existingPending.status || '').toLowerCase() === 'pending') {
+          return jsonResponse({ error: 'REQUEST_PENDING', message: '同じメールアドレスによる申請が処理中です。結果をお待ちください。' }, 409);
+        }
+        await env.SETTINGS.delete(pendingEmailKey).catch(() => {});
+        existingPendingId = null;
+      }
+
+      let clinic = null;
+      let clinicId = null;
+      let clinicName = clinicNameInput;
+      if (clinicIdInput) {
+        clinic = await getClinicById(env, clinicIdInput);
+        if (!clinic) {
+          return jsonResponse({ error: 'NOT_FOUND', message: '指定された施設が見つかりません。' }, 404);
+        }
+        clinicId = clinic.id;
+        clinicName = clinic.name || clinicName;
+      } else if (clinicNameInput) {
+        const clinicByName = await getClinicByName(env, clinicNameInput);
+        if (clinicByName?.id) {
+          clinic = clinicByName;
+          clinicId = clinicByName.id;
+          clinicName = clinicByName.name || clinicNameInput;
+        }
+      }
+
+      const accountLookup = await findAccountByIdentifier(env, email);
+      let accountId = null;
+      if (accountLookup?.account) {
+        accountId = ensureAccountId(accountLookup.account, accountLookup.pointer);
+      }
+
+      const id = crypto.randomUUID();
+      const nowIso = new Date().toISOString();
+      const requestRecord = {
+        id,
+        status: 'pending',
+        email,
+        emailLower,
+        displayName: displayName || '',
+        clinicId: clinicId || null,
+        clinicName: clinicName || '',
+        notes,
+        accountId,
+        requestedAt: nowIso,
+        updatedAt: nowIso,
+        metadata: {
+          submittedFrom: nk(request.headers.get('cf-connecting-ip')) || null,
+          userAgent: nk(request.headers.get('user-agent')) || null,
+        },
+      };
+
+      await createAdminRequestRecord(env, requestRecord);
+      await setPendingAdminRequestEmail(env, emailLower, id);
+
+      await sendAdminRequestReceivedEmail(env, { request: requestRecord, clinicName: requestRecord.clinicName });
+      await sendAdminRequestNotifyEmail(env, { request: requestRecord, clinicName: requestRecord.clinicName });
+
+      return jsonResponse({ ok: true, request: sanitizeAdminRequest(requestRecord) });
+    }
+
     if (routeMatch(url, 'POST', 'auth/login')) {
       let body;
       try {
@@ -1958,6 +2293,267 @@ export default {
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
+    }
+
+    if (routeMatch(url, 'GET', 'admin/accessRequests')) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      if (!hasRole(authContext.payload, ['systemAdmin', 'adminReviewer'])) {
+        return jsonResponse({ error: 'FORBIDDEN', message: '権限が不足しています。' }, 403);
+      }
+      const statusParam = nk(url.searchParams.get('status'));
+      const limitParam = nk(url.searchParams.get('limit'));
+      const cursorParam = nk(url.searchParams.get('cursor')) || undefined;
+      const limit = limitParam ? Math.max(1, Math.min(100, Number(limitParam) || ADMIN_REQUEST_DEFAULT_LIMIT)) : ADMIN_REQUEST_DEFAULT_LIMIT;
+
+      const { requests, cursor: nextCursor } = await listAdminRequests(env, {
+        status: statusParam,
+        limit,
+        cursor: cursorParam,
+      });
+      return jsonResponse({ ok: true, requests, cursor: nextCursor });
+    }
+
+    if (routeMatch(url, 'GET', 'admin/accessRequest')) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      if (!hasRole(authContext.payload, ['systemAdmin', 'adminReviewer'])) {
+        return jsonResponse({ error: 'FORBIDDEN', message: '権限が不足しています。' }, 403);
+      }
+      const requestId = nk(url.searchParams.get('id'));
+      if (!requestId) {
+        return jsonResponse({ error: 'INVALID_REQUEST', message: 'id が必要です。' }, 400);
+      }
+      const adminRequest = await getAdminRequestById(env, requestId);
+      if (!adminRequest) {
+        return jsonResponse({ error: 'NOT_FOUND', message: '申請が見つかりません。' }, 404);
+      }
+      return jsonResponse({ ok: true, request: sanitizeAdminRequest(adminRequest) });
+    }
+
+    if (routeMatch(url, 'POST', 'admin/accessRequest/approve')) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      if (!hasRole(authContext.payload, ['systemAdmin', 'adminReviewer'])) {
+        return jsonResponse({ error: 'FORBIDDEN', message: '権限が不足しています。' }, 403);
+      }
+      let body;
+      try {
+        body = await request.json();
+      } catch (err) {
+        return jsonResponse({ error: 'INVALID_JSON', message: 'リクエスト形式が不正です。' }, 400);
+      }
+      const requestId = nk(body?.requestId || body?.id);
+      if (!requestId) {
+        return jsonResponse({ error: 'INVALID_REQUEST', message: 'requestId が必要です。' }, 400);
+      }
+      let adminRequest = await getAdminRequestById(env, requestId);
+      if (!adminRequest) {
+        return jsonResponse({ error: 'NOT_FOUND', message: '申請が見つかりません。' }, 404);
+      }
+      if ((adminRequest.status || '').toLowerCase() !== 'pending') {
+        return jsonResponse({ error: 'REQUEST_ALREADY_PROCESSED', message: 'この申請は処理済みです。' }, 409);
+      }
+
+      const clinicIdInput = nk(body?.clinicId) || adminRequest.clinicId || '';
+      if (!clinicIdInput) {
+        return jsonResponse({ error: 'INVALID_REQUEST', message: 'clinicId が必要です。' }, 400);
+      }
+      const clinic = await getClinicById(env, clinicIdInput);
+      if (!clinic) {
+        return jsonResponse({ error: 'NOT_FOUND', message: '指定された施設が見つかりません。' }, 404);
+      }
+      adminRequest.clinicId = clinic.id;
+      adminRequest.clinicName = clinic.name || adminRequest.clinicName || '';
+
+      const role = 'clinicAdmin';
+
+      const email = adminRequest.email;
+      const emailLower = adminRequest.emailLower || normalizeEmail(email);
+      let account = null;
+      if (adminRequest.accountId) {
+        account = await getAccountById(env, adminRequest.accountId);
+      }
+      if (!account) {
+        const lookup = await findAccountByIdentifier(env, email);
+        if (lookup?.account) {
+          account = lookup.account;
+          adminRequest.accountId = ensureAccountId(account, lookup.pointer);
+        }
+      }
+
+      const processedBy = ensureAccountId(authContext.account);
+      const processedAtIso = new Date().toISOString();
+      const clinicName = clinic.name || adminRequest.clinicName || '';
+      const loginUrl = `${getAppBaseUrl(env)}/auth/login.html`;
+
+      let membership = null;
+      let invite = null;
+
+      if (account) {
+        const accountId = ensureAccountId(account, adminRequest.accountId);
+        const membershipIds = normalizeMembershipIds(account);
+        let existingMembership = null;
+        for (const membershipId of membershipIds) {
+          const record = await getMembershipById(env, membershipId);
+          if (record?.clinicId === clinic.id) {
+            existingMembership = record;
+            break;
+          }
+        }
+        if (existingMembership) {
+          const roles = new Set(Array.isArray(existingMembership.roles) ? existingMembership.roles : []);
+          if (!roles.has(role)) {
+            roles.add(role);
+            existingMembership.roles = Array.from(roles);
+            if (!existingMembership.primaryRole) {
+              existingMembership.primaryRole = role;
+            }
+            await kvPutJSON(env, existingMembership.id, existingMembership);
+          }
+          membership = existingMembership;
+        } else {
+          membership = await createMembershipRecord(env, {
+            clinicId: clinic.id,
+            accountId,
+            roles: [role],
+            invitedBy: processedBy,
+          });
+        }
+
+        const membershipSet = new Set(normalizeMembershipIds(account));
+        membershipSet.add(membership.id);
+        account.membershipIds = Array.from(membershipSet);
+        await saveAccountRecord(env, account);
+
+        const staffMemberships = new Set(Array.isArray(clinic.staffMemberships) ? clinic.staffMemberships : []);
+        staffMemberships.add(membership.id);
+        clinic.staffMemberships = Array.from(staffMemberships);
+        if (role === 'clinicAdmin') {
+          const managers = new Set(Array.isArray(clinic.managerAccounts) ? clinic.managerAccounts : []);
+          managers.add(accountId);
+          clinic.managerAccounts = Array.from(managers);
+        }
+        await saveClinic(env, clinic);
+
+        await sendAdminRequestApprovedEmail(env, {
+          request: adminRequest,
+          clinicName,
+          loginUrl,
+        });
+        adminRequest.approvedMembershipId = membership.id;
+      } else {
+        const now = Date.now();
+        const invitedBy = processedBy;
+        const metadata = {
+          kind: role === 'clinicAdmin' ? 'clinicAdmin' : 'clinicStaff',
+          source: 'adminRequest',
+          requestId: adminRequest.id,
+        };
+        if (adminRequest.displayName) metadata.displayName = adminRequest.displayName;
+        const { invite: newInvite, token } = await createInviteRecord(env, {
+          clinicId: clinic.id,
+          email,
+          role,
+          invitedBy,
+          metadata,
+        });
+        invite = newInvite;
+        const pendingInvites = cleanClinicPendingInvites(clinic, now).filter((item) => item.id !== invite.id);
+        pendingInvites.push({
+          id: invite.id,
+          email: invite.email,
+          role: invite.role,
+          status: invite.status,
+          invitedAt: invite.invitedAt,
+          expiresAt: invite.expiresAt,
+          invitedBy,
+          metadata,
+        });
+        clinic.pendingInvites = pendingInvites;
+        await saveClinic(env, clinic);
+        await sendInviteEmail(env, { clinic, invite, token });
+        adminRequest.inviteId = invite.id;
+        adminRequest.inviteSentAt = new Date().toISOString();
+      }
+
+      adminRequest.status = 'approved';
+      adminRequest.processedBy = processedBy;
+      adminRequest.processedAt = processedAtIso;
+      adminRequest.decisionReason = nk(body?.decisionReason);
+
+      await saveAdminRequestRecord(env, adminRequest);
+      await clearPendingAdminRequestEmail(env, emailLower, adminRequest.id);
+
+      const responsePayload = {
+        ok: true,
+        request: sanitizeAdminRequest(adminRequest),
+      };
+      if (membership) {
+        responsePayload.membership = membership;
+      }
+      if (invite) {
+        responsePayload.invite = {
+          id: invite.id,
+          email: invite.email,
+          role: invite.role,
+          invitedAt: invite.invitedAt,
+          expiresAt: invite.expiresAt,
+          status: invite.status,
+        };
+      }
+      return jsonResponse(responsePayload);
+    }
+
+    if (routeMatch(url, 'POST', 'admin/accessRequest/deny')) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      if (!hasRole(authContext.payload, ['systemAdmin', 'adminReviewer'])) {
+        return jsonResponse({ error: 'FORBIDDEN', message: '権限が不足しています。' }, 403);
+      }
+      let body;
+      try {
+        body = await request.json();
+      } catch (err) {
+        return jsonResponse({ error: 'INVALID_JSON', message: 'リクエスト形式が不正です。' }, 400);
+      }
+      const requestId = nk(body?.requestId || body?.id);
+      if (!requestId) {
+        return jsonResponse({ error: 'INVALID_REQUEST', message: 'requestId が必要です。' }, 400);
+      }
+      const adminRequest = await getAdminRequestById(env, requestId);
+      if (!adminRequest) {
+        return jsonResponse({ error: 'NOT_FOUND', message: '申請が見つかりません。' }, 404);
+      }
+      if ((adminRequest.status || '').toLowerCase() !== 'pending') {
+        return jsonResponse({ error: 'REQUEST_ALREADY_PROCESSED', message: 'この申請は処理済みです。' }, 409);
+      }
+      const reason = nk(body?.reason || body?.decisionReason);
+      const processedBy = ensureAccountId(authContext.account);
+      const processedAtIso = new Date().toISOString();
+
+      adminRequest.status = 'denied';
+      adminRequest.processedBy = processedBy;
+      adminRequest.processedAt = processedAtIso;
+      adminRequest.decisionReason = reason;
+
+      await saveAdminRequestRecord(env, adminRequest);
+      await clearPendingAdminRequestEmail(env, adminRequest.emailLower || normalizeEmail(adminRequest.email), adminRequest.id);
+      await sendAdminRequestDeniedEmail(env, {
+        request: adminRequest,
+        clinicName: adminRequest.clinicName,
+        reason,
+      });
+
+      return jsonResponse({ ok: true, request: sanitizeAdminRequest(adminRequest) });
     }
 
     if (routeMatch(url, 'GET', 'memberships')) {
