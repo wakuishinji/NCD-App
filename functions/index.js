@@ -581,6 +581,49 @@ export default {
       };
     }
 
+    async function resolveAccountMemberships(env, account) {
+      const rawIds = normalizeMembershipIds(account);
+      if (!rawIds.length) {
+        return { membershipIds: [], memberships: [] };
+      }
+      const dedupedIds = [];
+      const seenIds = new Set();
+      for (const id of rawIds) {
+        if (typeof id !== 'string' || !id) continue;
+        if (seenIds.has(id)) continue;
+        seenIds.add(id);
+        dedupedIds.push(id);
+      }
+
+      const membershipMap = new Map();
+      if (Array.isArray(account?.memberships)) {
+        for (const entry of account.memberships) {
+          const sanitized = sanitizeMembershipRecord(entry);
+          if (sanitized && sanitized.id && seenIds.has(sanitized.id) && !membershipMap.has(sanitized.id)) {
+            membershipMap.set(sanitized.id, sanitized);
+          }
+        }
+      }
+
+      for (const membershipId of dedupedIds) {
+        if (membershipMap.has(membershipId)) continue;
+        try {
+          const record = await getMembershipById(env, membershipId);
+          const sanitized = sanitizeMembershipRecord(record);
+          if (sanitized && sanitized.id) {
+            membershipMap.set(sanitized.id, sanitized);
+          }
+        } catch (err) {
+          console.warn('resolveAccountMemberships failed to fetch', membershipId, err);
+        }
+      }
+
+      return {
+        membershipIds: dedupedIds,
+        memberships: Array.from(membershipMap.values()),
+      };
+    }
+
     const EXPLANATION_STATUS_SET = new Set(["draft", "published", "archived"]);
 
     function sanitizeExplanationStatus(value) {
@@ -1179,11 +1222,31 @@ export default {
       return false;
     }
 
-    function publicAccountView(account) {
+    function publicAccountView(account, options = {}) {
       if (!account) return null;
       ensureAccountId(account);
       const membershipIds = normalizeMembershipIds(account);
-      return {
+      let membershipDetails = [];
+      if (Array.isArray(options.memberships)) {
+        membershipDetails = options.memberships
+          .map((entry) => sanitizeMembershipRecord(entry))
+          .filter(Boolean);
+      } else if (Array.isArray(account.memberships)) {
+        membershipDetails = account.memberships
+          .map((entry) => sanitizeMembershipRecord(entry))
+          .filter(Boolean);
+      }
+      if (membershipDetails.length) {
+        const deduped = [];
+        const seen = new Set();
+        for (const item of membershipDetails) {
+          if (!item || !item.id || seen.has(item.id)) continue;
+          seen.add(item.id);
+          deduped.push(item);
+        }
+        membershipDetails = deduped;
+      }
+      const result = {
         id: account.id || null,
         role: nk(account.role) || 'clinicStaff',
         status: nk(account.status) || 'active',
@@ -1191,6 +1254,10 @@ export default {
         profile: account.profile && typeof account.profile === 'object' ? account.profile : {},
         membershipIds,
       };
+      if (membershipDetails.length) {
+        result.memberships = membershipDetails;
+      }
+      return result;
     }
 
     async function writeSessionMeta(env, sessionId, data, ttlSeconds) {
@@ -1540,29 +1607,35 @@ export default {
       });
       await removeInviteLookup(env, tokenHash);
 
+      const { membershipIds, memberships } = await resolveAccountMemberships(env, account);
+      account.memberships = memberships;
+
       const sessionId = generateSessionId();
-      const membershipIds = normalizeMembershipIds(account);
       const accessTokenData = await createToken(
-        { sub: account.id, role, membershipIds, tokenType: 'access' },
+        { sub: account.id, role, membershipIds, memberships, tokenType: 'access' },
         { env, sessionId, ttlSeconds: ACCESS_TOKEN_TTL_SECONDS },
       );
       const refreshTokenData = await createToken(
-        { sub: account.id, role, membershipIds, tokenType: 'refresh', remember: false },
+        { sub: account.id, role, membershipIds, memberships, tokenType: 'refresh', remember: false },
         { env, sessionId, ttlSeconds: REFRESH_TOKEN_TTL_SECONDS },
       );
       await writeSessionMeta(env, sessionId, {
         accountId: account.id,
         role,
         membershipIds,
+        memberships,
         remember: false,
         createdAt: new Date(accessTokenData.issuedAt * 1000).toISOString(),
         refreshExpiresAt: new Date(refreshTokenData.expiresAt * 1000).toISOString(),
       }, REFRESH_TOKEN_TTL_SECONDS + 3600);
 
+      const membershipSanitized = sanitizeMembershipRecord(membership) || membership;
+
       return jsonResponse({
         ok: true,
-        account: publicAccountView(account),
-        membership: membership,
+        account: publicAccountView(account, { memberships }),
+        membership: membershipSanitized,
+        memberships,
         tokens: {
           accessToken: accessTokenData.token,
           accessTokenExpiresAt: new Date(accessTokenData.expiresAt * 1000).toISOString(),
@@ -1702,7 +1775,8 @@ export default {
         });
       }
       const role = nk(account.role) || 'clinicStaff';
-      const membershipIds = normalizeMembershipIds(account);
+      const { membershipIds, memberships } = await resolveAccountMemberships(env, account);
+      account.memberships = memberships;
       const remember = Boolean(body?.remember);
       const sessionId = generateSessionId();
       const sessionStore = getSessionStore(env);
@@ -1710,12 +1784,12 @@ export default {
       let refreshTokenData;
       try {
         accessTokenData = await createToken(
-          { sub: accountId, role, membershipIds, tokenType: 'access' },
+          { sub: accountId, role, membershipIds, memberships, tokenType: 'access' },
           { env, sessionId, ttlSeconds: ACCESS_TOKEN_TTL_SECONDS },
         );
         const refreshTtl = remember ? REFRESH_TOKEN_TTL_REMEMBER_SECONDS : REFRESH_TOKEN_TTL_SECONDS;
         refreshTokenData = await createToken(
-          { sub: accountId, role, membershipIds, tokenType: 'refresh', remember },
+          { sub: accountId, role, membershipIds, memberships, tokenType: 'refresh', remember },
           { env, sessionId, ttlSeconds: refreshTtl },
         );
       } catch (err) {
@@ -1733,6 +1807,7 @@ export default {
         accountId,
         role,
         membershipIds,
+        memberships,
         remember,
         createdAt: new Date(accessTokenData.issuedAt * 1000).toISOString(),
         refreshExpiresAt: new Date(refreshTokenData.expiresAt * 1000).toISOString(),
@@ -1740,7 +1815,7 @@ export default {
 
       const responsePayload = {
         ok: true,
-        account: publicAccountView(account),
+        account: publicAccountView(account, { memberships }),
         tokens: {
           accessToken: accessTokenData.token,
           accessTokenExpiresAt: new Date(accessTokenData.expiresAt * 1000).toISOString(),
@@ -1831,19 +1906,20 @@ export default {
       }
       const accountId = ensureAccountId(account, payload.sub);
       const role = nk(account.role) || payload.role || 'clinicStaff';
-      const membershipIds = normalizeMembershipIds(account);
+      const { membershipIds, memberships } = await resolveAccountMemberships(env, account);
+      account.memberships = memberships;
       const remember = Boolean(payload.remember);
       const newSessionId = generateSessionId();
       let accessTokenData;
       let refreshTokenData;
       try {
         accessTokenData = await createToken(
-          { sub: accountId, role, membershipIds, tokenType: 'access' },
+          { sub: accountId, role, membershipIds, memberships, tokenType: 'access' },
           { env, sessionId: newSessionId, ttlSeconds: ACCESS_TOKEN_TTL_SECONDS },
         );
         const refreshTtl = remember ? REFRESH_TOKEN_TTL_REMEMBER_SECONDS : REFRESH_TOKEN_TTL_SECONDS;
         refreshTokenData = await createToken(
-          { sub: accountId, role, membershipIds, tokenType: 'refresh', remember },
+          { sub: accountId, role, membershipIds, memberships, tokenType: 'refresh', remember },
           { env, sessionId: newSessionId, ttlSeconds: refreshTtl },
         );
       } catch (err) {
@@ -1861,6 +1937,7 @@ export default {
         accountId,
         role,
         membershipIds,
+        memberships,
         remember,
         createdAt: new Date(accessTokenData.issuedAt * 1000).toISOString(),
         refreshExpiresAt: new Date(refreshTokenData.expiresAt * 1000).toISOString(),
@@ -1870,7 +1947,7 @@ export default {
 
       return new Response(JSON.stringify({
         ok: true,
-        account: publicAccountView(account),
+        account: publicAccountView(account, { memberships }),
         tokens: {
           accessToken: accessTokenData.token,
           accessTokenExpiresAt: new Date(accessTokenData.expiresAt * 1000).toISOString(),
@@ -1888,15 +1965,8 @@ export default {
       if (!authContext) {
         return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
       }
-      const membershipIds = normalizeMembershipIds(authContext.account);
-      const memberships = [];
-      for (const membershipId of membershipIds) {
-        const record = await getMembershipById(env, membershipId);
-        const sanitized = sanitizeMembershipRecord(record);
-        if (sanitized) {
-          memberships.push(sanitized);
-        }
-      }
+      const { memberships } = await resolveAccountMemberships(env, authContext.account);
+      authContext.account.memberships = memberships;
       return jsonResponse({ ok: true, memberships });
     }
 

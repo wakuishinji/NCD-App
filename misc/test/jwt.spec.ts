@@ -43,6 +43,14 @@ describe('JWT helpers', () => {
       sub: 'account:123',
       role: 'clinicAdmin',
       membershipIds: ['membership:xyz'],
+      memberships: [
+        {
+          id: 'membership:xyz',
+          clinicId: 'clinic-123',
+          roles: ['clinicAdmin'],
+          status: 'active',
+        },
+      ],
     };
     const { token, sessionId, expiresAt } = await createToken(payload, {
       env,
@@ -57,6 +65,7 @@ describe('JWT helpers', () => {
     expect(verified.sub).toBe(payload.sub);
     expect(verified.role).toBe(payload.role);
     expect(verified.membershipIds).toEqual(payload.membershipIds);
+    expect(verified.memberships[0].clinicId).toBe('clinic-123');
     expect(verified.sessionId).toBe(sessionId);
   });
 

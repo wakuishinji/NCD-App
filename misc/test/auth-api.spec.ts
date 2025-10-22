@@ -198,7 +198,17 @@ describe('auth API', () => {
     const accepted = await acceptRes.json();
     expect(accepted.ok).toBe(true);
     expect(accepted.account.role).toBe('clinicAdmin');
+    expect(Array.isArray(accepted.account.membershipIds)).toBe(true);
+    expect(Array.isArray(accepted.account.memberships)).toBe(true);
+    expect(accepted.account.memberships[0].clinicId).toBe('clinic-1');
+    expect(accepted.memberships[0].clinicId).toBe('clinic-1');
     expect(accepted.tokens.accessToken).toBeTypeOf('string');
+    const decodedInviteToken = await verifyToken(accepted.tokens.accessToken, {
+      env,
+      sessionStore: env.SETTINGS,
+    });
+    expect(decodedInviteToken.payload.membershipIds).toContain(accepted.account.membershipIds[0]);
+    expect(decodedInviteToken.payload.memberships[0].clinicId).toBe('clinic-1');
 
     const pointer = await env.SETTINGS.get('account:email:manager@example.com');
     expect(pointer).toBeTypeOf('string');
@@ -349,9 +359,17 @@ describe('auth API', () => {
     const payload = await res.json();
     expect(payload.ok).toBe(true);
     expect(payload.account.role).toBe('systemAdmin');
+    expect(Array.isArray(payload.account.membershipIds)).toBe(true);
+    expect(Array.isArray(payload.account.memberships || [])).toBe(true);
     expect(payload.tokens.accessToken).toBeTypeOf('string');
     expect(payload.tokens.refreshToken).toBeTypeOf('string');
     expect(payload.tokens.sessionId).toBeTypeOf('string');
+    const decodedLoginToken = await verifyToken(payload.tokens.accessToken, {
+      env,
+      sessionStore: env.SETTINGS,
+    });
+    expect(Array.isArray(decodedLoginToken.payload.membershipIds)).toBe(true);
+    expect(Array.isArray(decodedLoginToken.payload.memberships)).toBe(true);
   });
 
   it('rejects invalid credentials', async () => {
@@ -372,7 +390,19 @@ describe('auth API', () => {
 
   it('refreshes token and revokes previous session', async () => {
     const env = createEnv();
-    await seedAccount(env);
+    const { accountRecord } = await seedAccount(env);
+    const membership = {
+      id: 'membership:test-refresh',
+      clinicId: 'clinic-refresh',
+      accountId: accountRecord.id,
+      roles: ['clinicAdmin'],
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await env.SETTINGS.put(membership.id, JSON.stringify(membership));
+    accountRecord.membershipIds = [membership.id];
+    await env.SETTINGS.put(`account:id:${accountRecord.id.replace('account:', '')}`, JSON.stringify(accountRecord));
 
     const loginRes = await worker.fetch(
       jsonRequest('https://example.com/api/auth/login', 'POST', {
@@ -383,6 +413,7 @@ describe('auth API', () => {
       env,
     );
     const loginPayload = await loginRes.json();
+    expect(loginPayload.account.memberships[0].clinicId).toBe('clinic-refresh');
     const { refreshToken, sessionId } = loginPayload.tokens;
 
     const refreshRes = await worker.fetch(
@@ -393,6 +424,7 @@ describe('auth API', () => {
     );
     expect(refreshRes.ok).toBe(true);
     const refreshed = await refreshRes.json();
+    expect(refreshed.account.memberships[0].clinicId).toBe('clinic-refresh');
     expect(refreshed.tokens.sessionId).not.toBe(sessionId);
 
     // old refresh token should now be invalid

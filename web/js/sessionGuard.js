@@ -18,6 +18,15 @@
       .filter(Boolean);
   }
 
+  function resolveRequiredClinicId() {
+    const attr =
+      (document.body && document.body.dataset.requireClinic) ||
+      document.documentElement.dataset.requireClinic ||
+      '';
+    const trimmed = (attr || '').trim();
+    return trimmed || null;
+  }
+
   function resolveRedirectTarget() {
     const body = document.body;
     if (body && body.dataset.redirectTo) {
@@ -52,11 +61,12 @@
       return null;
     }
     const requiredRoles = parseRequiredRoles();
+    const clinicId = resolveRequiredClinicId();
     if (!requiredRoles.length) {
       return global.NcdAuth.ensureAuth({ optional: true });
     }
     try {
-      return await global.NcdAuth.requireRole(requiredRoles);
+      return await global.NcdAuth.requireRole(requiredRoles, clinicId ? { clinicId } : {});
     } catch (err) {
       const code = err && err.code ? err.code : 'AUTH_REQUIRED';
       const message = resolveGuardMessage(code);

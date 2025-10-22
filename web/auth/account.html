@@ -91,16 +91,28 @@
         return DEFAULT_API_BASE;
       }
 
-      function normalizeMembershipEntries(rawList) {
-        if (!Array.isArray(rawList)) {
-          return [];
+      function normalizeMembershipEntries(rawList, auth) {
+        if (global.NcdAuth && typeof global.NcdAuth.getMemberships === 'function') {
+          const resolved = global.NcdAuth.getMemberships(auth);
+          if (Array.isArray(resolved) && resolved.length) {
+            return resolved;
+          }
         }
-        if (global.NcdAuth && typeof global.NcdAuth.getMembershipLabels === 'function') {
-          return global.NcdAuth.getMembershipLabels(rawList);
-        }
-        return rawList.map((value) => (typeof value === 'string'
-          ? { id: value, label: value }
-          : { id: value?.id || String(value ?? ''), label: value?.label || value?.id || String(value ?? '') }));
+        const list = Array.isArray(rawList) ? rawList : [];
+        return list.map((value) => {
+          if (typeof value === 'object' && value && value.id) {
+            return value;
+          }
+          const id = typeof value === 'string' ? value : String(value ?? '');
+          return {
+            id,
+            clinicId: null,
+            roles: [],
+            primaryRole: '',
+            status: 'active',
+            label: id,
+          };
+        });
       }
 
       function membershipRoles(entry) {
@@ -142,6 +154,7 @@
         for (const entry of entries) {
           const clinicId = entry?.clinicId || '';
           const clinicName = await loadClinicName(clinicId, apiBase);
+          const displayName = clinicName || entry?.clinicName || entry?.label || '(施設未設定)';
           const roles = membershipRoles(entry);
           const roleLabels = roles.length
             ? roles.map((role) => (global.NcdAuth && typeof global.NcdAuth.getRoleLabel === 'function'
@@ -156,7 +169,7 @@
           rendered.push(`
             <div class="rounded border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm">
               <div class="flex items-center justify-between gap-3">
-                <span class="font-semibold text-blue-800">${escapeHtml(clinicName || '(施設未設定)')}</span>
+                <span class="font-semibold text-blue-800">${escapeHtml(displayName)}</span>
                 ${statusBadge}
               </div>
               <div class="mt-2 text-xs text-slate-600">
@@ -179,7 +192,8 @@
         const roleLabel = (global.NcdAuth && typeof global.NcdAuth.getRoleLabel === 'function')
           ? global.NcdAuth.getRoleLabel(roleKey)
           : (roleKey || '未設定');
-        const memberships = normalizeMembershipEntries(auth?.account?.membershipIds);
+        const sourceMemberships = auth?.account?.memberships || auth?.account?.membershipIds;
+        const memberships = normalizeMembershipEntries(sourceMemberships, auth);
 
         if (displayNameEl) displayNameEl.innerHTML = escapeHtml(displayName);
         if (emailEl) emailEl.innerHTML = escapeHtml(email);

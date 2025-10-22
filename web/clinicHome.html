@@ -262,9 +262,19 @@
       if (roleAllowsGlobalEdit(role)) return true;
       const accountId = auth?.account?.id;
       if (accountId && managers.includes(accountId)) return true;
-      const membershipIds = Array.isArray(auth?.account?.membershipIds) ? auth.account.membershipIds : [];
-      const staffMemberships = Array.isArray(clinic.staffMemberships) ? clinic.staffMemberships : [];
-      if (membershipIds.some((id) => staffMemberships.includes(id))) return true;
+      if (window.NcdAuth && typeof window.NcdAuth.hasClinicRole === 'function') {
+        if (window.NcdAuth.hasClinicRole(clinic.id, 'clinicAdmin', { auth })) {
+          return true;
+        }
+        if (window.NcdAuth.hasClinicRole(clinic.id, 'clinicStaff', { auth })) {
+          return true;
+        }
+      } else {
+        // 旧実装との互換用フォールバック
+        const membershipIds = Array.isArray(auth?.account?.membershipIds) ? auth.account.membershipIds : [];
+        const staffMemberships = Array.isArray(clinic.staffMemberships) ? clinic.staffMemberships : [];
+        if (membershipIds.some((id) => staffMemberships.includes(id))) return true;
+      }
       return false;
     }
 

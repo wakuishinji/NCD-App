@@ -182,35 +182,174 @@
     { test: /nakano.*medical.*association/i, label: '中野区医師会' },
   ];
 
-  function humanizeMembership(value) {
-    const id = String(value ?? '');
-    let core = id.replace(/^membership:/i, '');
-    const normalized = core.toLowerCase();
+  function normalizeMembershipRecord(entry) {
+    if (!entry) return null;
+    if (typeof entry === 'string') {
+      const id = entry.trim();
+      if (!id) return null;
+      return {
+        id,
+        clinicId: null,
+        roles: [],
+        primaryRole: '',
+        status: 'active',
+        label: '',
+      };
+    }
+    if (typeof entry !== 'object') {
+      return null;
+    }
+    const id = (entry.id || entry.membershipId || '').toString().trim();
+    if (!id) return null;
+    const clinicId = entry.clinicId ? String(entry.clinicId).trim() : null;
+    const status = (entry.status || 'active').toString().trim() || 'active';
+    const rawRoles = Array.isArray(entry.roles) ? entry.roles : [];
+    const normalizedRoles = rawRoles
+      .map((role) => normalizeRole(role))
+      .filter(Boolean);
+    const primaryRole = normalizeRole(entry.primaryRole || normalizedRoles[0] || '');
+    const dedupedRoles = Array.from(new Set(primaryRole ? [primaryRole, ...normalizedRoles] : normalizedRoles));
+    const label = typeof entry.label === 'string' ? entry.label.trim() : '';
+    const clinicName = typeof entry.clinicName === 'string' ? entry.clinicName.trim() : '';
+    return {
+      id,
+      clinicId,
+      clinicName: clinicName || '',
+      roles: dedupedRoles,
+      primaryRole: primaryRole || (dedupedRoles.length ? dedupedRoles[0] : ''),
+      status,
+      invitedBy: entry.invitedBy || null,
+      createdAt: entry.createdAt || null,
+      updatedAt: entry.updatedAt || null,
+      label,
+      raw: entry,
+    };
+  }
 
-    for (const { test, label } of MEMBERSHIP_OVERRIDES) {
-      if (test.test(normalized)) {
-        return { id, label };
+  function collectMembershipSources(auth) {
+    const sources = [];
+    if (!auth || typeof auth !== 'object') {
+      return sources;
+    }
+    if (Array.isArray(auth.account?.memberships)) {
+      sources.push(auth.account.memberships);
+    }
+    if (Array.isArray(auth.memberships)) {
+      sources.push(auth.memberships);
+    }
+    if (auth.membership) {
+      sources.push([auth.membership]);
+    }
+    if (Array.isArray(auth.account?.membershipIds)) {
+      sources.push(auth.account.membershipIds);
+    }
+    return sources;
+  }
+
+  function getMemberships(auth = getStoredAuth()) {
+    const sources = collectMembershipSources(auth);
+    if (!sources.length) return [];
+    const seen = new Set();
+    const result = [];
+    for (const list of sources) {
+      if (!Array.isArray(list)) continue;
+      for (const item of list) {
+        const normalized = normalizeMembershipRecord(item);
+        if (!normalized || !normalized.id || seen.has(normalized.id)) continue;
+        seen.add(normalized.id);
+        result.push(normalized);
+      }
+    }
+    return result;
+  }
+
+  function getMembershipForClinic(clinicId, auth = getStoredAuth()) {
+    if (!clinicId) return null;
+    const target = String(clinicId).trim();
+    if (!target) return null;
+    const memberships = getMemberships(auth);
+    return memberships.find((entry) => (entry.clinicId || '').trim() === target) || null;
+  }
+
+  function hasClinicRole(clinicId, targetRole, options = {}) {
+    const auth = options.auth || getStoredAuth();
+    const normalizedRole = normalizeRole(targetRole);
+    if (!normalizedRole) return false;
+    const currentRole = getCurrentRole(auth);
+    if (roleIncludes(currentRole, 'systemAdmin') || roleIncludes(currentRole, 'systemRoot')) {
+      return true;
+    }
+    if (!clinicId) {
+      return roleIncludes(currentRole, normalizedRole);
+    }
+    const membership = getMembershipForClinic(clinicId, auth);
+    if (!membership) {
+      if (options.fallbackToGlobal === false) {
+        return false;
+      }
+      return roleIncludes(currentRole, normalizedRole);
+    }
+    if (membership.status && membership.status !== 'active') {
+      return false;
+    }
+    const candidateRoles = membership.roles && membership.roles.length
+      ? membership.roles
+      : membership.primaryRole
+        ? [membership.primaryRole]
+        : [];
+    return candidateRoles.some((role) => roleIncludes(role, normalizedRole));
+  }
+
+  function humanizeMembership(value) {
+    const entry = typeof value === 'object' && value && value.id
+      ? value
+      : normalizeMembershipRecord(value);
+    if (!entry) {
+      return { id: '', label: '' };
+    }
+    const id = entry.id || '';
+    const candidates = [
+      entry.label,
+      entry.clinicName,
+      entry.raw?.label,
+      entry.raw?.clinicName,
+      entry.clinicId,
+    ].map((candidate) => (candidate || '').toString().trim()).filter(Boolean);
+
+    if (!candidates.length) {
+      let core = id.replace(/^membership:/i, '');
+      const normalized = core.toLowerCase();
+      for (const { test, label } of MEMBERSHIP_OVERRIDES) {
+        if (test.test(normalized)) {
+          return { id, label };
+        }
+      }
+      const uuidLike = /^[0-9a-f-]{10,}$/i.test(core.replace(/-/g, ''));
+      if (uuidLike) {
+        candidates.push(`所属コード: ${core}`);
+      } else {
+        core = core
+          .split(/[-_]/g)
+          .filter(Boolean)
+          .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+          .join(' ');
+        candidates.push(core || id);
       }
     }
 
-    const uuidLike = /^[0-9a-f-]{10,}$/i.test(core.replace(/-/g, ''));
-    if (uuidLike) {
-      return { id, label: `所属コード: ${core}` };
-    }
-
-    core = core
-      .split(/[-_]/g)
-      .filter(Boolean)
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(' ');
-    return { id, label: core || id };
+    return { id, label: candidates[0] || id };
   }
 
   function getMembershipLabels(memberships) {
-    if (!Array.isArray(memberships) || !memberships.length) {
+    const entries = Array.isArray(memberships) && memberships.length
+      ? memberships
+      : getMemberships();
+    if (!entries || !entries.length) {
       return [];
     }
-    return memberships.map((value) => humanizeMembership(value));
+    return entries
+      .map((value) => humanizeMembership(value))
+      .filter((item) => item && item.id);
   }
 
   function buildAuthError(cause) {
@@ -258,6 +397,7 @@
           ...auth,
           ...('account' in data ? { account: data.account } : {}),
           ...('membership' in data ? { membership: data.membership } : {}),
+          ...('memberships' in data ? { memberships: data.memberships } : {}),
           tokens: data.tokens,
         });
         saveAuth(updated, 'refresh');
@@ -360,6 +500,13 @@
     if (!normalizedRoles.length) {
       return auth;
     }
+    const clinicId = options.clinicId || null;
+    if (clinicId) {
+      const clinicAuthorized = normalizedRoles.some((role) => hasClinicRole(clinicId, role, { auth }));
+      if (clinicAuthorized) {
+        return auth;
+      }
+    }
     const currentRole = getCurrentRole(auth);
     const authorized = normalizedRoles.some((role) => roleIncludes(currentRole, role));
     if (!authorized) {
@@ -412,6 +559,9 @@
     roleIncludes,
     getCurrentRole,
     getRoleLabel,
+    getMemberships,
+    getMembershipForClinic,
+    hasClinicRole,
     getMembershipLabels,
     requireRole,
     roleHierarchy: ROLE_INHERITANCE,
