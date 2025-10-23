@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>管理者申請の承認 - NCD</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="../js/auth.js" defer></script>
+  <script src="../js/sessionGuard.js" defer></script>
+  <script src="../js/loading.js" defer></script>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col" data-require-role="systemAdmin,adminReviewer" data-guard-message="医師会事務局のみアクセスできます。トップページに戻ります。" data-redirect-to="/index.html">
+  <header class="bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 text-white shadow">
+    <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between gap-3">
+      <a href="/admin/admin.html" class="inline-flex items-center gap-2 rounded bg-white/10 px-3 py-2 text-sm font-semibold tracking-wide transition hover:bg-white/20">
+        ← 管理ハブへ戻る
+      </a>
+      <h1 class="text-lg font-semibold tracking-wide">管理者申請の承認</h1>
+      <span class="text-xs text-white/70 hidden sm:inline">Nakano Clinic Database</span>
+    </div>
+  </header>
+
+  <main class="flex-1">
+    <div class="max-w-6xl mx-auto px-4 py-8 space-y-6">
+      <section class="rounded-xl border border-slate-200 bg-white/80 p-4 sm:p-6 shadow-sm">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div class="flex flex-wrap items-center gap-3">
+            <label class="text-sm font-medium text-slate-700">
+              ステータス
+              <select id="statusFilter" class="ml-2 rounded border px-2 py-1 text-sm">
+                <option value="pending">未処理</option>
+                <option value="approved">承認済み</option>
+                <option value="denied">却下済み</option>
+                <option value="">すべて</option>
+              </select>
+            </label>
+            <button id="reloadButton" class="inline-flex items-center gap-1 rounded border border-blue-600 px-3 py-1.5 text-sm font-semibold text-blue-700 transition hover:bg-blue-50">
+              再読み込み
+            </button>
+          </div>
+          <p class="text-xs text-slate-500">
+            申請は医師会事務局（<code>adminReviewer</code>）またはシステム管理者が承認できます。申請を選択すると詳細が表示されます。
+          </p>
+        </div>
+      </section>
+
+      <div class="grid gap-6 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+        <section class="rounded-xl border border-slate-200 bg-white/90 p-4 shadow-sm">
+          <h2 class="text-sm font-semibold text-blue-900">申請一覧</h2>
+          <div id="requestList" class="mt-4 space-y-2 min-h-[160px]">
+            <p class="text-sm text-slate-500">読み込み中です…</p>
+          </div>
+          <button id="loadMoreButton" class="mt-4 hidden w-full rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100">
+            さらに表示
+          </button>
+        </section>
+
+        <section class="rounded-xl border border-slate-200 bg-white/90 p-4 shadow-sm">
+          <div id="detailPlaceholder" class="flex h-full flex-col items-center justify-center gap-2 text-sm text-slate-500">
+            <p>左のリストから申請を選択してください。</p>
+          </div>
+          <div id="detailContent" class="hidden space-y-4">
+            <header class="flex flex-col gap-2">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <h2 id="detailTitle" class="text-lg font-semibold text-slate-900"></h2>
+                  <p id="detailEmail" class="text-sm text-slate-600"></p>
+                </div>
+                <span id="detailStatus" class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide"></span>
+              </div>
+              <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                <span id="detailRequestedAt"></span>
+                <span id="detailProcessedAt" class="hidden">／ <span class="font-semibold">処理日時:</span> <span></span></span>
+              </div>
+            </header>
+
+            <dl class="grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <dt class="font-medium text-slate-500">対象施設</dt>
+                <dd id="detailClinic" class="mt-1 text-slate-800">
+                  -
+                </dd>
+              </div>
+              <div>
+                <dt class="font-medium text-slate-500">施設ID</dt>
+                <dd id="detailClinicId" class="mt-1 text-slate-800 break-all">-</dd>
+              </div>
+              <div class="sm:col-span-2">
+                <dt class="font-medium text-slate-500">申請メモ</dt>
+                <dd id="detailNotes" class="mt-1 whitespace-pre-wrap rounded border border-slate-200 bg-slate-50 px-3 py-2 text-slate-800">-</dd>
+              </div>
+              <div class="sm:col-span-2">
+                <dt class="font-medium text-slate-500">申請メタデータ</dt>
+                <dd id="detailMetadata" class="mt-1 text-xs text-slate-500">
+                  -
+                </dd>
+              </div>
+            </dl>
+
+            <div id="decisionInfo" class="hidden space-y-2 rounded border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700">
+              <p><span class="font-medium text-slate-600">処理者:</span> <span id="decisionProcessedBy">-</span></p>
+              <p><span class="font-medium text-slate-600">処理メモ:</span> <span id="decisionReason">-</span></p>
+              <p id="decisionInvite" class="hidden"><span class="font-medium text-slate-600">招待ID:</span> <span></span></p>
+              <p id="decisionMembership" class="hidden"><span class="font-medium text-slate-600">付与されたメンバーシップ:</span> <span></span></p>
+            </div>
+
+            <div id="detailActions" class="space-y-4">
+              <form id="approveForm" class="space-y-3 rounded border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-800">
+                <h3 class="text-sm font-semibold text-emerald-700">申請を承認する</h3>
+                <label class="block text-sm font-medium text-emerald-700">
+                  対象施設
+                  <select id="approveClinicSelect" class="mt-1 w-full rounded border px-3 py-2 text-sm text-slate-800">
+                    <option value="">▼ 対象施設を選択</option>
+                  </select>
+                </label>
+                <label class="block text-sm font-medium text-emerald-700">
+                  メモ（任意）
+                  <textarea id="approveReason" rows="3" class="mt-1 w-full rounded border px-3 py-2 text-sm text-slate-800" placeholder="承認に関するメモがあれば記入します。申請者へは自動送信されません。"></textarea>
+                </label>
+                <div class="flex flex-wrap items-center gap-2">
+                  <button type="submit" class="inline-flex items-center rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60">承認してロールを付与</button>
+                  <a id="detailClinicLink" href="#" target="_blank" rel="noopener" class="inline-flex items-center text-xs text-emerald-700 underline decoration-emerald-400 hover:text-emerald-800">施設詳細を確認</a>
+                </div>
+              </form>
+
+              <form id="denyForm" class="space-y-3 rounded border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-800">
+                <h3 class="text-sm font-semibold text-red-700">申請を却下する</h3>
+                <label class="block text-sm font-medium text-red-700">
+                  却下理由（任意）
+                  <textarea id="denyReason" rows="3" class="mt-1 w-full rounded border px-3 py-2 text-sm text-slate-800" placeholder="申請者へ送信する理由を入力してください。未入力の場合は定型文が送信されます。"></textarea>
+                </label>
+                <button type="submit" class="inline-flex items-center rounded bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:opacity-60">却下通知を送信</button>
+              </form>
+            </div>
+
+            <div id="detailMessage" class="text-sm"></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    (function initAccessRequestsPage(global) {
+      const REQUEST_LIMIT = 100;
+      const state = {
+        status: 'pending',
+        cursor: null,
+        requests: [],
+        clinics: [],
+        selectedId: null,
+        loading: false,
+      };
+
+      const requestList = document.getElementById('requestList');
+      const detailPlaceholder = document.getElementById('detailPlaceholder');
+      const detailContent = document.getElementById('detailContent');
+      const detailTitle = document.getElementById('detailTitle');
+      const detailEmail = document.getElementById('detailEmail');
+      const detailStatus = document.getElementById('detailStatus');
+      const detailRequestedAt = document.getElementById('detailRequestedAt');
+      const detailProcessedAtWrap = document.getElementById('detailProcessedAt');
+      const detailProcessedAtValue = detailProcessedAtWrap ? detailProcessedAtWrap.querySelector('span') : null;
+      const detailClinic = document.getElementById('detailClinic');
+      const detailClinicId = document.getElementById('detailClinicId');
+      const detailNotes = document.getElementById('detailNotes');
+      const detailMetadata = document.getElementById('detailMetadata');
+      const decisionInfo = document.getElementById('decisionInfo');
+      const decisionProcessedBy = document.getElementById('decisionProcessedBy');
+      const decisionReason = document.getElementById('decisionReason');
+      const decisionInvite = document.getElementById('decisionInvite');
+      const decisionInviteValue = decisionInvite ? decisionInvite.querySelector('span') : null;
+      const decisionMembership = document.getElementById('decisionMembership');
+      const decisionMembershipValue = decisionMembership ? decisionMembership.querySelector('span') : null;
+      const detailActions = document.getElementById('detailActions');
+      const detailMessage = document.getElementById('detailMessage');
+      const approveForm = document.getElementById('approveForm');
+      const approveClinicSelect = document.getElementById('approveClinicSelect');
+      const approveReason = document.getElementById('approveReason');
+      const denyForm = document.getElementById('denyForm');
+      const denyReason = document.getElementById('denyReason');
+      const detailClinicLink = document.getElementById('detailClinicLink');
+      const statusFilter = document.getElementById('statusFilter');
+      const reloadButton = document.getElementById('reloadButton');
+      const loadMoreButton = document.getElementById('loadMoreButton');
+
+      function resolveApiBase() {
+        if (global.NcdAuth && typeof global.NcdAuth.resolveApiBase === 'function') {
+          return global.NcdAuth.resolveApiBase();
+        }
+        try {
+          const stored = localStorage.getItem('ncdApiBase') || localStorage.getItem('ncdApiBaseUrl');
+          if (stored) return stored.replace(/\/$/, '');
+        } catch (_) {}
+        return 'https://ncd-app.altry.workers.dev';
+      }
+
+      const API_BASE = resolveApiBase();
+      const runWithLoading = (asyncFn, message, element) => {
+        if (typeof global.wrapWithLoading === 'function') {
+          return global.wrapWithLoading(asyncFn, message, element);
+        }
+        return asyncFn();
+      };
+
+      function formatDate(value) {
+        if (!value) return '-';
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return value;
+        return date.toLocaleString('ja-JP', { hour12: false });
+      }
+
+      function statusAppearance(status) {
+        const normalized = (status || '').toLowerCase();
+        if (normalized === 'approved') {
+          return { text: '承認済み', classes: 'border-emerald-300 bg-emerald-50 text-emerald-700' };
+        }
+        if (normalized === 'denied') {
+          return { text: '却下済み', classes: 'border-red-300 bg-red-50 text-red-700' };
+        }
+        return { text: '未処理', classes: 'border-amber-300 bg-amber-50 text-amber-700' };
+      }
+
+      function escapeHtml(text) {
+        return String(text ?? '').replace(/[&<>"']/g, (char) => ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#039;',
+        }[char] || char));
+      }
+
+      function setDetailMessage(message, type = 'info') {
+        if (!detailMessage) return;
+        if (!message) {
+          detailMessage.textContent = '';
+          detailMessage.className = 'text-sm';
+          return;
+        }
+        let color = 'text-amber-700';
+        if (type === 'error') color = 'text-red-600';
+        if (type === 'success') color = 'text-emerald-600';
+        detailMessage.textContent = message;
+        detailMessage.className = `text-sm ${color}`;
+      }
+
+      function populateClinicSelect(select, selectedId, fallbackName) {
+        if (!select) return;
+        const currentValue = selectedId || '';
+        select.innerHTML = '';
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = '▼ 対象施設を選択';
+        select.appendChild(placeholder);
+
+        state.clinics.forEach((clinic) => {
+          const option = document.createElement('option');
+          option.value = clinic.id;
+          option.textContent = `${clinic.name}（${clinic.id}）`;
+          select.appendChild(option);
+        });
+
+        if (currentValue && !state.clinics.some((clinic) => clinic.id === currentValue)) {
+          const extra = document.createElement('option');
+          extra.value = currentValue;
+          extra.textContent = `${fallbackName || currentValue}（${currentValue}）`;
+          select.appendChild(extra);
+        }
+
+        select.value = currentValue;
+      }
+
+      function getSelectedRequest() {
+        if (!state.selectedId) return null;
+        return state.requests.find((request) => request.id === state.selectedId) || null;
+      }
+
+      function renderList() {
+        if (!requestList) return;
+        requestList.innerHTML = '';
+        if (!state.requests.length) {
+          const empty = document.createElement('p');
+          empty.className = 'text-sm text-slate-500';
+          empty.textContent = '表示できる申請がありません。';
+          requestList.appendChild(empty);
+          return;
+        }
+
+        state.requests.forEach((request) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'w-full rounded border border-slate-200 bg-white px-3 py-3 text-left text-sm shadow-sm transition hover:border-blue-400 hover:shadow';
+          if (request.id === state.selectedId) {
+            button.classList.add('border-blue-500', 'shadow-md', 'bg-blue-50');
+          }
+          button.addEventListener('click', () => {
+            state.selectedId = request.id;
+            renderList();
+            renderDetail(getSelectedRequest());
+          });
+
+          const header = document.createElement('div');
+          header.className = 'flex items-center justify-between gap-2';
+          const name = document.createElement('div');
+          name.className = 'font-semibold text-slate-900';
+          name.textContent = request.displayName || request.email || '(名称未入力)';
+          const status = document.createElement('span');
+          const statusInfo = statusAppearance(request.status);
+          status.className = `inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${statusInfo.classes}`;
+          status.textContent = statusInfo.text;
+          header.appendChild(name);
+          header.appendChild(status);
+          button.appendChild(header);
+
+          const email = document.createElement('div');
+          email.className = 'mt-1 text-xs text-slate-600 break-all';
+          email.textContent = request.email || '-';
+          button.appendChild(email);
+
+          const clinic = document.createElement('div');
+          clinic.className = 'mt-1 text-xs text-slate-500 line-clamp-2';
+          clinic.textContent = request.clinicName || '(施設名未入力)';
+          button.appendChild(clinic);
+
+          const date = document.createElement('div');
+          date.className = 'mt-2 text-[11px] text-slate-400';
+          date.textContent = `申請: ${formatDate(request.requestedAt)}`;
+          button.appendChild(date);
+
+          requestList.appendChild(button);
+        });
+      }
+
+      function renderDetail(request) {
+        setDetailMessage('');
+        if (!request) {
+          detailContent?.classList.add('hidden');
+          detailPlaceholder?.classList.remove('hidden');
+          return;
+        }
+        detailPlaceholder?.classList.add('hidden');
+        detailContent?.classList.remove('hidden');
+
+        detailTitle.textContent = request.displayName || '(名称未入力)';
+        detailEmail.textContent = request.email || '-';
+        const statusInfo = statusAppearance(request.status);
+        detailStatus.className = `inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${statusInfo.classes}`;
+        detailStatus.textContent = statusInfo.text;
+        detailRequestedAt.textContent = `申請日時: ${formatDate(request.requestedAt)}`;
+        if (request.processedAt) {
+          detailProcessedAtValue.textContent = formatDate(request.processedAt);
+          detailProcessedAtWrap.classList.remove('hidden');
+        } else {
+          detailProcessedAtWrap.classList.add('hidden');
+        }
+
+        detailClinic.textContent = request.clinicName || '(施設名未入力)';
+        detailClinicId.textContent = request.clinicId || '-';
+        detailNotes.textContent = request.notes ? request.notes : '（記載なし）';
+
+        const metadataEntries = [];
+        if (request.metadata?.submittedFrom) {
+          metadataEntries.push(`IP: ${request.metadata.submittedFrom}`);
+        }
+        if (request.metadata?.userAgent) {
+          metadataEntries.push(`UA: ${request.metadata.userAgent}`);
+        }
+        detailMetadata.textContent = metadataEntries.length ? metadataEntries.join(' / ') : '（記録なし）';
+
+        if (detailClinicLink) {
+          if (request.clinicId) {
+            detailClinicLink.href = `/clinicDetail.html?id=${encodeURIComponent(request.clinicId)}`;
+            detailClinicLink.classList.remove('pointer-events-none', 'opacity-60');
+          } else {
+            detailClinicLink.href = '#';
+            detailClinicLink.classList.add('pointer-events-none', 'opacity-60');
+          }
+        }
+
+        if (request.status && request.status.toLowerCase() !== 'pending') {
+          decisionInfo.classList.remove('hidden');
+          decisionProcessedBy.textContent = request.processedBy || '-';
+          decisionReason.textContent = request.decisionReason || '（記録なし）';
+          if (request.inviteId) {
+            decisionInvite.classList.remove('hidden');
+            decisionInviteValue.textContent = request.inviteId;
+          } else {
+            decisionInvite.classList.add('hidden');
+          }
+          if (request.approvedMembershipId) {
+            decisionMembership.classList.remove('hidden');
+            decisionMembershipValue.textContent = request.approvedMembershipId;
+          } else {
+            decisionMembership.classList.add('hidden');
+          }
+          detailActions.classList.add('hidden');
+        } else {
+          decisionInfo.classList.add('hidden');
+          detailActions.classList.remove('hidden');
+          populateClinicSelect(approveClinicSelect, request.clinicId || '', request.clinicName || '');
+          approveReason.value = '';
+          denyReason.value = '';
+        }
+      }
+
+      async function loadClinics() {
+        if (!global.NcdAuth || typeof global.NcdAuth.authorizedFetch !== 'function') return;
+        try {
+          const res = await global.NcdAuth.authorizedFetch(`${API_BASE}/api/listClinics`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          if (!Array.isArray(data?.clinics)) return;
+          state.clinics = data.clinics
+            .map((clinic) => ({
+              id: clinic.id || clinic.clinicId || '',
+              name: clinic.name || clinic.displayName || '',
+            }))
+            .filter((clinic) => clinic.id && clinic.name)
+            .sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+        } catch (err) {
+          console.warn('[accessRequests] failed to load clinics', err);
+        }
+      }
+
+      async function loadRequests({ append = false } = {}) {
+        if (!global.NcdAuth || typeof global.NcdAuth.authorizedFetch !== 'function') {
+          setDetailMessage('認証ライブラリが利用できません。再読み込みしてください。', 'error');
+          return;
+        }
+        setDetailMessage('');
+        state.loading = true;
+        const listContainer = requestList;
+        await runWithLoading(async () => {
+          const params = new URLSearchParams();
+          if (state.status) {
+            params.set('status', state.status);
+          }
+          params.set('limit', REQUEST_LIMIT.toString());
+          if (append && state.cursor) {
+            params.set('cursor', state.cursor);
+          }
+          const res = await global.NcdAuth.authorizedFetch(`${API_BASE}/api/admin/accessRequests?${params.toString()}`);
+          if (!res.ok) {
+            throw new Error(`申請の取得に失敗しました (HTTP ${res.status})`);
+          }
+          const data = await res.json();
+          const requests = Array.isArray(data?.requests) ? data.requests : [];
+          state.cursor = data?.cursor || null;
+          if (append) {
+            state.requests = state.requests.concat(requests);
+          } else {
+            state.requests = requests;
+          }
+          if (!append) {
+            state.selectedId = state.requests[0]?.id || null;
+          } else if (state.selectedId && !state.requests.some((request) => request.id === state.selectedId)) {
+            state.selectedId = state.requests[0]?.id || null;
+          }
+          renderList();
+          renderDetail(getSelectedRequest());
+          if (state.cursor) {
+            loadMoreButton.classList.remove('hidden');
+          } else {
+            loadMoreButton.classList.add('hidden');
+          }
+        }, '申請一覧を読み込み中です…', listContainer).catch((err) => {
+          console.error('[accessRequests] loadRequests failed', err);
+          setDetailMessage(err.message || '申請一覧の取得に失敗しました。', 'error');
+        }).finally(() => {
+          state.loading = false;
+        });
+      }
+
+      function setActionLoading(form, loading) {
+        if (!form) return;
+        Array.from(form.elements).forEach((element) => {
+          if (loading) {
+            element.setAttribute('disabled', 'disabled');
+          } else {
+            element.removeAttribute('disabled');
+          }
+        });
+      }
+
+      if (statusFilter) {
+        statusFilter.value = state.status;
+        statusFilter.addEventListener('change', () => {
+          state.status = statusFilter.value || '';
+          state.cursor = null;
+          loadRequests({ append: false });
+        });
+      }
+
+      if (reloadButton) {
+        reloadButton.addEventListener('click', () => {
+          state.cursor = null;
+          loadRequests({ append: false });
+        });
+      }
+
+      if (loadMoreButton) {
+        loadMoreButton.addEventListener('click', () => {
+          if (state.cursor) {
+            loadRequests({ append: true });
+          }
+        });
+      }
+
+      if (approveForm) {
+        approveForm.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const request = getSelectedRequest();
+          if (!request) {
+            setDetailMessage('申請を選択してください。', 'error');
+            return;
+          }
+          const clinicId = approveClinicSelect.value.trim();
+          if (!clinicId) {
+            setDetailMessage('対象施設を選択してください。', 'error');
+            return;
+          }
+          setActionLoading(approveForm, true);
+          setDetailMessage('承認処理を実行しています…', 'info');
+          try {
+            const payload = {
+              requestId: request.id,
+              clinicId,
+              decisionReason: approveReason.value.trim() || undefined,
+            };
+            const res = await global.NcdAuth.authorizedFetch(`${API_BASE}/api/admin/accessRequest/approve`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+            const data = await res.json().catch(() => null);
+            if (!res.ok || !data?.ok) {
+              throw new Error(data?.message || `承認に失敗しました (HTTP ${res.status})`);
+            }
+            setDetailMessage('承認処理が完了しました。', 'success');
+            state.cursor = null;
+            await loadRequests({ append: false });
+            if (statusFilter && statusFilter.value === 'pending') {
+              setDetailMessage('承認済みの申請は「承認済み」タブで確認できます。', 'success');
+            }
+          } catch (err) {
+            console.error('[accessRequests] approve failed', err);
+            setDetailMessage(err.message || '承認処理に失敗しました。', 'error');
+          } finally {
+            setActionLoading(approveForm, false);
+          }
+        });
+      }
+
+      if (denyForm) {
+        denyForm.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const request = getSelectedRequest();
+          if (!request) {
+            setDetailMessage('申請を選択してください。', 'error');
+            return;
+          }
+          setActionLoading(denyForm, true);
+          setDetailMessage('却下通知を送信しています…', 'info');
+          try {
+            const payload = {
+              requestId: request.id,
+              reason: denyReason.value.trim() || undefined,
+            };
+            const res = await global.NcdAuth.authorizedFetch(`${API_BASE}/api/admin/accessRequest/deny`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+            const data = await res.json().catch(() => null);
+            if (!res.ok || !data?.ok) {
+              throw new Error(data?.message || `却下に失敗しました (HTTP ${res.status})`);
+            }
+            setDetailMessage('却下処理が完了しました。申請者へ通知を送信しました。', 'success');
+            state.cursor = null;
+            await loadRequests({ append: false });
+          } catch (err) {
+            console.error('[accessRequests] deny failed', err);
+            setDetailMessage(err.message || '却下処理に失敗しました。', 'error');
+          } finally {
+            setActionLoading(denyForm, false);
+          }
+        });
+      }
+
+      document.addEventListener('DOMContentLoaded', async () => {
+        try {
+          await global.NcdAuth?.requireRole?.(['systemAdmin', 'adminReviewer']);
+        } catch (err) {
+          console.error('[accessRequests] requireRole failed', err);
+          setDetailMessage('権限を確認できませんでした。再読み込みしてください。', 'error');
+          return;
+        }
+        await loadClinics();
+        await loadRequests({ append: false });
+      });
+    })(window);
+  </script>
+</body>
+</html>

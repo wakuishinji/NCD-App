@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>施設管理者権限の申請 - NCD</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-100 text-slate-800">
+  <main class="mx-auto flex min-h-screen max-w-2xl flex-col justify-center px-4 py-12">
+    <section class="rounded-xl bg-white p-8 shadow">
+      <header class="mb-6">
+        <h1 class="text-2xl font-semibold text-blue-900">施設管理者権限の申請</h1>
+        <p class="mt-2 text-sm text-slate-600">
+          医師会の管轄施設を編集できる管理者権限を申請します。申請内容は医師会事務局が確認し、承認後にメールでご案内します。
+        </p>
+      </header>
+
+      <form id="requestForm" class="space-y-5">
+        <div class="grid gap-4 sm:grid-cols-2">
+          <label class="text-sm font-medium text-slate-700">
+            申請者名（任意）
+            <input id="displayName" type="text" placeholder="例: 中野 太郎"
+              class="mt-1 w-full rounded border px-3 py-2 text-sm"
+              autocomplete="name" />
+          </label>
+          <label class="text-sm font-medium text-slate-700">
+            メールアドレス
+            <input id="email" type="email" required placeholder="you@example.com"
+              class="mt-1 w-full rounded border px-3 py-2 text-sm"
+              autocomplete="email" />
+          </label>
+        </div>
+
+        <div class="space-y-3">
+          <label class="block text-sm font-medium text-slate-700">施設を選択</label>
+          <select id="clinicSelect"
+            class="w-full rounded border px-3 py-2 text-sm"
+            aria-describedby="clinicHelp">
+            <option value="">▼ 管轄の施設を選択してください</option>
+          </select>
+          <p id="clinicHelp" class="text-xs text-slate-500">
+            リストに見つからない場合は、下の「施設名（任意）」に正式名称を入力してください。
+          </p>
+          <label class="text-sm font-medium text-slate-700">
+            施設名（任意）
+            <input id="clinicName" type="text" placeholder="例: 中野駅前クリニック"
+              class="mt-1 w-full rounded border px-3 py-2 text-sm" />
+          </label>
+        </div>
+
+        <label class="block text-sm font-medium text-slate-700">
+          補足・メモ（任意）
+          <textarea id="notes" rows="4"
+            class="mt-1 w-full rounded border px-3 py-2 text-sm"
+            placeholder="ご担当の職務や申請理由などがあれば記入してください。"></textarea>
+        </label>
+
+        <div id="formStatus" class="text-sm text-amber-700"></div>
+
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p class="text-xs text-slate-500">
+            申請後、確認のメールが届きます。承認までしばらくお時間をいただく場合があります。
+          </p>
+          <button type="submit"
+            class="inline-flex items-center justify-center rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
+            id="submitButton">
+            申請を送信
+          </button>
+        </div>
+      </form>
+
+      <div id="requestComplete" class="hidden space-y-4 rounded border border-emerald-300 bg-emerald-50 px-4 py-5 text-emerald-700">
+        <p class="font-semibold">申請を受け付けました。</p>
+        <p class="text-sm">
+          入力いただいたメールアドレス宛に確認メールを送信しました。医師会事務局が内容を確認後、承認または追加のご連絡を差し上げます。
+        </p>
+        <div class="flex flex-col gap-2 text-sm text-emerald-800">
+          <a href="/index.html" class="inline-flex items-center text-blue-800 underline decoration-blue-400 hover:text-blue-900">Topへ戻る</a>
+          <a href="/clinicHome.html" class="inline-flex items-center text-blue-800 underline decoration-blue-400 hover:text-blue-900">施設ホームへ戻る</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const API_BASE = (function resolveApiBase() {
+      try {
+        const stored = localStorage.getItem('ncdApiBase') || localStorage.getItem('ncdApiBaseUrl');
+        if (stored) return stored.replace(/\/$/, '');
+      } catch (_) {}
+      return 'https://ncd-app.altry.workers.dev';
+    }());
+
+    const clinicSelect = document.getElementById('clinicSelect');
+    const clinicNameInput = document.getElementById('clinicName');
+    const formStatus = document.getElementById('formStatus');
+    const formEl = document.getElementById('requestForm');
+    const submitButton = document.getElementById('submitButton');
+    const completeEl = document.getElementById('requestComplete');
+
+    async function loadClinics() {
+      try {
+        const res = await fetch(`${API_BASE}/api/listClinics`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (!Array.isArray(data?.clinics)) {
+          return;
+        }
+        const clinics = data.clinics
+          .map((clinic) => ({
+            id: clinic.id || clinic.clinicId || '',
+            name: clinic.name || clinic.displayName || '',
+          }))
+          .filter((clinic) => clinic.id && clinic.name)
+          .sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+        for (const clinic of clinics) {
+          const option = document.createElement('option');
+          option.value = clinic.id;
+          option.textContent = `${clinic.name}（${clinic.id}）`;
+          option.dataset.name = clinic.name;
+          clinicSelect.appendChild(option);
+        }
+      } catch (err) {
+        console.warn('failed to load clinic list', err);
+        formStatus.textContent = '施設一覧の取得に失敗しました。施設名を手入力してください。';
+        formStatus.className = 'text-sm text-amber-700';
+      }
+    }
+
+    function setStatus(message, type = 'info') {
+      if (!formStatus) return;
+      let color = 'text-amber-700';
+      if (type === 'error') color = 'text-red-600';
+      if (type === 'success') color = 'text-emerald-600';
+      formStatus.textContent = message || '';
+      formStatus.className = `text-sm ${color}`;
+    }
+
+    clinicSelect.addEventListener('change', () => {
+      const selectedOption = clinicSelect.selectedOptions[0];
+      if (!selectedOption) return;
+      const name = selectedOption.dataset.name || '';
+      if (name && !clinicNameInput.value) {
+        clinicNameInput.value = name;
+      }
+    });
+
+    formEl.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      setStatus('');
+      submitButton.disabled = true;
+
+      const email = document.getElementById('email').value.trim();
+      const displayName = document.getElementById('displayName').value.trim();
+      const clinicId = clinicSelect.value.trim();
+      const clinicName = clinicNameInput.value.trim();
+      const notes = document.getElementById('notes').value.trim();
+
+      if (!email) {
+        setStatus('メールアドレスを入力してください。', 'error');
+        submitButton.disabled = false;
+        return;
+      }
+      if (!clinicId && !clinicName) {
+        setStatus('施設を選択するか、施設名を入力してください。', 'error');
+        submitButton.disabled = false;
+        return;
+      }
+
+      const payload = {
+        email,
+        displayName: displayName || undefined,
+        clinicId: clinicId || undefined,
+        clinicName: clinicName || undefined,
+        notes: notes || undefined,
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/requestAdminAccess`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data?.ok) {
+          const message = data?.message || (() => {
+            if (res.status === 409) {
+              return '同じメールアドレスの申請が処理中です。結果をお待ちください。';
+            }
+            if (res.status === 404) {
+              return '指定した施設が見つかりません。';
+            }
+            return '申請の送信に失敗しました。入力内容をご確認の上、時間をおいて再度お試しください。';
+          })();
+          throw new Error(message);
+        }
+
+        formEl.classList.add('hidden');
+        completeEl.classList.remove('hidden');
+        setStatus('申請を受け付けました。', 'success');
+      } catch (err) {
+        console.error('request admin access failed', err);
+        setStatus(err.message || '申請の送信に失敗しました。', 'error');
+      } finally {
+        submitButton.disabled = false;
+      }
+    });
+
+    loadClinics();
+  </script>
+</body>
+</html>
