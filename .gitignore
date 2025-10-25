@@ -4,7 +4,9 @@ node_modules/
 .wrangler/
 .wrangler/**
 
+tmp/
+
 *.log
 .env
 .dev.vars
-.DS_Store
+*.pid
