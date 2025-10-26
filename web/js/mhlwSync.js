@@ -60,37 +60,94 @@
     } catch (_) {}
   }
 
-  async function loadMhlwFacilities() {
-    const cached = loadCachedMhlwData();
+  function normalizeFacilitiesPayload(payload) {
+    const entries = [];
+    if (Array.isArray(payload?.facilities)) {
+      entries.push(...payload.facilities);
+    } else if (Array.isArray(payload)) {
+      entries.push(...payload);
+    } else if (payload && typeof payload === 'object') {
+      for (const value of Object.values(payload)) {
+        if (value && typeof value === 'object' && value.facilityId) {
+          entries.push(value);
+        }
+      }
+    }
+    const result = {};
+    for (const entry of entries) {
+      if (!entry || !entry.facilityId) continue;
+      result[String(entry.facilityId).toUpperCase()] = entry;
+    }
+    return result;
+  }
+
+  async function fetchMhlwFacilitiesFromApi({ cacheMode = 'default' } = {}) {
+    const apiBase = resolveApiBase();
+    const headers = new Headers();
+    const authHeader = await getAuthHeader();
+    if (authHeader) {
+      headers.set('Authorization', authHeader);
+    }
+    const res = await fetch(`${apiBase}/api/mhlw/facilities`, { headers, cache: cacheMode });
+    if (!res.ok) {
+      const error = new Error(`Failed to fetch from API (${res.status})`);
+      error.status = res.status;
+      throw error;
+    }
+    return res.json();
+  }
+
+  async function fetchMhlwFacilitiesFromLocalFile() {
+    const res = await fetch('/tmp/mhlw-facilities.json');
+    if (!res.ok) {
+      const error = new Error('Local mhlw facilities JSON not found.');
+      error.status = res.status;
+      throw error;
+    }
+    return res.json();
+  }
+
+  async function loadMhlwFacilities({ bypassCache = false } = {}) {
+    const cached = bypassCache ? null : loadCachedMhlwData();
     if (cached) return cached;
 
+    let dataset = null;
+    let lastError = null;
+
     try {
-      const res = await fetch('/tmp/mhlw-facilities.json');
-      if (!res.ok) throw new Error('MHLW facilities JSON not found.');
-      const data = await res.json();
-      const facilities = Array.isArray(data?.facilities) ? data.facilities : data;
-      const map = new Map();
-      for (const entry of facilities) {
-        if (!entry?.facilityId) continue;
-        map.set(entry.facilityId.toUpperCase(), entry);
-      }
-      const jsonable = Array.from(map.entries()).reduce((acc, [key, value]) => {
-        acc[key] = value;
-        return acc;
-      }, {});
-      storeCachedMhlwData(jsonable);
-      return jsonable;
+      const apiPayload = await fetchMhlwFacilitiesFromApi({ cacheMode: bypassCache ? 'reload' : 'default' });
+      dataset = normalizeFacilitiesPayload(apiPayload);
     } catch (err) {
-      console.warn('[mhlwSync] failed to load facilities JSON', err);
-      return {};
+      lastError = err;
+      console.warn('[mhlwSync] failed to load facilities via API', err);
     }
+
+    if (!dataset || Object.keys(dataset).length === 0) {
+      try {
+        const localPayload = await fetchMhlwFacilitiesFromLocalFile();
+        dataset = normalizeFacilitiesPayload(localPayload);
+      } catch (localErr) {
+        if (!lastError) lastError = localErr;
+        console.warn('[mhlwSync] failed to load facilities from local file', localErr);
+      }
+    }
+
+    if (dataset && Object.keys(dataset).length) {
+      storeCachedMhlwData(dataset);
+      return dataset;
+    }
+
+    if (lastError) {
+      console.warn('[mhlwSync] no facilities dataset available', lastError);
+    }
+    return {};
   }
 
   function renderMhlwPreview(data, element) {
     if (!element) return;
     const entries = Object.values(data || {}).slice(0, 5);
     if (!entries.length) {
-      element.textContent = 'データが読み込まれていません。`tmp/mhlw-facilities.json` を配置してください。';
+      element.textContent = '厚労省施設データが読み込めません。最新データを `scripts/publishMhlwFacilities.mjs` でアップロードし、CSV再読込を押してください。';
       return;
     }
     element.textContent = JSON.stringify(entries, null, 2);
@@ -675,7 +732,7 @@
           localStorage.removeItem(LOCAL_CACHE_TS_KEY);
         } catch (_) {}
       }
-      mhlwDict = await loadMhlwFacilities();
+      mhlwDict = await loadMhlwFacilities({ bypassCache: force });
       mhlwEntries = mhlwDict && typeof mhlwDict === 'object' ? Object.values(mhlwDict) : [];
       renderMhlwPreview(mhlwDict, previewEl);
     }

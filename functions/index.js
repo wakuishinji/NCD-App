@@ -40,6 +40,10 @@ const ORGANIZATION_SLUG_INDEX_PREFIX = 'organization:slug:';
 const DEFAULT_ORGANIZATION_SLUG = 'default';
 const DEFAULT_ORGANIZATION_ID = `${ORGANIZATION_ID_PREFIX}${DEFAULT_ORGANIZATION_SLUG}`;
 
+const MHLW_FACILITIES_R2_KEY = 'mhlw/facilities.json';
+const MHLW_FACILITIES_META_KEY = 'mhlw:facilities:meta';
+const MHLW_FACILITIES_CACHE_CONTROL = 'public, max-age=600, stale-while-revalidate=3600';
+
 const SECURITY_QUESTIONS = [
   { id: 'first_trip', label: '初めて旅行した場所は？' },
   { id: 'childhood_nickname', label: '子どもの頃のあだ名は？' },
@@ -59,7 +63,7 @@ export default {
     // 共通CORSヘッダー
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, HEAD, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization",
     };
 
@@ -145,6 +149,32 @@ export default {
       const trimmed = nk(value);
       if (!trimmed) return '';
       return trimmed.replace(/\s+/g, '').toUpperCase();
+    }
+
+    async function readMhlwFacilitiesMeta(env) {
+      if (!env?.SETTINGS?.get) return null;
+      try {
+        const raw = await env.SETTINGS.get(MHLW_FACILITIES_META_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          return parsed;
+        }
+        return null;
+      } catch (err) {
+        console.warn('[mhlw] failed to read metadata', err);
+        return null;
+      }
+    }
+
+    async function writeMhlwFacilitiesMeta(env, meta) {
+      if (!env?.SETTINGS?.put) return;
+      const payload = {
+        ...meta,
+        updatedAt: meta?.updatedAt || new Date().toISOString(),
+      };
+      await env.SETTINGS.put(MHLW_FACILITIES_META_KEY, JSON.stringify(payload));
+      return payload;
     }
 
     function normalizeSecurityAnswerFormat(format) {
@@ -3962,6 +3992,78 @@ export default {
       });
     }
     // <<< END: SETTINGS >>>
+
+    // ============================================================
+    // 厚労省施設データ：参照・登録
+    // ============================================================
+
+    if (routeMatch(url, 'GET', 'mhlw/facilities/meta')) {
+      const meta = await readMhlwFacilitiesMeta(env);
+      if (!meta) {
+        return jsonResponse({ ok: false, error: 'NOT_FOUND', message: '厚労省施設データがまだアップロードされていません。' }, 404);
+      }
+      return jsonResponse({ ok: true, meta });
+    }
+
+    if (routeMatch(url, 'GET', 'mhlw/facilities') || routeMatch(url, 'HEAD', 'mhlw/facilities')) {
+      if (!env.MEDIA || typeof env.MEDIA.get !== 'function') {
+        return jsonResponse({ error: 'MHLW_STORAGE_UNCONFIGURED', message: 'MEDIA バケットが構成されていません。' }, 500);
+      }
+      const object = await env.MEDIA.get(MHLW_FACILITIES_R2_KEY);
+      if (!object) {
+        return jsonResponse({ error: 'NOT_FOUND', message: '厚労省施設データがまだアップロードされていません。' }, 404);
+      }
+      const headers = new Headers({ ...corsHeaders });
+      const contentType = object.httpMetadata?.contentType || 'application/json';
+      headers.set('Content-Type', contentType);
+      headers.set('Cache-Control', object.httpMetadata?.cacheControl || MHLW_FACILITIES_CACHE_CONTROL);
+      if (object.etag) headers.set('ETag', object.etag);
+      if (object.uploaded) headers.set('Last-Modified', new Date(object.uploaded).toUTCString());
+      if (typeof object.size === 'number') headers.set('Content-Length', String(object.size));
+      if (request.method === 'HEAD') {
+        return new Response(null, { status: 200, headers });
+      }
+      return new Response(object.body, { status: 200, headers });
+    }
+
+    if (routeMatch(url, 'PUT', 'admin/mhlw/facilities')) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      if (!hasRole(authContext.payload, SYSTEM_ROOT_ONLY)) {
+        return jsonResponse({ error: 'FORBIDDEN', message: 'systemRoot 権限が必要です。' }, 403);
+      }
+      if (!env.MEDIA || typeof env.MEDIA.put !== 'function') {
+        return jsonResponse({ error: 'MHLW_STORAGE_UNCONFIGURED', message: 'MEDIA バケットが構成されていません。' }, 500);
+      }
+      if (!request.body) {
+        return jsonResponse({ error: 'INVALID_REQUEST', message: 'アップロードするデータが空です。' }, 400);
+      }
+      const contentType = request.headers.get('Content-Type') || 'application/json';
+      const cacheControl = request.headers.get('Cache-Control') || MHLW_FACILITIES_CACHE_CONTROL;
+      let putResult;
+      try {
+        putResult = await env.MEDIA.put(MHLW_FACILITIES_R2_KEY, request.body, {
+          httpMetadata: {
+            contentType,
+            cacheControl,
+          },
+        });
+      } catch (err) {
+        console.error('[mhlw] failed to store facilities dataset', err);
+        return jsonResponse({ error: 'UPLOAD_FAILED', message: '厚労省施設データの保存に失敗しました。' }, 500);
+      }
+      const meta = await writeMhlwFacilitiesMeta(env, {
+        updatedAt: new Date().toISOString(),
+        size: putResult?.size ?? null,
+        etag: putResult?.etag ?? null,
+        cacheControl,
+        contentType,
+        uploadedBy: authContext.account?.id || authContext.payload?.sub || null,
+      });
+      return jsonResponse({ ok: true, meta });
+    }
 
     // ============================================================
     // 施設：登録・一覧・更新・削除・出力

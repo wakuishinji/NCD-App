@@ -2,7 +2,8 @@
   "scripts": {
     "test": "vitest",
     "migrate:master-ids": "node ./scripts/migrateMasterIds.mjs",
-    "cleanup:legacy-masters": "node ./scripts/cleanupLegacyMasters.mjs"
+    "cleanup:legacy-masters": "node ./scripts/cleanupLegacyMasters.mjs",
+    "publish:mhlw": "node ./scripts/publishMhlwFacilities.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.8",

@@ -29,13 +29,25 @@ node scripts/importMhlwFacilities.mjs \
 - 出力: `{ count, facilities[] }` 形式（各レコードに `facilityType` が含まれる）。
 - `--jsonl` を付けると 1 行 1 レコードの JSON Lines に。
 
-## 4. 既存施設との照合
-1. `tmp/mhlw-facilities.json` を読み込み、`clinic.mhlwFacilityId` が未設定の施設を名称・住所でマッチング。
-2. 管理ハブ → 「厚労省ID同期」画面（systemRoot専用）で診療所を検索し、厚労省IDを貼り付けて登録。
-   - 旧来のAPI操作でも `POST /api/updateClinic` に `mhlwFacilityId` を指定すれば同等の更新が可能。
-   - まとめて処理する場合は `scripts/syncMhlwFacilities.mjs` を実行すると自動でID登録＋同期が行えます（`--dry-run` オプションで事前確認）。
+## 4. Workers への公開データアップロード
+1. `SYSTEM_ROOT_TOKEN`（systemRoot ログイン後に取得したアクセストークン）を環境変数、または `--token` オプションで指定。
+2. 生成した JSON を Workers の R2 (`MEDIA`) にアップロード。
+   ```bash
+   node scripts/publishMhlwFacilities.mjs \
+     --token "$SYSTEM_ROOT_TOKEN" \
+     --json tmp/mhlw-facilities.json \
+     --api-base https://ncd-app.altry.workers.dev
+   ```
+   - `API_BASE` / `SYSTEM_ROOT_TOKEN` を環境変数で設定しておけばオプションは省略可能。
+   - 成功すると R2 上に `mhlw/facilities.json` が保存され、`/api/mhlw/facilities` から常時参照できる。
+   - 状態確認: `GET /api/mhlw/facilities/meta` を叩くか、管理ハブの厚労省ID同期画面のプレビューに更新時刻が反映されることを確認。
 
-## 5. 新規登録フロー
+## 5. 既存施設との照合
+1. 厚労省ID同期画面（`/admin/mhlw-sync.html`、systemRoot 専用）を開き、診療所を検索。
+2. 候補一覧から厚労省データを選び「このIDをセット」を押して登録、必要に応じて「公開データから同期」で住所等を上書き。
+   - バッチで処理したい場合は `scripts/syncMhlwFacilities.mjs` を用いて ID 登録＋同期を実行する（`--dry-run` で事前確認可能）。
+
+## 6. 新規登録フロー
 - `POST /api/registerClinic` は `mhlwFacilityId` を必須に変更済み。
 - 施設登録画面では厚労省データを検索→選択→登録する導線を用意する（今後実装）。
 - 厚労省ID登録後は「厚労省ID同期」画面の「公開データから同期」ボタンで住所・電話等を上書き更新できる。
@@ -48,16 +60,23 @@ node scripts/importMhlwFacilities.mjs \
     --outfile tmp/mhlw-sync-report.json
   ```
 
-## 6. 更新サイクル
+## 7. 更新サイクル
 - 公開データは概ね半年ごとに更新。
 - 更新のたびに `importMhlwFacilities.mjs` を再実行し差分を抽出。
 - 新規施設や削除施設をレポート化し、管理者に通知。
 - 将来的にSkilBank/Medical Orchestraと同じ施設IDで連携するため、常に最新データを保つ。
 
-## 7. 未対応事項
+## 8. 未対応事項
 - 住所マッチングの自動化（類似度計算など）は今後の課題。
 - 既存施設との紐付け自動化スクリプト。
 - マスター更新ジョブ（Cron等）での定期取り込み。
+
+## 9. 現状メモ（2025-10-26）
+- `scripts/importMhlwFacilities.mjs --jsonl` で診療所・病院の施設票/診療時間票を統合し `tmp/mhlw-facilities.json` を生成済み（R2 へ upload 済み）。
+- `scripts/syncMhlwFacilities.mjs` を `--token` 付きで実行したが、中野区の既存17件はすべて `noMatch`。名称・住所の揺らぎが大きく、自動マッチングが成立していない。
+- 厚労省IDの入力は GUI `/admin/mhlw-sync.html` で実施する想定。ただし本番デプロイ前のためローカル/Preview での確認が必要。
+- 今後は GUI 上で厚労省データの候補を提示できるよう改修し、手動コピペの負担を減らす。
+- 未一致施設は当面手動でID付与（Runbookの「厚労省ID同期」画面を利用）し、公開データ更新時に再同期する運用。
 
 ---
 このRunbookはドラフトです。実際の運用手順が固まり次第、ステップの自動化・テスト整備を進める。
