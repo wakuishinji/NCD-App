@@ -7,6 +7,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="../js/auth.js" defer></script>
   <script src="../js/sessionGuard.js" defer></script>
+  <script src="../js/vendor/mhlwCsvUtils.js" defer></script>
   <script src="../js/mhlwSync.js" defer></script>
 </head>
 <body class="min-h-screen bg-slate-100 text-slate-800" data-require-role="systemRoot" data-guard-message="システム管理者専用ページです。トップページへ戻ります。">
@@ -70,8 +71,8 @@
                 </div>
               </div>
               <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <button type="submit" class="inline-flex items-center justify-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700">CSV４種をアップロード</button>
-                <p class="text-xs text-slate-500">※ 厚労省サイトからダウンロードした CSV / CSV.gz をそのまま選択できます。</p>
+                <button type="submit" class="inline-flex items-center justify-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700">CSV４種からJSONを生成してアップロード</button>
+                <p class="text-xs text-slate-500">※ 厚労省サイトからダウンロードした CSV / CSV.gz をそのまま選択できます（ブラウザ内で整形後にアップロード）。</p>
               </div>
             </form>
             <p id="mhlwUploadCsvStatus" data-base-class="text-xs text-slate-500"></p>

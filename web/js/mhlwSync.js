@@ -916,28 +916,47 @@
         }
       }
 
-      const formData = new FormData();
-      formData.set('clinicFacility', clinicFacilityInput.files[0]);
-      formData.set('clinicSchedule', clinicScheduleInput.files[0]);
-      formData.set('hospitalFacility', hospitalFacilityInput.files[0]);
-      formData.set('hospitalSchedule', hospitalScheduleInput.files[0]);
+      const clinicFacilityFile = clinicFacilityInput.files[0];
+      const clinicScheduleFile = clinicScheduleInput.files[0];
+      const hospitalFacilityFile = hospitalFacilityInput.files[0];
+      const hospitalScheduleFile = hospitalScheduleInput.files[0];
 
-      setStatus(uploadCsvStatus, 'CSV を処理中です…', 'info');
+      setStatus(uploadCsvStatus, 'CSV を解析中です…', 'info');
 
       try {
+        if (!global.MhlwCsvUtils?.buildMhlwDatasetFromCsv) {
+          throw new Error('CSV 解析モジュールが読み込まれていません。ページを再読み込みしてください。');
+        }
+
+        const dataset = await global.MhlwCsvUtils.buildMhlwDatasetFromCsv({
+          clinicFacilityFile,
+          clinicScheduleFile,
+          hospitalFacilityFile,
+          hospitalScheduleFile,
+        });
+
+        const jsonPayload = JSON.stringify({
+          count: dataset.facilities.length,
+          facilities: dataset.facilities,
+        });
+
+        setStatus(uploadCsvStatus, '整形済み JSON をアップロードしています…', 'info');
+
         const apiBase = resolveApiBase();
         const headers = new Headers();
         const authHeader = await getAuthHeader();
         if (authHeader) headers.set('Authorization', authHeader);
+        headers.set('Content-Type', 'application/json');
+        headers.set('Cache-Control', 'public, max-age=600, stale-while-revalidate=3600');
 
-        const res = await fetch(`${apiBase}/api/admin/mhlw/uploadCsv`, {
-          method: 'POST',
+        const res = await fetch(`${apiBase}/api/admin/mhlw/facilities`, {
+          method: 'PUT',
           headers,
-          body: formData,
+          body: jsonPayload,
         });
 
         if (!res.ok) {
-          let message = `CSV の処理に失敗しました (${res.status}).`;
+          let message = `アップロードに失敗しました (${res.status}).`;
           try {
             const payload = await res.json();
             if (payload?.message) message = payload.message;
@@ -945,11 +964,9 @@
           throw new Error(message);
         }
 
-        const payload = await res.json().catch(() => ({}));
-        const summary = payload?.summary;
-        const message = summary
-          ? `アップロードが完了しました（施設 ${summary.facilityCount ?? '-'} 件、診療時間 ${summary.scheduleCount ?? '-'} 件）。最新データを再読込します…`
-          : 'アップロードが完了しました。最新データを再読込します…';
+        await res.json().catch(() => ({}));
+
+        const message = `アップロードが完了しました（施設 ${dataset.stats.facilityCount} 件、診療時間 ${dataset.stats.scheduleCount} 件）。最新データを再読込します…`;
         setStatus(uploadCsvStatus, message, 'success');
 
         clinicFacilityInput.value = '';

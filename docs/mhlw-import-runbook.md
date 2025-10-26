@@ -30,8 +30,8 @@ node scripts/importMhlwFacilities.mjs \
 - `--jsonl` を付けると 1 行 1 レコードの JSON Lines に。
 
 ## 4. Workers への公開データアップロード
-1. 厚労省サイトから取得した 4 つの CSV（病院/診療所の施設票・診療時間票）をそのまま管理画面の「CSV４種をアップロード」から送信するか、従来どおり JSON を生成してアップロードする。
-   - CSV でアップロードした場合は Workers 側で統合処理され、`mhlw/facilities.json` に保存されます。
+1. 厚労省サイトから取得した 4 つの CSV（病院/診療所の施設票・診療時間票）をそのまま管理画面の「CSV４種をアップロード」から選択し送信するか、従来どおり JSON を生成してアップロードする。
+   - CSV をアップロードした場合はブラウザ内で JSON に整形された後、自動的に `/api/admin/mhlw/facilities` へアップロードされ、`mhlw/facilities.json` に保存されます。
 2. CLI からアップロードする場合は以下のいずれかを利用。
    ```bash
    # 整形済み JSON をアップロードする例
