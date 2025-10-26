@@ -43,6 +43,9 @@ const DEFAULT_ORGANIZATION_ID = `${ORGANIZATION_ID_PREFIX}${DEFAULT_ORGANIZATION
 const MHLW_FACILITIES_R2_KEY = 'mhlw/facilities.json';
 const MHLW_FACILITIES_META_KEY = 'mhlw:facilities:meta';
 const MHLW_FACILITIES_CACHE_CONTROL = 'public, max-age=600, stale-while-revalidate=3600';
+const MHLW_UPLOAD_META_PREFIX = 'mhlw:upload:';
+const MHLW_UPLOAD_SESSION_TTL_SECONDS = 60 * 60; // 1 hour
+const MHLW_DEFAULT_PART_SIZE = 8 * 1024 * 1024; // 8 MB
 const MHLW_FACILITY_COLUMNS = [
   'prefCode', 'prefName', 'cityCode', 'cityName',
   'facilityId', 'facilityName', 'facilityNameKana',
@@ -326,6 +329,29 @@ export default {
       };
       await env.SETTINGS.put(MHLW_FACILITIES_META_KEY, JSON.stringify(payload));
       return payload;
+    }
+
+    const uploadSessionKey = (uploadId) => `${MHLW_UPLOAD_META_PREFIX}${uploadId}`;
+
+    async function saveUploadSession(env, uploadId, data, { ttlSeconds = MHLW_UPLOAD_SESSION_TTL_SECONDS } = {}) {
+      if (!uploadId) throw new Error('uploadId is required');
+      const payload = {
+        uploadId,
+        ...data,
+        updatedAt: new Date().toISOString(),
+      };
+      await env.SETTINGS.put(uploadSessionKey(uploadId), JSON.stringify(payload), ttlSeconds ? { expirationTtl: ttlSeconds } : undefined);
+      return payload;
+    }
+
+    async function getUploadSession(env, uploadId) {
+      if (!uploadId) return null;
+      return kvGetJSON(env, uploadSessionKey(uploadId));
+    }
+
+    async function deleteUploadSession(env, uploadId) {
+      if (!uploadId) return;
+      await env.SETTINGS.delete(uploadSessionKey(uploadId)).catch(() => {});
     }
 
     async function importFacilityCsvFile(file, facilityType) {
@@ -4360,6 +4386,193 @@ export default {
         sourceType: 'json',
       });
       return jsonResponse({ ok: true, meta });
+    }
+
+    if (routeMatch(url, 'POST', 'admin/mhlw/initUpload')) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      if (!hasRole(authContext.payload, SYSTEM_ROOT_ONLY)) {
+        return jsonResponse({ error: 'FORBIDDEN', message: 'systemRoot 権限が必要です。' }, 403);
+      }
+      if (!env.MEDIA?.createMultipartUpload) {
+        return jsonResponse({ error: 'UNSUPPORTED', message: 'R2 バケットの multipart upload が利用できません。' }, 500);
+      }
+      let body = {};
+      try {
+        body = await request.json();
+      } catch (_) {}
+
+      const facilityCount = Number.isFinite(body?.facilityCount) ? Number(body.facilityCount) : null;
+      const scheduleCount = Number.isFinite(body?.scheduleCount) ? Number(body.scheduleCount) : null;
+      const preferredPartSize = Number.isFinite(body?.partSize) ? Math.max(5 * 1024 * 1024, Math.min(body.partSize, 50 * 1024 * 1024)) : null;
+      const partSize = preferredPartSize || MHLW_DEFAULT_PART_SIZE;
+      const contentType = typeof body?.contentType === 'string' && body.contentType.trim() ? body.contentType.trim() : 'application/json';
+      const cacheControl = typeof body?.cacheControl === 'string' && body.cacheControl.trim() ? body.cacheControl.trim() : MHLW_FACILITIES_CACHE_CONTROL;
+      const gzip = body?.gzip === true;
+
+      let multipart;
+      try {
+        multipart = await env.MEDIA.createMultipartUpload(MHLW_FACILITIES_R2_KEY, {
+          httpMetadata: {
+            contentType,
+            cacheControl,
+            contentEncoding: gzip ? 'gzip' : undefined,
+          },
+        });
+      } catch (err) {
+        console.error('[mhlw] failed to create multipart upload', err);
+        return jsonResponse({ error: 'UPLOAD_INIT_FAILED', message: 'R2 multipart upload の初期化に失敗しました。' }, 500);
+      }
+
+      const session = await saveUploadSession(env, multipart.uploadId, {
+        key: MHLW_FACILITIES_R2_KEY,
+        partSize,
+        contentType,
+        cacheControl,
+        gzip,
+        facilityCount,
+        scheduleCount,
+        uploadedBy: authContext.account?.id || authContext.payload?.sub || null,
+      });
+
+      return jsonResponse({ ok: true, uploadId: session.uploadId, key: session.key, partSize: session.partSize });
+    }
+
+    if (routeMatch(url, 'PUT', 'admin/mhlw/uploadPart')) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      if (!hasRole(authContext.payload, SYSTEM_ROOT_ONLY)) {
+        return jsonResponse({ error: 'FORBIDDEN', message: 'systemRoot 権限が必要です。' }, 403);
+      }
+      if (!env.MEDIA?.uploadPart) {
+        return jsonResponse({ error: 'UNSUPPORTED', message: 'R2 バケットの multipart upload が利用できません。' }, 500);
+      }
+      const uploadId = nk(url.searchParams.get('uploadId'));
+      const partNumberRaw = nk(url.searchParams.get('partNumber'));
+      const partNumber = Number(partNumberRaw);
+      if (!uploadId || !Number.isInteger(partNumber) || partNumber < 1) {
+        return jsonResponse({ error: 'INVALID_REQUEST', message: 'uploadId と partNumber は必須です。' }, 400);
+      }
+      const session = await getUploadSession(env, uploadId);
+      if (!session) {
+        return jsonResponse({ error: 'UPLOAD_NOT_FOUND', message: '対象のアップロードセッションが見つかりません。' }, 404);
+      }
+      const chunkBuffer = await request.arrayBuffer();
+      if (!chunkBuffer || chunkBuffer.byteLength === 0) {
+        return jsonResponse({ error: 'INVALID_REQUEST', message: '空のチャンクはアップロードできません。' }, 400);
+      }
+      if (session.partSize && chunkBuffer.byteLength > session.partSize + (1 * 1024 * 1024)) {
+        return jsonResponse({ error: 'CHUNK_TOO_LARGE', message: `チャンクサイズが上限を超えています (${formatBytes(session.partSize)})。` }, 400);
+      }
+      let partResult;
+      try {
+        partResult = await env.MEDIA.uploadPart(session.key, uploadId, partNumber, chunkBuffer);
+      } catch (err) {
+        console.error('[mhlw] uploadPart failed', err);
+        return jsonResponse({ error: 'UPLOAD_PART_FAILED', message: 'チャンクのアップロードに失敗しました。' }, 500);
+      }
+      if (!partResult?.etag) {
+        return jsonResponse({ error: 'UPLOAD_PART_FAILED', message: 'ETag の取得に失敗しました。' }, 500);
+      }
+      await saveUploadSession(env, uploadId, { ...session, lastPartNumber: partNumber });
+      return jsonResponse({ ok: true, etag: partResult.etag });
+    }
+
+    if (routeMatch(url, 'POST', 'admin/mhlw/completeUpload')) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      if (!hasRole(authContext.payload, SYSTEM_ROOT_ONLY)) {
+        return jsonResponse({ error: 'FORBIDDEN', message: 'systemRoot 権限が必要です。' }, 403);
+      }
+      if (!env.MEDIA?.completeMultipartUpload) {
+        return jsonResponse({ error: 'UNSUPPORTED', message: 'R2 バケットの multipart upload が利用できません。' }, 500);
+      }
+      let body;
+      try {
+        body = await request.json();
+      } catch (err) {
+        return jsonResponse({ error: 'INVALID_JSON', message: 'リクエスト形式が不正です。' }, 400);
+      }
+      const uploadId = nk(body?.uploadId);
+      if (!uploadId) {
+        return jsonResponse({ error: 'INVALID_REQUEST', message: 'uploadId は必須です。' }, 400);
+      }
+      const session = await getUploadSession(env, uploadId);
+      if (!session) {
+        return jsonResponse({ error: 'UPLOAD_NOT_FOUND', message: '対象のアップロードセッションが見つかりません。' }, 404);
+      }
+      const partsPayload = Array.isArray(body?.parts) ? body.parts : [];
+      if (!partsPayload.length) {
+        return jsonResponse({ error: 'INVALID_REQUEST', message: 'parts が指定されていません。' }, 400);
+      }
+      const parts = partsPayload.map((part) => ({
+        partNumber: Number(part?.partNumber),
+        etag: nk(part?.etag),
+      })).filter((part) => Number.isInteger(part.partNumber) && part.partNumber >= 1 && part.etag);
+      if (!parts.length) {
+        return jsonResponse({ error: 'INVALID_REQUEST', message: '有効なパーツ情報がありません。' }, 400);
+      }
+      parts.sort((a, b) => a.partNumber - b.partNumber);
+      try {
+        await env.MEDIA.completeMultipartUpload(session.key, uploadId, parts);
+      } catch (err) {
+        console.error('[mhlw] completeMultipartUpload failed', err);
+        return jsonResponse({ error: 'UPLOAD_COMPLETE_FAILED', message: 'アップロードの確定に失敗しました。' }, 500);
+      }
+
+      await deleteUploadSession(env, uploadId);
+
+      let head = null;
+      try {
+        head = await env.MEDIA.head(session.key);
+      } catch (err) {
+        console.warn('[mhlw] failed to head object after upload', err);
+      }
+
+      const meta = await writeMhlwFacilitiesMeta(env, {
+        updatedAt: new Date().toISOString(),
+        size: head?.size ?? null,
+        etag: head?.httpEtag || head?.etag || null,
+        cacheControl: head?.httpMetadata?.cacheControl || session.cacheControl || null,
+        contentType: head?.httpMetadata?.contentType || session.contentType || 'application/json',
+        uploadedAt: head?.uploaded ? new Date(head.uploaded).toISOString() : null,
+        uploadedBy: session.uploadedBy,
+        facilityCount: session.facilityCount,
+        scheduleCount: session.scheduleCount,
+        sourceType: 'browser-multipart',
+      });
+
+      return jsonResponse({ ok: true, meta });
+    }
+
+    if (routeMatch(url, 'DELETE', 'admin/mhlw/upload')) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      if (!hasRole(authContext.payload, SYSTEM_ROOT_ONLY)) {
+        return jsonResponse({ error: 'FORBIDDEN', message: 'systemRoot 権限が必要です。' }, 403);
+      }
+      const uploadId = nk(url.searchParams.get('uploadId'));
+      if (!uploadId) {
+        return jsonResponse({ error: 'INVALID_REQUEST', message: 'uploadId は必須です。' }, 400);
+      }
+      const session = await getUploadSession(env, uploadId);
+      if (session) {
+        try {
+          await env.MEDIA.abortMultipartUpload(session.key, uploadId);
+        } catch (err) {
+          console.warn('[mhlw] failed to abort multipart upload', err);
+        }
+        await deleteUploadSession(env, uploadId);
+      }
+      return jsonResponse({ ok: true });
     }
 
     if (routeMatch(url, 'POST', 'admin/mhlw/refreshMeta')) {

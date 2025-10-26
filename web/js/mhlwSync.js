@@ -147,7 +147,7 @@
     if (!element) return;
     const entries = Object.values(data || {}).slice(0, 5);
     if (!entries.length) {
-      element.textContent = '厚労省施設データが読み込めません。最新データを `scripts/publishMhlwFacilities.mjs` でアップロードし、CSV再読込を押してください。';
+    element.textContent = '厚労省施設データが読み込めません。`CSV4種からJSONを生成してR2へアップロード` を実行するか、`scripts/uploadMhlwToR2.mjs` で更新した後に CSV再読込 を押してください。';
       return;
     }
     element.textContent = JSON.stringify(entries, null, 2);
@@ -194,6 +194,66 @@
       timeStyle: 'medium',
       timeZone: 'Asia/Tokyo',
     }).format(date);
+  }
+
+  const DEFAULT_PART_SIZE_HINT = 8 * 1024 * 1024;
+
+  async function startMultipartUpload({ facilityCount, scheduleCount, gzip = false }) {
+    const apiBase = resolveApiBase();
+    const authHeader = await getAuthHeader();
+    return fetchJson(`${apiBase}/api/admin/mhlw/initUpload`, {
+      method: 'POST',
+      headers: authHeader ? { Authorization: authHeader } : {},
+      body: { facilityCount, scheduleCount, gzip },
+    });
+  }
+
+  async function uploadPartChunk(uploadId, partNumber, chunk) {
+    const apiBase = resolveApiBase();
+    const authHeader = await getAuthHeader();
+    const headers = new Headers();
+    if (authHeader) headers.set('Authorization', authHeader);
+    headers.set('Content-Type', 'application/octet-stream');
+    const res = await fetch(`${apiBase}/api/admin/mhlw/uploadPart?uploadId=${encodeURIComponent(uploadId)}&partNumber=${partNumber}`, {
+      method: 'PUT',
+      headers,
+      body: chunk,
+    });
+    if (!res.ok) {
+      let details = '';
+      try {
+        const payload = await res.json();
+        details = payload?.message ? ` ${payload.message}` : '';
+      } catch (_) {}
+      throw new Error(`part ${partNumber} のアップロードに失敗しました (HTTP ${res.status}).${details}`);
+    }
+    return res.json();
+  }
+
+  async function completeMultipartUpload({ uploadId, parts, facilityCount, scheduleCount }) {
+    const apiBase = resolveApiBase();
+    const authHeader = await getAuthHeader();
+    return fetchJson(`${apiBase}/api/admin/mhlw/completeUpload`, {
+      method: 'POST',
+      headers: authHeader ? { Authorization: authHeader } : {},
+      body: { uploadId, parts, facilityCount, scheduleCount },
+    });
+  }
+
+  async function abortMultipartUpload(uploadId) {
+    if (!uploadId) return;
+    try {
+      const apiBase = resolveApiBase();
+      const authHeader = await getAuthHeader();
+      const headers = new Headers();
+      if (authHeader) headers.set('Authorization', authHeader);
+      await fetch(`${apiBase}/api/admin/mhlw/upload?uploadId=${encodeURIComponent(uploadId)}`, {
+        method: 'DELETE',
+        headers,
+      });
+    } catch (err) {
+      console.warn('[mhlwSync] failed to abort upload', err);
+    }
   }
 
   function toHiragana(text) {
@@ -763,9 +823,6 @@
     const previewEl = document.getElementById('mhlwPreview');
     const reloadBtn = document.getElementById('reloadMhlwDict');
     const metaInfo = document.getElementById('mhlwMetaInfo');
-    const uploadJsonForm = document.getElementById('mhlwUploadJsonForm');
-    const uploadJsonInput = document.getElementById('mhlwUploadFile');
-    const uploadJsonStatus = document.getElementById('mhlwUploadStatus');
     const uploadCsvForm = document.getElementById('mhlwUploadCsvForm');
     const uploadCsvStatus = document.getElementById('mhlwUploadCsvStatus');
     const metaRefreshBtn = document.getElementById('mhlwMetaRefresh');
@@ -852,8 +909,95 @@
       loadDictAndPreview(true);
     });
 
-    metaRefreshBtn?.addEventListener('click', () => {
-      loadMeta(true);
+    uploadCsvForm?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+
+      if (!global.MhlwCsvUtils?.buildMhlwDatasetFromCsv) {
+        setStatus(uploadCsvStatus, 'CSV 解析モジュールが読み込まれていません。ページを再読み込みしてください。', 'error');
+        return;
+      }
+
+      const requiredInputs = [
+        { input: clinicFacilityInput, label: '診療所 施設票 CSV' },
+        { input: clinicScheduleInput, label: '診療所 診療科・診療時間票 CSV' },
+        { input: hospitalFacilityInput, label: '病院 施設票 CSV' },
+        { input: hospitalScheduleInput, label: '病院 診療科・診療時間票 CSV' },
+      ];
+
+      for (const { input, label } of requiredInputs) {
+        if (!input || !input.files || !input.files.length) {
+          setStatus(uploadCsvStatus, `${label} を選択してください。`, 'error');
+          return;
+        }
+      }
+
+      let uploadSession = null;
+
+      try {
+        setStatus(uploadCsvStatus, 'CSV を解析中です…', 'info');
+        const progressSummary = new Map();
+        const describeProgress = () => Array.from(progressSummary.entries()).map(([key, value]) => `${key}: ${value}`).join(' / ');
+
+        const dataset = await global.MhlwCsvUtils.buildMhlwDatasetFromCsv({
+          clinicFacilityFile: clinicFacilityInput.files[0],
+          clinicScheduleFile: clinicScheduleInput.files[0],
+          hospitalFacilityFile: hospitalFacilityInput.files[0],
+          hospitalScheduleFile: hospitalScheduleInput.files[0],
+        }, {
+          onProgress: ({ kind, facilityType, processed, done }) => {
+            const labelPrefix = kind === 'facility' ? '施設票' : '診療時間票';
+            const typeLabel = facilityType === 'hospital' ? '病院' : '診療所';
+            const key = `${labelPrefix} (${typeLabel})`;
+            const suffix = done ? `${processed} 行完了` : `${processed} 行処理中…`;
+            progressSummary.set(key, suffix);
+            setStatus(uploadCsvStatus, `CSV を解析中です… ${describeProgress()}`, 'info');
+          },
+        });
+
+        const facilityCount = dataset.stats?.facilityCount ?? dataset.facilities.length;
+        const scheduleCount = dataset.stats?.scheduleCount ?? 0;
+
+        setStatus(uploadCsvStatus, 'アップロードを初期化しています…', 'info');
+        uploadSession = await startMultipartUpload({ facilityCount, scheduleCount });
+
+        const jsonPayload = JSON.stringify({ count: facilityCount, facilities: dataset.facilities });
+        const blob = new Blob([jsonPayload], { type: 'application/json' });
+        const partSize = Number(uploadSession.partSize) || DEFAULT_PART_SIZE_HINT;
+        const totalParts = Math.max(1, Math.ceil(blob.size / partSize));
+        const parts = [];
+
+        for (let partNumber = 1; partNumber <= totalParts; partNumber += 1) {
+          const start = (partNumber - 1) * partSize;
+          const end = Math.min(start + partSize, blob.size);
+          const chunk = blob.slice(start, end);
+          setStatus(uploadCsvStatus, `整形済み JSON (${formatBytes(blob.size)}) をアップロードしています… (${partNumber}/${totalParts})`, 'info');
+          const { etag } = await uploadPartChunk(uploadSession.uploadId, partNumber, chunk);
+          parts.push({ partNumber, etag });
+        }
+
+        setStatus(uploadCsvStatus, 'アップロードを確定しています…', 'info');
+        await completeMultipartUpload({
+          uploadId: uploadSession.uploadId,
+          parts,
+          facilityCount,
+          scheduleCount,
+        });
+
+        setStatus(uploadCsvStatus, `アップロードが完了しました（施設 ${facilityCount} 件、診療時間 ${scheduleCount} 件）。最新データを再読込します…`, 'success');
+
+        clinicFacilityInput.value = '';
+        clinicScheduleInput.value = '';
+        hospitalFacilityInput.value = '';
+        hospitalScheduleInput.value = '';
+
+        await loadDictAndPreview(true);
+      } catch (err) {
+        console.error('[mhlwSync] upload failed', err);
+        setStatus(uploadCsvStatus, err?.message || 'アップロード処理に失敗しました。', 'error');
+        if (uploadSession?.uploadId) {
+          await abortMultipartUpload(uploadSession.uploadId);
+        }
+      }
     });
 
     metaRefreshBtn?.addEventListener('click', () => {
