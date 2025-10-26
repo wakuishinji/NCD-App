@@ -88,6 +88,9 @@ node scripts/uploadMhlwToR2.mjs \
 - 厚労省同期画面の「CSV４種からJSONを生成してR2へアップロード」フローが完成。browser-side で CSV を正規化 → JSON 生成 → R2 multipart upload → メタ更新まで通しで確認。
 - `.csv.gz` は `DecompressionStream`（Chromium）と `fflate` フォールバック（Safari/Firefox 向け）で解凍。非対応ブラウザはエラーメッセージで事前解凍を促す。
 - CLI フォールバック (`scripts/importMhlwFacilities.mjs` + `scripts/uploadMhlwToR2.mjs`) は引き続き利用可能。アップロード後に `refreshMeta` を呼ぶため、UI 側の最新情報表示とも整合。
+- Workers 側が multipart 非対応の場合は、ブラウザ内で生成した JSON を gzip 圧縮して単一 PUT するフォールバックを実装。`Content-Encoding: gzip` を許可する CORS 設定も追加済み。
+- R2 から取得する公開 JSON も gzip で配信されるようになったため、管理画面では自動伸長→プレビュー表示まで対応。初回ロードで 404（未アップロード）時のみ従来メッセージを表示する。
+- 現状の課題：API 経由で取得した gzip JSON のプレビューが環境によって表示されないケースがある（ブラウザ側での伸長は成功ログまで出力される）。リロード時に `console` へ伸長結果と件数は出力されるため、データ取得自体は完了している。描画ロジックの改善とメモリ消費の検証が次ステップ。
 
 ---
 このRunbookはドラフトです。実際の運用手順が固まり次第、ステップの自動化・テスト整備を進める。

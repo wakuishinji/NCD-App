@@ -4,6 +4,7 @@
   const LOCAL_CACHE_TS_KEY = 'mhlwFacilityCacheTimestamp';
   const LOCAL_CACHE_TTL_MS = 1000 * 60 * 60; // 1 hour
   const DEFAULT_CACHE_CONTROL = 'public, max-age=600, stale-while-revalidate=3600';
+  const UTF8_DECODER = new TextDecoder('utf-8');
 
   function resolveApiBase() {
     if (global.NcdAuth && typeof global.NcdAuth.resolveApiBase === 'function') {
@@ -38,6 +39,40 @@
       return global.NcdAuth.getAuthHeader();
     }
     return undefined;
+  }
+
+  async function parseJsonResponse(response) {
+    const encoding = (response.headers.get('Content-Encoding') || '').toLowerCase();
+    if (encoding.includes('gzip')) {
+      const buffer = new Uint8Array(await response.arrayBuffer());
+      let text = '';
+
+      if (globalThis.fflate?.gunzipSync) {
+        try {
+          const decompressed = globalThis.fflate.gunzipSync(buffer);
+          text = UTF8_DECODER.decode(decompressed);
+        } catch (err) {
+          console.warn('[mhlwSync] fflate gunzip failed, trying fallback', err);
+        }
+      }
+
+      if (!text && typeof DecompressionStream === 'function') {
+        try {
+          const stream = new Blob([buffer]).stream().pipeThrough(new DecompressionStream('gzip'));
+          text = await new Response(stream).text();
+        } catch (err) {
+          console.warn('[mhlwSync] CompressionStream gunzip failed', err);
+        }
+      }
+
+      if (!text) {
+        text = UTF8_DECODER.decode(buffer);
+      }
+
+      return JSON.parse(text);
+    }
+
+    return response.json();
   }
 
   function loadCachedMhlwData() {
@@ -95,7 +130,7 @@
       error.status = res.status;
       throw error;
     }
-    return res.json();
+    return parseJsonResponse(res);
   }
 
   async function fetchMhlwFacilitiesFromLocalFile() {
@@ -105,7 +140,7 @@
       error.status = res.status;
       throw error;
     }
-    return res.json();
+    return parseJsonResponse(res);
   }
 
   async function loadMhlwFacilities({ bypassCache = false } = {}) {
@@ -134,6 +169,8 @@
     }
 
     if (dataset && Object.keys(dataset).length) {
+      const total = Object.keys(dataset).length;
+      console.info('[mhlwSync] facilities dataset loaded', { total });
       storeCachedMhlwData(dataset);
       return dataset;
     }
@@ -148,10 +185,19 @@
     if (!element) return;
     const entries = Object.values(data || {}).slice(0, 5);
     if (!entries.length) {
-    element.textContent = '厚労省施設データが読み込めません。`CSV4種からJSONを生成してR2へアップロード` を実行するか、`scripts/uploadMhlwToR2.mjs` で更新した後に CSV再読込 を押してください。';
+      element.textContent = '厚労省施設データが読み込めません。`CSV4種からJSONを生成してR2へアップロード` を実行するか、`scripts/uploadMhlwToR2.mjs` で更新した後に CSV再読込 を押してください。';
       return;
     }
-    element.textContent = JSON.stringify(entries, null, 2);
+    const previewEntries = entries.map((entry) => ({
+      facilityId: entry.facilityId,
+      facilityType: entry.facilityType,
+      name: entry.name,
+      address: entry.address,
+      prefecture: entry.prefecture,
+      city: entry.city,
+      scheduleCount: Array.isArray(entry.scheduleEntries) ? entry.scheduleEntries.length : 0,
+    }));
+    element.textContent = JSON.stringify(previewEntries, null, 2);
   }
 
   async function fetchMhlwMeta({ cacheMode = 'default' } = {}) {
@@ -199,6 +245,47 @@
 
   const DEFAULT_PART_SIZE_HINT = 8 * 1024 * 1024;
 
+  async function prepareDirectUploadPayload(rawBytes, rawBlob) {
+    if (rawBlob && typeof rawBlob.size === 'number') {
+      if (typeof CompressionStream === 'function') {
+        try {
+          const compressionStream = new CompressionStream('gzip');
+          const compressedStream = rawBlob.stream().pipeThrough(compressionStream);
+          const compressedBlob = await new Response(compressedStream).blob();
+          if (compressedBlob.size < rawBlob.size) {
+            console.info('[mhlwSync] gzip via CompressionStream', {
+              originalSize: rawBlob.size,
+              compressedSize: compressedBlob.size,
+            });
+            return { blob: compressedBlob, gzip: true };
+          }
+        } catch (err) {
+          console.warn('[mhlwSync] CompressionStream gzip failed, fallback to fflate', err);
+        }
+      }
+    }
+
+    if (rawBytes instanceof Uint8Array && globalThis.fflate?.gzipSync) {
+      try {
+        const compressed = globalThis.fflate.gzipSync(rawBytes);
+        if (compressed && compressed.length < rawBytes.length) {
+          console.info('[mhlwSync] gzip via fflate', {
+            originalSize: rawBytes.length,
+            compressedSize: compressed.length,
+          });
+          return { blob: new Blob([compressed], { type: 'application/json' }), gzip: true };
+        }
+      } catch (err) {
+        console.warn('[mhlwSync] fflate gzip failed, using raw payload', err);
+      }
+    }
+
+    return {
+      blob: rawBlob || new Blob([rawBytes], { type: 'application/json' }),
+      gzip: false,
+    };
+  }
+
   async function startMultipartUpload({ facilityCount, scheduleCount, gzip = false }) {
     const apiBase = resolveApiBase();
     const authHeader = await getAuthHeader();
@@ -222,11 +309,15 @@
     });
     if (!res.ok) {
       let details = '';
+      let payload = null;
       try {
-        const payload = await res.json();
+        payload = await res.json();
         details = payload?.message ? ` ${payload.message}` : '';
       } catch (_) {}
-      throw new Error(`part ${partNumber} のアップロードに失敗しました (HTTP ${res.status}).${details}`);
+      const error = new Error(`part ${partNumber} のアップロードに失敗しました (HTTP ${res.status}).${details}`);
+      if (payload) error.payload = payload;
+      error.status = res.status;
+      throw error;
     }
     return res.json();
   }
@@ -241,13 +332,20 @@
     });
   }
 
-  async function uploadJsonDirect({ blob, facilityCount, scheduleCount }) {
+  async function uploadJsonDirect({ blob, facilityCount, scheduleCount, gzip = false }) {
     const apiBase = resolveApiBase();
     const authHeader = await getAuthHeader();
     const headers = new Headers();
     if (authHeader) headers.set('Authorization', authHeader);
     headers.set('Content-Type', 'application/json');
     headers.set('Cache-Control', DEFAULT_CACHE_CONTROL);
+    if (gzip) headers.set('Content-Encoding', 'gzip');
+
+    console.info('[mhlwSync] direct PUT upload start', {
+      size: blob.size,
+      facilityCount,
+      scheduleCount,
+    });
 
     const res = await fetch(`${apiBase}/api/admin/mhlw/facilities`, {
       method: 'PUT',
@@ -263,6 +361,8 @@
       } catch (_) {}
       throw new Error(`厚労省データのアップロードに失敗しました (HTTP ${res.status}).${details}`);
     }
+
+    console.info('[mhlwSync] direct PUT upload done', res.status);
 
     try {
       await refreshMhlwMeta({ facilityCount, scheduleCount });
@@ -1008,7 +1108,17 @@
         const scheduleCount = dataset.stats?.scheduleCount ?? 0;
 
         const jsonPayload = JSON.stringify({ count: facilityCount, facilities: dataset.facilities });
-        const blob = new Blob([jsonPayload], { type: 'application/json' });
+        const encoder = new TextEncoder();
+        const rawBytes = encoder.encode(jsonPayload);
+        const rawBlob = new Blob([rawBytes], { type: 'application/json' });
+
+        let directPayloadPromise = null;
+        const getDirectPayload = () => {
+          if (!directPayloadPromise) {
+            directPayloadPromise = prepareDirectUploadPayload(rawBytes, rawBlob);
+          }
+          return directPayloadPromise;
+        };
 
         let useMultipart = true;
         try {
@@ -1023,33 +1133,72 @@
           }
         }
 
+        let uploadedViaFallback = false;
+
         if (!useMultipart) {
           setStatus(uploadCsvStatus, '環境で multipart upload が利用できないため、単一リクエストでアップロードしています…', 'info');
-          await uploadJsonDirect({ blob, facilityCount, scheduleCount });
+          const directPayload = await getDirectPayload();
+          await uploadJsonDirect({
+            blob: directPayload.blob,
+            facilityCount,
+            scheduleCount,
+            gzip: directPayload.gzip,
+          });
           setStatus(uploadCsvStatus, `アップロードが完了しました（施設 ${facilityCount} 件、診療時間 ${scheduleCount} 件）。最新データを再読込します…`, 'success');
+          uploadedViaFallback = true;
         } else {
           const partSize = Number(uploadSession.partSize) || DEFAULT_PART_SIZE_HINT;
-          const totalParts = Math.max(1, Math.ceil(blob.size / partSize));
+          const totalParts = Math.max(1, Math.ceil(rawBlob.size / partSize));
           const parts = [];
 
           for (let partNumber = 1; partNumber <= totalParts; partNumber += 1) {
             const start = (partNumber - 1) * partSize;
-            const end = Math.min(start + partSize, blob.size);
-            const chunk = blob.slice(start, end);
-            setStatus(uploadCsvStatus, `整形済み JSON (${formatBytes(blob.size)}) をアップロードしています… (${partNumber}/${totalParts})`, 'info');
-            const { etag } = await uploadPartChunk(uploadSession.uploadId, partNumber, chunk);
-            parts.push({ partNumber, etag });
+            const end = Math.min(start + partSize, rawBlob.size);
+            const chunk = rawBlob.slice(start, end);
+            setStatus(uploadCsvStatus, `整形済み JSON (${formatBytes(rawBlob.size)}) をアップロードしています… (${partNumber}/${totalParts})`, 'info');
+            try {
+              const { etag } = await uploadPartChunk(uploadSession.uploadId, partNumber, chunk);
+              parts.push({ partNumber, etag });
+            } catch (err) {
+              const payloadError = err?.payload?.error;
+              const isUnsupported = payloadError === 'UNSUPPORTED';
+              const isUploadPartFailed = payloadError === 'UPLOAD_PART_FAILED';
+              const shouldFallback = isUnsupported || isUploadPartFailed || err?.status === 500 || partNumber === 1;
+              if (shouldFallback) {
+                console.warn('[mhlwSync] uploadPart failed, falling back to single PUT', err);
+                if (uploadSession?.uploadId) {
+                  await abortMultipartUpload(uploadSession.uploadId);
+                  uploadSession = null;
+                }
+                console.info('[mhlwSync] switching to direct PUT upload');
+                setStatus(uploadCsvStatus, '環境で multipart upload が利用できないため、単一リクエストでアップロードしています…', 'info');
+                const directPayload = await getDirectPayload();
+                await uploadJsonDirect({
+                  blob: directPayload.blob,
+                  facilityCount,
+                  scheduleCount,
+                  gzip: directPayload.gzip,
+                });
+                setStatus(uploadCsvStatus, `アップロードが完了しました（施設 ${facilityCount} 件、診療時間 ${scheduleCount} 件）。最新データを再読込します…`, 'success');
+                uploadedViaFallback = true;
+                useMultipart = false;
+                break;
+              }
+              throw err;
+            }
           }
 
-          setStatus(uploadCsvStatus, 'アップロードを確定しています…', 'info');
-          await completeMultipartUpload({
-            uploadId: uploadSession.uploadId,
-            parts,
-            facilityCount,
-            scheduleCount,
-          });
+          if (useMultipart && !uploadedViaFallback) {
+            setStatus(uploadCsvStatus, 'アップロードを確定しています…', 'info');
+            await completeMultipartUpload({
+              uploadId: uploadSession.uploadId,
+              parts,
+              facilityCount,
+              scheduleCount,
+            });
 
-          setStatus(uploadCsvStatus, `アップロードが完了しました（施設 ${facilityCount} 件、診療時間 ${scheduleCount} 件）。最新データを再読込します…`, 'success');
+            setStatus(uploadCsvStatus, `アップロードが完了しました（施設 ${facilityCount} 件、診療時間 ${scheduleCount} 件）。最新データを再読込します…`, 'success');
+          }
         }
 
         clinicFacilityInput.value = '';

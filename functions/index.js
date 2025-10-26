@@ -83,7 +83,7 @@ export default {
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, HEAD, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization, Cache-Control",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, Cache-Control, Content-Encoding",
     };
 
     // ===== OPTIONS (CORSプリフライト)
@@ -4337,6 +4337,9 @@ export default {
       const contentType = object.httpMetadata?.contentType || 'application/json';
       headers.set('Content-Type', contentType);
       headers.set('Cache-Control', object.httpMetadata?.cacheControl || MHLW_FACILITIES_CACHE_CONTROL);
+      if (object.httpMetadata?.contentEncoding) {
+        headers.set('Content-Encoding', object.httpMetadata.contentEncoding);
+      }
       if (object.etag) headers.set('ETag', object.etag);
       if (object.uploaded) headers.set('Last-Modified', new Date(object.uploaded).toUTCString());
       if (typeof object.size === 'number') headers.set('Content-Length', String(object.size));
@@ -4362,28 +4365,32 @@ export default {
       }
       const contentType = request.headers.get('Content-Type') || 'application/json';
       const cacheControl = request.headers.get('Cache-Control') || MHLW_FACILITIES_CACHE_CONTROL;
+      const contentEncoding = request.headers.get('Content-Encoding') || undefined;
       let putResult;
       try {
         putResult = await env.MEDIA.put(MHLW_FACILITIES_R2_KEY, request.body, {
           httpMetadata: {
             contentType,
             cacheControl,
+            contentEncoding,
           },
         });
       } catch (err) {
         console.error('[mhlw] failed to store facilities dataset', err);
         return jsonResponse({ error: 'UPLOAD_FAILED', message: '厚労省施設データの保存に失敗しました。' }, 500);
       }
+      const sourceType = contentEncoding === 'gzip' ? 'json-gzip' : 'json';
       const meta = await writeMhlwFacilitiesMeta(env, {
         updatedAt: new Date().toISOString(),
         size: putResult?.size ?? null,
         etag: putResult?.etag ?? null,
         cacheControl,
         contentType,
+        contentEncoding: contentEncoding || null,
         uploadedBy: authContext.account?.id || authContext.payload?.sub || null,
         facilityCount: undefined,
         scheduleCount: undefined,
-        sourceType: 'json',
+        sourceType,
       });
       return jsonResponse({ ok: true, meta });
     }
@@ -4541,6 +4548,7 @@ export default {
         etag: head?.httpEtag || head?.etag || null,
         cacheControl: head?.httpMetadata?.cacheControl || session.cacheControl || null,
         contentType: head?.httpMetadata?.contentType || session.contentType || 'application/json',
+        contentEncoding: head?.httpMetadata?.contentEncoding || (session.gzip ? 'gzip' : null),
         uploadedAt: head?.uploaded ? new Date(head.uploaded).toISOString() : null,
         uploadedBy: session.uploadedBy,
         facilityCount: session.facilityCount,
