@@ -153,6 +153,49 @@
     element.textContent = JSON.stringify(entries, null, 2);
   }
 
+  async function fetchMhlwMeta({ cacheMode = 'default' } = {}) {
+    const apiBase = resolveApiBase();
+    const headers = new Headers();
+    const authHeader = await getAuthHeader();
+    if (authHeader) headers.set('Authorization', authHeader);
+    const res = await fetch(`${apiBase}/api/mhlw/facilities/meta`, { headers, cache: cacheMode });
+    if (res.status === 404) {
+      return null;
+    }
+    if (!res.ok) {
+      const error = new Error(`Failed to fetch meta (${res.status})`);
+      error.status = res.status;
+      error.payload = await res.json().catch(() => ({}));
+      throw error;
+    }
+    const payload = await res.json().catch(() => null);
+    if (payload && typeof payload === 'object') {
+      return payload.meta || payload;
+    }
+    return null;
+  }
+
+  function formatBytes(bytes) {
+    if (typeof bytes !== 'number' || Number.isNaN(bytes)) return '-';
+    if (bytes < 1024) return `${bytes} B`;
+    const kb = bytes / 1024;
+    if (kb < 1024) return `${kb.toFixed(1)} KB`;
+    const mb = kb / 1024;
+    if (mb < 1024) return `${mb.toFixed(1)} MB`;
+    return `${(mb / 1024).toFixed(1)} GB`;
+  }
+
+  function formatTimestamp(iso) {
+    if (!iso) return '-';
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return iso;
+    return new Intl.DateTimeFormat('ja-JP', {
+      dateStyle: 'medium',
+      timeStyle: 'medium',
+      timeZone: 'Asia/Tokyo',
+    }).format(date);
+  }
+
   function toHiragana(text) {
     if (text == null) return '';
     return String(text).replace(/[ァ-ヶ]/g, (char) => {
@@ -719,11 +762,64 @@
     const clinicList = document.getElementById('clinicList');
     const previewEl = document.getElementById('mhlwPreview');
     const reloadBtn = document.getElementById('reloadMhlwDict');
+    const metaInfo = document.getElementById('mhlwMetaInfo');
+    const uploadForm = document.getElementById('mhlwUploadForm');
+    const uploadInput = document.getElementById('mhlwUploadFile');
+    const uploadStatus = document.getElementById('mhlwUploadStatus');
+    const metaRefreshBtn = document.getElementById('mhlwMetaRefresh');
 
     if (!searchForm || !clinicList) return;
 
     let mhlwDict = {};
     let mhlwEntries = [];
+
+    function setUploadStatus(message, variant = 'info') {
+      if (!uploadStatus) return;
+      uploadStatus.textContent = message;
+      uploadStatus.className = 'mt-2 text-xs';
+      if (variant === 'error') {
+        uploadStatus.classList.add('text-red-600');
+      } else if (variant === 'success') {
+        uploadStatus.classList.add('text-emerald-600');
+      } else {
+        uploadStatus.classList.add('text-slate-500');
+      }
+    }
+
+    function renderMeta(meta) {
+      if (!metaInfo) return;
+      metaInfo.className = 'text-xs text-slate-500 sm:text-right';
+      if (!meta) {
+        metaInfo.textContent = '最新データ: 未アップロード';
+        return;
+      }
+      const parts = [];
+      parts.push(`<span class="font-semibold">${formatTimestamp(meta.updatedAt)}</span>`);
+      if (typeof meta.size === 'number') {
+        parts.push(`サイズ: ${formatBytes(meta.size)}`);
+      }
+      if (meta.etag) {
+        parts.push(`ETag: ${meta.etag}`);
+      }
+      if (meta.cacheControl) {
+        parts.push(`Cache-Control: ${meta.cacheControl}`);
+      }
+      metaInfo.innerHTML = `最新更新: ${parts.join(' / ')}`;
+    }
+
+    async function loadMeta(force = false) {
+      if (!metaInfo) return;
+      metaInfo.className = 'text-xs text-slate-500 sm:text-right';
+      metaInfo.textContent = '最新データ情報を取得中…';
+      try {
+        const meta = await fetchMhlwMeta({ cacheMode: force ? 'reload' : 'default' });
+        renderMeta(meta);
+      } catch (err) {
+        console.warn('[mhlwSync] meta fetch failed', err);
+        metaInfo.textContent = err?.payload?.message || err?.message || '最新データ情報の取得に失敗しました。';
+        metaInfo.classList.add('text-red-600');
+      }
+    }
 
     async function loadDictAndPreview(force = false) {
       if (force) {
@@ -732,6 +828,7 @@
           localStorage.removeItem(LOCAL_CACHE_TS_KEY);
         } catch (_) {}
       }
+      await loadMeta(force);
       mhlwDict = await loadMhlwFacilities({ bypassCache: force });
       mhlwEntries = mhlwDict && typeof mhlwDict === 'object' ? Object.values(mhlwDict) : [];
       renderMhlwPreview(mhlwDict, previewEl);
@@ -744,6 +841,53 @@
         previewEl.textContent = 'CSVを再読込しています…';
       }
       loadDictAndPreview(true);
+    });
+
+    metaRefreshBtn?.addEventListener('click', () => {
+      loadMeta(true);
+    });
+
+    uploadForm?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!uploadInput || !uploadInput.files || !uploadInput.files.length) {
+        setUploadStatus('アップロードする整形済み JSON ファイルを選択してください。', 'error');
+        return;
+      }
+      const file = uploadInput.files[0];
+      if (!file) {
+        setUploadStatus('ファイルを選択してください。', 'error');
+        return;
+      }
+      setUploadStatus('アップロード中です…', 'info');
+      try {
+        const apiBase = resolveApiBase();
+        const headers = new Headers();
+        const authHeader = await getAuthHeader();
+        if (authHeader) headers.set('Authorization', authHeader);
+        headers.set('Content-Type', file.type || 'application/json');
+        headers.set('Cache-Control', 'public, max-age=600, stale-while-revalidate=3600');
+        const res = await fetch(`${apiBase}/api/admin/mhlw/facilities`, {
+          method: 'PUT',
+          headers,
+          body: file,
+        });
+        if (!res.ok) {
+          let message = `アップロードに失敗しました (${res.status}).`;
+          try {
+            const payload = await res.json();
+            if (payload?.message) message = payload.message;
+          } catch (_) {}
+          throw new Error(message);
+        }
+        await res.json().catch(() => ({}));
+        setUploadStatus('アップロードが完了しました。最新データを再読込します…', 'success');
+        uploadInput.value = '';
+        await loadDictAndPreview(true);
+      } catch (err) {
+        console.error('[mhlwSync] upload failed', err);
+        setUploadStatus(err?.message || 'アップロードに失敗しました。', 'error');
+        await loadMeta(false);
+      }
     });
 
     searchForm.addEventListener('submit', async (event) => {
