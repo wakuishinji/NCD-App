@@ -3,7 +3,8 @@
     "test": "vitest",
     "migrate:master-ids": "node ./scripts/migrateMasterIds.mjs",
     "cleanup:legacy-masters": "node ./scripts/cleanupLegacyMasters.mjs",
-    "publish:mhlw": "node ./scripts/publishMhlwFacilities.mjs"
+    "publish:mhlw": "node ./scripts/publishMhlwFacilities.mjs",
+    "upload:mhlw": "node ./scripts/uploadMhlwToR2.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.8",

@@ -30,19 +30,27 @@ node scripts/importMhlwFacilities.mjs \
 - `--jsonl` を付けると 1 行 1 レコードの JSON Lines に。
 
 ## 4. Workers への公開データアップロード
-1. 厚労省サイトから取得した 4 つの CSV（病院/診療所の施設票・診療時間票）をそのまま管理画面の「CSV４種をアップロード」から選択し送信するか、従来どおり JSON を生成してアップロードする。
-   - CSV をアップロードした場合はブラウザ内で JSON に整形された後、自動的に `/api/admin/mhlw/facilities` へアップロードされ、`mhlw/facilities.json` に保存されます。
-2. CLI からアップロードする場合は以下のいずれかを利用。
+1. 厚労省サイトから取得した 4 つの CSV（病院/診療所の施設票・診療時間票）を `scripts/importMhlwFacilities.mjs` で整形し、`tmp/mhlw-facilities.json` を生成。
    ```bash
-   # 整形済み JSON をアップロードする例
-   node scripts/publishMhlwFacilities.mjs \
-     --token "$SYSTEM_ROOT_TOKEN" \
+   node scripts/importMhlwFacilities.mjs \
+     --file clinic:data/medical-open-data/02-1_clinic_facility_info_20250601.csv.gz \
+     --file hospital:data/medical-open-data/01-1_hospital_facility_info_20250601.csv.gz \
+     --schedule clinic:data/medical-open-data/02-2_clinic_speciality_hours_20250601.csv.gz \
+     --schedule hospital:data/medical-open-data/01-2_hospital_speciality_hours_20250601.csv.gz \
+     --outfile tmp/mhlw-facilities.json
+   ```
+2. R2 へアップロードし、Workers のメタ情報を更新する。
+   ```bash
+   # systemRoot のアクセストークンを環境変数へ（または --token オプションで指定）
+   export SYSTEM_ROOT_TOKEN="{systemRoot の Bearer トークン}"
+
+   node scripts/uploadMhlwToR2.mjs \
      --json tmp/mhlw-facilities.json \
      --api-base https://ncd-app.altry.workers.dev
    ```
-   - `API_BASE` / `SYSTEM_ROOT_TOKEN` を環境変数で設定しておけばオプションは省略可能。
-   - 成功すると R2 上に `mhlw/facilities.json` が保存され、`/api/mhlw/facilities` から常時参照できる。
-   - 状態確認: `GET /api/mhlw/facilities/meta` を叩くか、管理ハブの厚労省ID同期画面のプレビューに更新時刻が反映されることを確認。
+   - `--gzip` を付けると JSON を gzip 圧縮してアップロード。
+   - 成功すると R2 の `mhlw/facilities.json` が差し替わり、`POST /api/admin/mhlw/refreshMeta` が自動で呼ばれて管理画面のメタ情報が更新される。
+   - 状態確認: `GET /api/mhlw/facilities/meta` を叩くか、管理ハブの厚労省ID同期画面で「情報更新」を押して更新日時・件数を確認。
 
 ## 5. 既存施設との照合
 1. 厚労省ID同期画面（`/admin/mhlw-sync.html`、systemRoot 専用）を開き、診療所を検索。

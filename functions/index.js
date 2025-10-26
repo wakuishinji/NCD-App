@@ -4362,6 +4362,45 @@ export default {
       return jsonResponse({ ok: true, meta });
     }
 
+    if (routeMatch(url, 'POST', 'admin/mhlw/refreshMeta')) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      if (!hasRole(authContext.payload, SYSTEM_ROOT_ONLY)) {
+        return jsonResponse({ error: 'FORBIDDEN', message: 'systemRoot 権限が必要です。' }, 403);
+      }
+      if (!env.MEDIA || typeof env.MEDIA.head !== 'function') {
+        return jsonResponse({ error: 'MHLW_STORAGE_UNCONFIGURED', message: 'MEDIA バケットが構成されていません。' }, 500);
+      }
+
+      let body = {};
+      try {
+        body = await request.json();
+      } catch (_) {}
+
+      const head = await env.MEDIA.head(MHLW_FACILITIES_R2_KEY);
+      if (!head) {
+        return jsonResponse({ error: 'NOT_FOUND', message: 'R2 に厚労省施設データが存在しません。' }, 404);
+      }
+
+      const meta = await writeMhlwFacilitiesMeta(env, {
+        updatedAt: new Date().toISOString(),
+        size: head.size ?? null,
+        etag: head.httpEtag || head.etag || null,
+        cacheControl: head.httpMetadata?.cacheControl || null,
+        contentType: head.httpMetadata?.contentType || null,
+        uploadedAt: head.uploaded ? new Date(head.uploaded).toISOString() : null,
+        uploadedBy: authContext.account?.id || authContext.payload?.sub || null,
+        facilityCount: typeof body?.facilityCount === 'number' ? body.facilityCount : null,
+        scheduleCount: typeof body?.scheduleCount === 'number' ? body.scheduleCount : null,
+        sourceType: 'r2',
+        note: body?.note || null,
+      });
+
+      return jsonResponse({ ok: true, meta });
+    }
+
     if (routeMatch(url, 'POST', 'admin/mhlw/uploadCsv')) {
       const authContext = await authenticateRequest(request, env);
       if (!authContext) {

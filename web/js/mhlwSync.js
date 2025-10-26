@@ -856,170 +856,22 @@
       loadMeta(true);
     });
 
-    uploadJsonForm?.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      if (!uploadJsonInput || !uploadJsonInput.files || !uploadJsonInput.files.length) {
-        setStatus(uploadJsonStatus, 'アップロードする整形済み JSON ファイルを選択してください。', 'error');
-        return;
+    metaRefreshBtn?.addEventListener('click', () => {
+      if (uploadCsvStatus) {
+        setStatus(uploadCsvStatus, '最新データ情報を取得中…', 'info');
       }
-      const file = uploadJsonInput.files[0];
-      if (!file) {
-        setStatus(uploadJsonStatus, 'ファイルを選択してください。', 'error');
-        return;
-      }
-      setStatus(uploadJsonStatus, 'アップロード中です…', 'info');
-      try {
-        const apiBase = resolveApiBase();
-        const headers = new Headers();
-        const authHeader = await getAuthHeader();
-        if (authHeader) headers.set('Authorization', authHeader);
-        headers.set('Content-Type', file.type || 'application/json');
-        headers.set('Cache-Control', 'public, max-age=600, stale-while-revalidate=3600');
-        const res = await fetch(`${apiBase}/api/admin/mhlw/facilities`, {
-          method: 'PUT',
-          headers,
-          body: file,
-        });
-        if (!res.ok) {
-          let message = `アップロードに失敗しました (${res.status}).`;
-          try {
-            const payload = await res.json();
-          if (payload?.message) message = payload.message;
-        } catch (_) {}
-        throw new Error(message);
-      }
-      await res.json().catch(() => ({}));
-      setStatus(uploadJsonStatus, 'アップロードが完了しました。最新データを再読込します…', 'success');
-      uploadJsonInput.value = '';
-      await loadDictAndPreview(true);
-      } catch (err) {
-        console.error('[mhlwSync] upload failed', err);
-        setStatus(uploadJsonStatus, err?.message || 'アップロードに失敗しました。', 'error');
-        await loadMeta(false);
-      }
-    });
-
-    uploadCsvForm?.addEventListener('submit', async (event) => {
-      event.preventDefault();
-
-      const requiredInputs = [
-        { input: clinicFacilityInput, label: '診療所 施設票 CSV' },
-        { input: clinicScheduleInput, label: '診療所 診療科・診療時間票 CSV' },
-        { input: hospitalFacilityInput, label: '病院 施設票 CSV' },
-        { input: hospitalScheduleInput, label: '病院 診療科・診療時間票 CSV' },
-      ];
-
-      for (const { input, label } of requiredInputs) {
-        if (!input || !input.files || !input.files.length) {
-          setStatus(uploadCsvStatus, `${label} を選択してください。`, 'error');
-          return;
-        }
-      }
-
-      const clinicFacilityFile = clinicFacilityInput.files[0];
-      const clinicScheduleFile = clinicScheduleInput.files[0];
-      const hospitalFacilityFile = hospitalFacilityInput.files[0];
-      const hospitalScheduleFile = hospitalScheduleInput.files[0];
-
-      setStatus(uploadCsvStatus, 'CSV を解析中です…', 'info');
-
-      try {
-        if (!global.MhlwCsvUtils?.buildMhlwDatasetFromCsv) {
-          throw new Error('CSV 解析モジュールが読み込まれていません。ページを再読み込みしてください。');
-        }
-
-        const progressSummary = new Map();
-        const describeProgress = () => {
-          const parts = [];
-          for (const [key, value] of progressSummary.entries()) {
-            parts.push(`${key}: ${value}`);
+      loadMeta(true)
+        .then(() => {
+          if (uploadCsvStatus) {
+            setStatus(uploadCsvStatus, '最新データ情報を取得しました。', 'success');
           }
-          return parts.join(' / ');
-        };
-
-        const dataset = await global.MhlwCsvUtils.buildMhlwDatasetFromCsv({
-          clinicFacilityFile,
-          clinicScheduleFile,
-          hospitalFacilityFile,
-          hospitalScheduleFile,
-        }, {
-          onProgress: ({ kind, facilityType, processed, done }) => {
-            const labelPrefix = kind === 'facility' ? '施設票' : '診療時間票';
-            const typeLabel = facilityType === 'hospital' ? '病院' : '診療所';
-            const key = `${labelPrefix} (${typeLabel})`;
-            const suffix = done ? `${processed} 行` : `${processed} 行処理中…`;
-            progressSummary.set(key, suffix);
-            setStatus(uploadCsvStatus, `CSV を解析中です… ${describeProgress()}`, 'info');
-          },
-        });
-
-        const jsonPayload = JSON.stringify({
-          count: dataset.facilities.length,
-          facilities: dataset.facilities,
-        });
-
-        const payloadSize = new Blob([jsonPayload]).size;
-        setStatus(
-          uploadCsvStatus,
-          `整形済み JSON (${formatBytes(payloadSize)}) をアップロードしています…`,
-          'info',
-        );
-
-        const apiBase = resolveApiBase();
-        const headers = new Headers();
-        const authHeader = await getAuthHeader();
-        if (authHeader) headers.set('Authorization', authHeader);
-        headers.set('Content-Type', 'application/json');
-        headers.set('Cache-Control', 'public, max-age=600, stale-while-revalidate=3600');
-
-        let res;
-        let responseText = '';
-        try {
-          res = await fetch(`${apiBase}/api/admin/mhlw/facilities`, {
-            method: 'PUT',
-            headers,
-            body: jsonPayload,
-          });
-          responseText = await res.text();
-        } catch (fetchErr) {
-          console.error('[mhlwSync] JSON upload request failed', fetchErr);
-          setStatus(uploadCsvStatus, `JSON アップロードに失敗しました: ${fetchErr?.message || fetchErr}`, 'error');
-          return;
-        }
-
-        let responseJson = null;
-        if (responseText) {
-          try {
-            responseJson = JSON.parse(responseText);
-          } catch (_) {
-            // ignore parse error, keep raw text
+        })
+        .catch((err) => {
+          console.error('[mhlwSync] meta refresh failed', err);
+          if (uploadCsvStatus) {
+            setStatus(uploadCsvStatus, err?.message || '最新データの取得に失敗しました。', 'error');
           }
-        }
-
-        if (!res.ok) {
-          const errorDetail = responseJson?.message || responseText || '詳細情報は返却されませんでした。';
-          setStatus(
-            uploadCsvStatus,
-            `JSON アップロードに失敗しました (HTTP ${res.status}). ${errorDetail}`,
-            'error',
-          );
-          return;
-        }
-
-        const message = `アップロードが完了しました（施設 ${dataset.stats.facilityCount} 件、診療時間 ${dataset.stats.scheduleCount} 件）。最新データを再読込します…`;
-        setStatus(uploadCsvStatus, message, 'success');
-
-        clinicFacilityInput.value = '';
-        clinicScheduleInput.value = '';
-        hospitalFacilityInput.value = '';
-        hospitalScheduleInput.value = '';
-
-        await loadDictAndPreview(true);
-      } catch (err) {
-        console.error('[mhlwSync] CSV upload failed', err);
-        setStatus(uploadCsvStatus, err?.message || 'CSV の処理に失敗しました。', 'error');
-        await loadMeta(false);
-      }
+        });
     });
 
     searchForm.addEventListener('submit', async (event) => {
