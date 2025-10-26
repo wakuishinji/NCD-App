@@ -953,12 +953,17 @@
           },
         });
 
-        setStatus(uploadCsvStatus, '整形済み JSON をアップロードしています…', 'info');
-
         const jsonPayload = JSON.stringify({
           count: dataset.facilities.length,
           facilities: dataset.facilities,
         });
+
+        const payloadSize = new Blob([jsonPayload]).size;
+        setStatus(
+          uploadCsvStatus,
+          `整形済み JSON (${formatBytes(payloadSize)}) をアップロードしています…`,
+          'info',
+        );
 
         const apiBase = resolveApiBase();
         const headers = new Headers();
@@ -967,22 +972,39 @@
         headers.set('Content-Type', 'application/json');
         headers.set('Cache-Control', 'public, max-age=600, stale-while-revalidate=3600');
 
-        const res = await fetch(`${apiBase}/api/admin/mhlw/facilities`, {
-          method: 'PUT',
-          headers,
-          body: jsonPayload,
-        });
-
-        if (!res.ok) {
-          let message = `アップロードに失敗しました (${res.status}).`;
-          try {
-            const payload = await res.json();
-            if (payload?.message) message = payload.message;
-          } catch (_) {}
-          throw new Error(message);
+        let res;
+        let responseText = '';
+        try {
+          res = await fetch(`${apiBase}/api/admin/mhlw/facilities`, {
+            method: 'PUT',
+            headers,
+            body: jsonPayload,
+          });
+          responseText = await res.text();
+        } catch (fetchErr) {
+          console.error('[mhlwSync] JSON upload request failed', fetchErr);
+          setStatus(uploadCsvStatus, `JSON アップロードに失敗しました: ${fetchErr?.message || fetchErr}`, 'error');
+          return;
         }
 
-        await res.json().catch(() => ({}));
+        let responseJson = null;
+        if (responseText) {
+          try {
+            responseJson = JSON.parse(responseText);
+          } catch (_) {
+            // ignore parse error, keep raw text
+          }
+        }
+
+        if (!res.ok) {
+          const errorDetail = responseJson?.message || responseText || '詳細情報は返却されませんでした。';
+          setStatus(
+            uploadCsvStatus,
+            `JSON アップロードに失敗しました (HTTP ${res.status}). ${errorDetail}`,
+            'error',
+          );
+          return;
+        }
 
         const message = `アップロードが完了しました（施設 ${dataset.stats.facilityCount} 件、診療時間 ${dataset.stats.scheduleCount} 件）。最新データを再読込します…`;
         setStatus(uploadCsvStatus, message, 'success');
