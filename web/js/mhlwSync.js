@@ -763,26 +763,35 @@
     const previewEl = document.getElementById('mhlwPreview');
     const reloadBtn = document.getElementById('reloadMhlwDict');
     const metaInfo = document.getElementById('mhlwMetaInfo');
-    const uploadForm = document.getElementById('mhlwUploadForm');
-    const uploadInput = document.getElementById('mhlwUploadFile');
-    const uploadStatus = document.getElementById('mhlwUploadStatus');
+    const uploadJsonForm = document.getElementById('mhlwUploadJsonForm');
+    const uploadJsonInput = document.getElementById('mhlwUploadFile');
+    const uploadJsonStatus = document.getElementById('mhlwUploadStatus');
+    const uploadCsvForm = document.getElementById('mhlwUploadCsvForm');
+    const uploadCsvStatus = document.getElementById('mhlwUploadCsvStatus');
     const metaRefreshBtn = document.getElementById('mhlwMetaRefresh');
+
+    const clinicFacilityInput = document.getElementById('mhlwClinicFacilityCsv');
+    const clinicScheduleInput = document.getElementById('mhlwClinicScheduleCsv');
+    const hospitalFacilityInput = document.getElementById('mhlwHospitalFacilityCsv');
+    const hospitalScheduleInput = document.getElementById('mhlwHospitalScheduleCsv');
 
     if (!searchForm || !clinicList) return;
 
     let mhlwDict = {};
     let mhlwEntries = [];
 
-    function setUploadStatus(message, variant = 'info') {
-      if (!uploadStatus) return;
-      uploadStatus.textContent = message;
-      uploadStatus.className = 'mt-2 text-xs';
+    function setStatus(element, message, variant = 'info') {
+      if (!element) return;
+      element.textContent = message;
+      const base = element.dataset?.baseClass || 'text-xs';
+      element.className = base;
+      element.classList.remove('text-red-600', 'text-emerald-600', 'text-slate-500');
       if (variant === 'error') {
-        uploadStatus.classList.add('text-red-600');
+        element.classList.add('text-red-600');
       } else if (variant === 'success') {
-        uploadStatus.classList.add('text-emerald-600');
+        element.classList.add('text-emerald-600');
       } else {
-        uploadStatus.classList.add('text-slate-500');
+        element.classList.add('text-slate-500');
       }
     }
 
@@ -847,18 +856,18 @@
       loadMeta(true);
     });
 
-    uploadForm?.addEventListener('submit', async (event) => {
+    uploadJsonForm?.addEventListener('submit', async (event) => {
       event.preventDefault();
-      if (!uploadInput || !uploadInput.files || !uploadInput.files.length) {
-        setUploadStatus('アップロードする整形済み JSON ファイルを選択してください。', 'error');
+      if (!uploadJsonInput || !uploadJsonInput.files || !uploadJsonInput.files.length) {
+        setStatus(uploadJsonStatus, 'アップロードする整形済み JSON ファイルを選択してください。', 'error');
         return;
       }
-      const file = uploadInput.files[0];
+      const file = uploadJsonInput.files[0];
       if (!file) {
-        setUploadStatus('ファイルを選択してください。', 'error');
+        setStatus(uploadJsonStatus, 'ファイルを選択してください。', 'error');
         return;
       }
-      setUploadStatus('アップロード中です…', 'info');
+      setStatus(uploadJsonStatus, 'アップロード中です…', 'info');
       try {
         const apiBase = resolveApiBase();
         const headers = new Headers();
@@ -875,17 +884,83 @@
           let message = `アップロードに失敗しました (${res.status}).`;
           try {
             const payload = await res.json();
+          if (payload?.message) message = payload.message;
+        } catch (_) {}
+        throw new Error(message);
+      }
+      await res.json().catch(() => ({}));
+      setStatus(uploadJsonStatus, 'アップロードが完了しました。最新データを再読込します…', 'success');
+      uploadJsonInput.value = '';
+      await loadDictAndPreview(true);
+      } catch (err) {
+        console.error('[mhlwSync] upload failed', err);
+        setStatus(uploadJsonStatus, err?.message || 'アップロードに失敗しました。', 'error');
+        await loadMeta(false);
+      }
+    });
+
+    uploadCsvForm?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+
+      const requiredInputs = [
+        { input: clinicFacilityInput, label: '診療所 施設票 CSV' },
+        { input: clinicScheduleInput, label: '診療所 診療科・診療時間票 CSV' },
+        { input: hospitalFacilityInput, label: '病院 施設票 CSV' },
+        { input: hospitalScheduleInput, label: '病院 診療科・診療時間票 CSV' },
+      ];
+
+      for (const { input, label } of requiredInputs) {
+        if (!input || !input.files || !input.files.length) {
+          setStatus(uploadCsvStatus, `${label} を選択してください。`, 'error');
+          return;
+        }
+      }
+
+      const formData = new FormData();
+      formData.set('clinicFacility', clinicFacilityInput.files[0]);
+      formData.set('clinicSchedule', clinicScheduleInput.files[0]);
+      formData.set('hospitalFacility', hospitalFacilityInput.files[0]);
+      formData.set('hospitalSchedule', hospitalScheduleInput.files[0]);
+
+      setStatus(uploadCsvStatus, 'CSV を処理中です…', 'info');
+
+      try {
+        const apiBase = resolveApiBase();
+        const headers = new Headers();
+        const authHeader = await getAuthHeader();
+        if (authHeader) headers.set('Authorization', authHeader);
+
+        const res = await fetch(`${apiBase}/api/admin/mhlw/uploadCsv`, {
+          method: 'POST',
+          headers,
+          body: formData,
+        });
+
+        if (!res.ok) {
+          let message = `CSV の処理に失敗しました (${res.status}).`;
+          try {
+            const payload = await res.json();
             if (payload?.message) message = payload.message;
           } catch (_) {}
           throw new Error(message);
         }
-        await res.json().catch(() => ({}));
-        setUploadStatus('アップロードが完了しました。最新データを再読込します…', 'success');
-        uploadInput.value = '';
+
+        const payload = await res.json().catch(() => ({}));
+        const summary = payload?.summary;
+        const message = summary
+          ? `アップロードが完了しました（施設 ${summary.facilityCount ?? '-'} 件、診療時間 ${summary.scheduleCount ?? '-'} 件）。最新データを再読込します…`
+          : 'アップロードが完了しました。最新データを再読込します…';
+        setStatus(uploadCsvStatus, message, 'success');
+
+        clinicFacilityInput.value = '';
+        clinicScheduleInput.value = '';
+        hospitalFacilityInput.value = '';
+        hospitalScheduleInput.value = '';
+
         await loadDictAndPreview(true);
       } catch (err) {
-        console.error('[mhlwSync] upload failed', err);
-        setUploadStatus(err?.message || 'アップロードに失敗しました。', 'error');
+        console.error('[mhlwSync] CSV upload failed', err);
+        setStatus(uploadCsvStatus, err?.message || 'CSV の処理に失敗しました。', 'error');
         await loadMeta(false);
       }
     });

@@ -34,20 +34,48 @@
           <header class="flex flex-col gap-1 border-b border-slate-200 pb-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 class="text-base font-semibold text-blue-900">厚労省データアップロード</h2>
-              <p class="mt-1 text-xs text-slate-500">最新の整形済み JSON を選択し、Workers へアップロードすると全施設で参照できます。</p>
+              <p class="mt-1 text-xs text-slate-500">整形済み JSON または厚労省提供の CSV（病院・診療所の施設票／診療時間票）をアップロードできます。</p>
             </div>
             <div id="mhlwMetaInfo" class="text-xs text-slate-500 sm:text-right"></div>
           </header>
 
-          <form id="mhlwUploadForm" class="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
-            <div class="flex-1">
-              <label class="block text-xs font-medium text-slate-600" for="mhlwUploadFile">整形済み JSON ファイル</label>
-              <input id="mhlwUploadFile" name="mhlwUploadFile" type="file" accept=".json,application/json" class="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm" />
-            </div>
-            <button type="submit" class="inline-flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700">アップロード</button>
-            <button type="button" id="mhlwMetaRefresh" class="inline-flex items-center gap-2 rounded border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-800 transition hover:border-blue-300 hover:bg-blue-100">情報更新</button>
-          </form>
-          <p id="mhlwUploadStatus" class="mt-2 text-xs text-slate-500"></p>
+          <div class="mt-3 grid gap-4">
+            <form id="mhlwUploadJsonForm" class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
+              <div>
+                <label class="block text-xs font-medium text-slate-600" for="mhlwUploadFile">整形済み JSON ファイル</label>
+                <input id="mhlwUploadFile" name="mhlwUploadFile" type="file" accept=".json,application/json" class="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm" />
+              </div>
+              <button type="submit" class="inline-flex items-center justify-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700">JSONをアップロード</button>
+              <button type="button" id="mhlwMetaRefresh" class="inline-flex items-center justify-center gap-2 rounded border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-800 transition hover:border-blue-300 hover:bg-blue-100">情報更新</button>
+            </form>
+            <p id="mhlwUploadStatus" data-base-class="text-xs text-slate-500"></p>
+
+            <form id="mhlwUploadCsvForm" class="grid gap-3">
+              <div class="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label class="block text-xs font-medium text-slate-600" for="mhlwClinicFacilityCsv">診療所 施設票 CSV (.csv または .csv.gz)</label>
+                  <input id="mhlwClinicFacilityCsv" name="clinicFacility" type="file" accept=".csv,.gz,text/csv,application/gzip" class="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm" />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600" for="mhlwClinicScheduleCsv">診療所 診療科・診療時間票 CSV</label>
+                  <input id="mhlwClinicScheduleCsv" name="clinicSchedule" type="file" accept=".csv,.gz,text/csv,application/gzip" class="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm" />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600" for="mhlwHospitalFacilityCsv">病院 施設票 CSV</label>
+                  <input id="mhlwHospitalFacilityCsv" name="hospitalFacility" type="file" accept=".csv,.gz,text/csv,application/gzip" class="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm" />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600" for="mhlwHospitalScheduleCsv">病院 診療科・診療時間票 CSV</label>
+                  <input id="mhlwHospitalScheduleCsv" name="hospitalSchedule" type="file" accept=".csv,.gz,text/csv,application/gzip" class="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm" />
+                </div>
+              </div>
+              <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <button type="submit" class="inline-flex items-center justify-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700">CSV４種をアップロード</button>
+                <p class="text-xs text-slate-500">※ 厚労省サイトからダウンロードした CSV / CSV.gz をそのまま選択できます。</p>
+              </div>
+            </form>
+            <p id="mhlwUploadCsvStatus" data-base-class="text-xs text-slate-500"></p>
+          </div>
         </section>
 
         <form id="searchForm" class="grid grid-cols-1 gap-4 md:grid-cols-2">

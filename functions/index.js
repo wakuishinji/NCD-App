@@ -43,6 +43,22 @@ const DEFAULT_ORGANIZATION_ID = `${ORGANIZATION_ID_PREFIX}${DEFAULT_ORGANIZATION
 const MHLW_FACILITIES_R2_KEY = 'mhlw/facilities.json';
 const MHLW_FACILITIES_META_KEY = 'mhlw:facilities:meta';
 const MHLW_FACILITIES_CACHE_CONTROL = 'public, max-age=600, stale-while-revalidate=3600';
+const MHLW_FACILITY_COLUMNS = [
+  'prefCode', 'prefName', 'cityCode', 'cityName',
+  'facilityId', 'facilityName', 'facilityNameKana',
+  'postalCode', 'address', 'phone', 'fax',
+  'longitude', 'latitude', 'foundingType', 'careType', 'bedCount',
+];
+const MHLW_SCHEDULE_DAY_DEFS = [
+  { label: '月曜', start: ['月_診療開始時間'], end: ['月_診療終了時間'], receptionStart: ['月_外来受付開始時間'], receptionEnd: ['月_外来受付終了時間'] },
+  { label: '火曜', start: ['火_診療開始時間'], end: ['火_診療終了時間'], receptionStart: ['火_外来受付開始時間'], receptionEnd: ['火_外来受付終了時間'] },
+  { label: '水曜', start: ['水_診療開始時間'], end: ['水_診療終了時間'], receptionStart: ['水_外来受付開始時間'], receptionEnd: ['水_外来受付終了時間'] },
+  { label: '木曜', start: ['木_診療開始時間'], end: ['木_診療終了時間'], receptionStart: ['木_外来受付開始時間'], receptionEnd: ['木_外来受付終了時間'] },
+  { label: '金曜', start: ['金_診療開始時間'], end: ['金_診療終了時間'], receptionStart: ['金_外来受付開始時間'], receptionEnd: ['金_外来受付終了時間'] },
+  { label: '土曜', start: ['土_診療開始時間'], end: ['土_診療終了時間'], receptionStart: ['土_外来受付開始時間'], receptionEnd: ['土_外来受付終了時間'] },
+  { label: '日曜', start: ['日_診療開始時間'], end: ['日_診療終了時間'], receptionStart: ['日_外来受付開始時間'], receptionEnd: ['日_外来受付終了時間'] },
+  { label: '祝日', start: ['祝_診療開始時間'], end: ['祝_診療終了時間'], receptionStart: ['祝_外来受付開始時間'], receptionEnd: ['祝_外来受付終了時間'] },
+];
 
 const SECURITY_QUESTIONS = [
   { id: 'first_trip', label: '初めて旅行した場所は？' },
@@ -151,6 +167,141 @@ export default {
       return trimmed.replace(/\s+/g, '').toUpperCase();
     }
 
+    function normalizeFacilityType(value) {
+      const normalized = nk(value).toLowerCase();
+      if (!normalized) return 'clinic';
+      if (normalized.includes('hospital')) return 'hospital';
+      if (normalized.includes('clinic')) return 'clinic';
+      return normalized;
+    }
+
+    function isGzipFile(file) {
+      const name = (file?.name || '').toLowerCase();
+      const type = (file?.type || '').toLowerCase();
+      return name.endsWith('.gz') || type.includes('gzip');
+    }
+
+    function createCsvDecoder(file) {
+      const type = (file?.type || '').toLowerCase();
+      if (type.includes('shift_jis') || type.includes('shift-jis') || type.includes('cp932')) {
+        try {
+          return new TextDecoder('shift_jis');
+        } catch (_) {
+          // Fallback below
+        }
+      }
+      return new TextDecoder('utf-8');
+    }
+
+    async function* readCsvLinesFromFile(file) {
+      if (!file || typeof file.stream !== 'function') {
+        throw new Error('Invalid file supplied');
+      }
+      let stream = file.stream();
+      if (isGzipFile(file) && globalThis.DecompressionStream) {
+        stream = stream.pipeThrough(new DecompressionStream('gzip'));
+      }
+      const reader = stream.getReader();
+      const decoder = createCsvDecoder(file);
+      let buffer = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (value) {
+          buffer += decoder.decode(value, { stream: !done });
+        } else if (!done) {
+          buffer += decoder.decode(new Uint8Array(), { stream: true });
+        }
+        const parts = buffer.split(/\r?\n/);
+        if (!done) {
+          buffer = parts.pop() ?? '';
+        } else {
+          buffer = '';
+        }
+        for (const line of parts) {
+          const trimmed = line.replace(/\r$/, '');
+          if (trimmed) {
+            yield trimmed;
+          }
+        }
+        if (done) break;
+      }
+      if (buffer) {
+        yield buffer;
+      }
+    }
+
+    function parseCsvLine(line) {
+      const result = [];
+      let current = '';
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i += 1) {
+        const char = line[i];
+        if (char === '"') {
+          const next = line[i + 1];
+          if (inQuotes && next === '"') {
+            current += '"';
+            i += 1;
+          } else {
+            inQuotes = !inQuotes;
+          }
+        } else if (char === ',' && !inQuotes) {
+          result.push(current);
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      result.push(current);
+      return result;
+    }
+
+    async function* iterateCsvRecords(file) {
+      for await (const line of readCsvLinesFromFile(file)) {
+        if (!line) continue;
+        yield parseCsvLine(line);
+      }
+    }
+
+    function normalizeKana(value) {
+      return (value || '').toString().replace(/\s+/g, '');
+    }
+
+    function normalizePostalCode(value) {
+      return (value || '').toString().replace(/[^0-9]/g, '').slice(0, 7);
+    }
+
+    function normalizeTime(value) {
+      const raw = (value || '').toString().trim();
+      if (!raw) return '';
+      const digits = raw.replace(/[^0-9]/g, '');
+      if (digits.length === 4) {
+        return `${digits.slice(0, 2)}:${digits.slice(2)}`;
+      }
+      if (digits.length === 3) {
+        return `${digits.slice(0, 1)}:${digits.slice(1).padStart(2, '0')}`;
+      }
+      if (raw.includes(':')) return raw;
+      return raw;
+    }
+
+    function normalizeAddress(value) {
+      return (value || '').toString().trim();
+    }
+
+    function normalizeHeaderName(header) {
+      return (header ?? '').toString().replace(/^\ufeff/, '').trim();
+    }
+
+    function detectColumnIndex(headers, keywords) {
+      const normalizedHeaders = headers.map((col) => normalizeHeaderName(col).toLowerCase().replace(/\s+/g, ''));
+      for (const keyword of keywords) {
+        const normalizedKeyword = keyword.toLowerCase().replace(/\s+/g, '');
+        const idx = normalizedHeaders.findIndex((header) => header.includes(normalizedKeyword));
+        if (idx !== -1) return idx;
+      }
+      return -1;
+    }
+
     async function readMhlwFacilitiesMeta(env) {
       if (!env?.SETTINGS?.get) return null;
       try {
@@ -175,6 +326,149 @@ export default {
       };
       await env.SETTINGS.put(MHLW_FACILITIES_META_KEY, JSON.stringify(payload));
       return payload;
+    }
+
+    async function importFacilityCsvFile(file, facilityType) {
+      const entries = [];
+      let headerSkipped = false;
+      for await (const record of iterateCsvRecords(file)) {
+        if (!headerSkipped) {
+          headerSkipped = true;
+          continue;
+        }
+        if (!record?.length) continue;
+        const facilityId = normalizeMhlwFacilityId(record[4]);
+        if (!facilityId) continue;
+        const longitude = record[11] ? Number(record[11]) : undefined;
+        const latitude = record[12] ? Number(record[12]) : undefined;
+        entries.push({
+          facilityId,
+          facilityType: normalizeFacilityType(facilityType),
+          name: (record[5] || '').trim(),
+          nameKana: normalizeKana(record[6]),
+          postalCode: normalizePostalCode(record[7]),
+          address: normalizeAddress(record[8]),
+          prefecture: (record[1] || '').trim(),
+          city: (record[3] || '').trim(),
+          phone: (record[9] || '').trim(),
+          fax: (record[10] || '').trim(),
+          longitude: Number.isFinite(longitude) ? longitude : undefined,
+          latitude: Number.isFinite(latitude) ? latitude : undefined,
+          foundingType: record[13] || '',
+          careType: record[14] || '',
+          bedCount: record[15] ? Number(record[15]) : undefined,
+          scheduleEntries: [],
+          mhlwDepartments: [],
+        });
+      }
+      return entries;
+    }
+
+    function toNormalizedValue(value) {
+      return (value ?? '').toString().trim();
+    }
+
+    async function importScheduleCsvFile(file, facilityType) {
+      const facilityTypeNormalized = normalizeFacilityType(facilityType);
+      const schedules = [];
+      let headers = [];
+      let facilityIdIndex = -1;
+      let headerParsed = false;
+      for await (const record of iterateCsvRecords(file)) {
+        if (!headerParsed) {
+          headers = record.map((header) => normalizeHeaderName(header));
+          facilityIdIndex = detectColumnIndex(headers, ['facilityid', '医療機関コード', 'medicalinstitutioncode', 'id']);
+          headerParsed = true;
+          continue;
+        }
+        const row = {};
+        headers.forEach((header, idx) => {
+          row[header] = record[idx] ?? '';
+        });
+        const facilityIdRaw = facilityIdIndex !== -1
+          ? record[facilityIdIndex]
+          : row.ID || row.facilityId || row['医療機関コード'] || row['medicalInstitutionCode'];
+        const facilityId = normalizeMhlwFacilityId(facilityIdRaw);
+        if (!facilityId) continue;
+
+        const departmentCode = toNormalizedValue(row['診療科目コード'] || row['診療科コード'] || row.departmentCode || row['departmentcode']);
+        const departmentName = toNormalizedValue(row['診療科目名'] || row['診療科名'] || row.department || row['department']);
+        const slotType = toNormalizedValue(row['診療時間帯'] || row['区分'] || row['slot'] || row['pattern']);
+
+        for (const def of MHLW_SCHEDULE_DAY_DEFS) {
+          const startTime = normalizeTime(row[def.start?.[0]]);
+          const endTime = normalizeTime(row[def.end?.[0]]);
+          const receptionStart = normalizeTime(row[def.receptionStart?.[0]]);
+          const receptionEnd = normalizeTime(row[def.receptionEnd?.[0]]);
+          if (!startTime && !endTime && !receptionStart && !receptionEnd) continue;
+          schedules.push({
+            facilityId,
+            facilityType: facilityTypeNormalized,
+            departmentCode,
+            department: departmentName,
+            slotType,
+            day: def.label,
+            startTime,
+            endTime,
+            receptionStart,
+            receptionEnd,
+          });
+        }
+      }
+      return schedules;
+    }
+
+    function mergeFacilityAndScheduleEntries(facilities, schedules) {
+      const map = new Map();
+      facilities.forEach((facility) => {
+        map.set(facility.facilityId, {
+          ...facility,
+          scheduleEntries: facility.scheduleEntries || [],
+          mhlwDepartments: facility.mhlwDepartments || [],
+        });
+      });
+      schedules.forEach((schedule) => {
+        const existing = map.get(schedule.facilityId) || {
+          facilityId: schedule.facilityId,
+          facilityType: schedule.facilityType,
+          scheduleEntries: [],
+          mhlwDepartments: [],
+        };
+        const entries = existing.scheduleEntries || [];
+        entries.push(schedule);
+        const departments = new Set(existing.mhlwDepartments || []);
+        if (schedule.department) departments.add(schedule.department);
+        map.set(schedule.facilityId, {
+          ...existing,
+          scheduleEntries: entries,
+          mhlwDepartments: Array.from(departments),
+        });
+      });
+      return Array.from(map.values());
+    }
+
+    async function buildMhlwDatasetFromCsv({
+      clinicFacilityFile,
+      clinicScheduleFile,
+      hospitalFacilityFile,
+      hospitalScheduleFile,
+    }) {
+      const clinicFacilities = await importFacilityCsvFile(clinicFacilityFile, 'clinic');
+      const hospitalFacilities = await importFacilityCsvFile(hospitalFacilityFile, 'hospital');
+      const allFacilities = [...clinicFacilities, ...hospitalFacilities];
+
+      const clinicSchedules = await importScheduleCsvFile(clinicScheduleFile, 'clinic');
+      const hospitalSchedules = await importScheduleCsvFile(hospitalScheduleFile, 'hospital');
+      const allSchedules = [...clinicSchedules, ...hospitalSchedules];
+
+      const merged = mergeFacilityAndScheduleEntries(allFacilities, allSchedules);
+      return {
+        facilities: merged,
+        stats: {
+          facilityCount: allFacilities.length,
+          scheduleCount: allSchedules.length,
+        },
+      };
     }
 
     function normalizeSecurityAnswerFormat(format) {
@@ -4061,8 +4355,87 @@ export default {
         cacheControl,
         contentType,
         uploadedBy: authContext.account?.id || authContext.payload?.sub || null,
+        facilityCount: undefined,
+        scheduleCount: undefined,
+        sourceType: 'json',
       });
       return jsonResponse({ ok: true, meta });
+    }
+
+    if (routeMatch(url, 'POST', 'admin/mhlw/uploadCsv')) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      if (!hasRole(authContext.payload, SYSTEM_ROOT_ONLY)) {
+        return jsonResponse({ error: 'FORBIDDEN', message: 'systemRoot 権限が必要です。' }, 403);
+      }
+      if (!env.MEDIA || typeof env.MEDIA.put !== 'function') {
+        return jsonResponse({ error: 'MHLW_STORAGE_UNCONFIGURED', message: 'MEDIA バケットが構成されていません。' }, 500);
+      }
+      let formData;
+      try {
+        formData = await request.formData();
+      } catch (err) {
+        return jsonResponse({ error: 'INVALID_FORM_DATA', message: 'フォームデータを解析できませんでした。' }, 400);
+      }
+
+      const clinicFacilityFile = formData.get('clinicFacility');
+      const clinicScheduleFile = formData.get('clinicSchedule');
+      const hospitalFacilityFile = formData.get('hospitalFacility');
+      const hospitalScheduleFile = formData.get('hospitalSchedule');
+
+      const missing = [];
+      if (!(clinicFacilityFile instanceof File) || clinicFacilityFile.size === 0) missing.push('clinicFacility');
+      if (!(clinicScheduleFile instanceof File) || clinicScheduleFile.size === 0) missing.push('clinicSchedule');
+      if (!(hospitalFacilityFile instanceof File) || hospitalFacilityFile.size === 0) missing.push('hospitalFacility');
+      if (!(hospitalScheduleFile instanceof File) || hospitalScheduleFile.size === 0) missing.push('hospitalSchedule');
+      if (missing.length) {
+        return jsonResponse({ error: 'INVALID_REQUEST', message: `以下のファイルが不足しています: ${missing.join(', ')}` }, 400);
+      }
+
+      let dataset;
+      try {
+        dataset = await buildMhlwDatasetFromCsv({
+          clinicFacilityFile,
+          clinicScheduleFile,
+          hospitalFacilityFile,
+          hospitalScheduleFile,
+        });
+      } catch (err) {
+        console.error('[mhlw] failed to parse CSV', err);
+        return jsonResponse({ error: 'CSV_PARSE_FAILED', message: err?.message || 'CSVの解析に失敗しました。' }, 400);
+      }
+
+      const payload = JSON.stringify({ count: dataset.facilities.length, facilities: dataset.facilities });
+      const payloadBytes = new TextEncoder().encode(payload);
+
+      let putResult;
+      try {
+        putResult = await env.MEDIA.put(MHLW_FACILITIES_R2_KEY, payloadBytes, {
+          httpMetadata: {
+            contentType: 'application/json',
+            cacheControl: MHLW_FACILITIES_CACHE_CONTROL,
+          },
+        });
+      } catch (err) {
+        console.error('[mhlw] failed to store facilities dataset', err);
+        return jsonResponse({ error: 'UPLOAD_FAILED', message: '厚労省施設データの保存に失敗しました。' }, 500);
+      }
+
+      const meta = await writeMhlwFacilitiesMeta(env, {
+        updatedAt: new Date().toISOString(),
+        size: payloadBytes.length,
+        etag: putResult?.etag ?? null,
+        cacheControl: MHLW_FACILITIES_CACHE_CONTROL,
+        contentType: 'application/json',
+        uploadedBy: authContext.account?.id || authContext.payload?.sub || null,
+        facilityCount: dataset.stats.facilityCount,
+        scheduleCount: dataset.stats.scheduleCount,
+        sourceType: 'csv',
+      });
+
+      return jsonResponse({ ok: true, meta, summary: dataset.stats });
     }
 
     // ============================================================
