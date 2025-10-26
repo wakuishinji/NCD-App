@@ -5,6 +5,8 @@ node_modules/
 .wrangler/**
 
 tmp/
+data/medical-open-data/*
+!data/medical-open-data/README.md
 
 *.log
 .env

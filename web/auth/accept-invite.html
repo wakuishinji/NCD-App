@@ -34,6 +34,38 @@
           <input id="passwordConfirm" name="passwordConfirm" type="password" required class="mt-1 w-full rounded border px-3 py-2 text-sm" placeholder="パスワードを再入力" minlength="8" />
         </div>
 
+        <fieldset class="space-y-2 rounded border border-slate-200 p-3">
+          <legend class="text-sm font-semibold text-slate-700">秘密の質問</legend>
+          <p class="text-xs text-slate-500">質問を選び、指定された文字種で回答してください。</p>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-700" for="securityQuestion">質問</label>
+            <select id="securityQuestion" name="securityQuestion" required class="mt-1 w-full rounded border px-3 py-2 text-sm bg-white">
+              <option value="" disabled selected>質問を読み込み中…</option>
+            </select>
+          </div>
+
+          <div>
+            <span class="block text-sm font-medium text-slate-700">回答の文字種</span>
+            <div class="mt-1 flex items-center gap-4 text-sm">
+              <label class="inline-flex items-center gap-1">
+                <input type="radio" name="answerFormat" value="hiragana" checked class="text-blue-600" />
+                ひらがな
+              </label>
+              <label class="inline-flex items-center gap-1">
+                <input type="radio" name="answerFormat" value="katakana" class="text-blue-600" />
+                カタカナ
+              </label>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-700" for="securityAnswer">回答</label>
+            <input id="securityAnswer" name="securityAnswer" type="text" required class="mt-1 w-full rounded border px-3 py-2 text-sm" placeholder="例：しんじゅく" />
+            <p id="answerHint" class="mt-1 text-xs text-slate-500">回答はひらがなで入力してください（空白は使用できません）。</p>
+          </div>
+        </fieldset>
+
         <div id="formStatus" class="text-sm text-red-600"></div>
 
         <button type="submit" class="w-full rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700">アカウントを有効化</button>
@@ -57,10 +89,91 @@
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token') || '';
 
+    const questionSelect = document.getElementById('securityQuestion');
+    const answerFormatInputs = Array.from(document.querySelectorAll('input[name="answerFormat"]'));
+    const answerField = document.getElementById('securityAnswer');
+    const answerHint = document.getElementById('answerHint');
+
+    let securityQuestions = [];
+
     if (!token) {
       document.getElementById('introText').textContent = '無効なリンクです。URLを確認してください。';
       document.getElementById('acceptForm').classList.add('hidden');
       document.getElementById('expiredNotice').classList.remove('hidden');
+    }
+
+    function toHiragana(value) {
+      return value.replace(/[ァ-ヶ]/g, (char) => {
+        if (char === 'ヵ') return 'か';
+        if (char === 'ヶ') return 'け';
+        const code = char.charCodeAt(0);
+        if (code >= 0x30a1 && code <= 0x30f6) {
+          return String.fromCharCode(code - 0x60);
+        }
+        return char;
+      });
+    }
+
+    function toKatakana(value) {
+      return value.replace(/[ぁ-ゖ]/g, (char) => {
+        if (char === 'ゕ') return 'ヵ';
+        if (char === 'ゖ') return 'ヶ';
+        const code = char.charCodeAt(0);
+        if (code >= 0x3041 && code <= 0x3096) {
+          return String.fromCharCode(code + 0x60);
+        }
+        return char;
+      });
+    }
+
+    function normalizeAnswerFormat(value) {
+      return (value || '').toLowerCase() === 'katakana' ? 'katakana' : 'hiragana';
+    }
+
+    function normalizeAnswer(value, format) {
+      if (!value) return '';
+      let result = value.trim().normalize('NFKC').replace(/\s+/g, '');
+      if (!result) return '';
+      if (format === 'katakana') {
+        result = toKatakana(result);
+        if (/[^ァ-ヶー・゙゚]/.test(result)) return '';
+      } else {
+        result = toHiragana(result);
+        if (/[^ぁ-ゖー・゛゜]/.test(result)) return '';
+      }
+      return result;
+    }
+
+    function updateAnswerHint() {
+      const format = normalizeAnswerFormat(document.querySelector('input[name="answerFormat"]:checked')?.value);
+      if (format === 'katakana') {
+        answerHint.textContent = '回答はカタカナで入力してください（空白は使用できません）。';
+        answerField.placeholder = '例：シンジュク';
+      } else {
+        answerHint.textContent = '回答はひらがなで入力してください（空白は使用できません）。';
+        answerField.placeholder = '例：しんじゅく';
+      }
+    }
+
+    async function loadSecurityQuestions() {
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/securityQuestions`);
+        if (!res.ok) throw new Error('failed');
+        const data = await res.json();
+        if (!data?.ok || !Array.isArray(data.questions)) throw new Error('invalid');
+        securityQuestions = data.questions;
+        questionSelect.innerHTML = '<option value="" disabled selected>質問を選択してください</option>';
+        for (const question of securityQuestions) {
+          const option = document.createElement('option');
+          option.value = question.id;
+          option.textContent = question.label;
+          questionSelect.appendChild(option);
+        }
+      } catch (error) {
+        console.error('failed to load security questions', error);
+        questionSelect.innerHTML = '<option value="" disabled selected>質問の読み込みに失敗しました</option>';
+        questionSelect.disabled = true;
+      }
     }
 
     function validatePasswords(password, confirm) {
@@ -69,17 +182,37 @@
       return null;
     }
 
+    answerFormatInputs.forEach((input) => input.addEventListener('change', updateAnswerHint));
+    updateAnswerHint();
+    loadSecurityQuestions();
+
     document.getElementById('acceptForm').addEventListener('submit', async (event) => {
       event.preventDefault();
       const formStatus = document.getElementById('formStatus');
       formStatus.textContent = '';
+      formStatus.className = 'text-sm text-red-600';
 
       const displayName = document.getElementById('displayName').value.trim();
       const password = document.getElementById('password').value;
       const passwordConfirm = document.getElementById('passwordConfirm').value;
+      const questionId = questionSelect.value;
+      const answerFormat = normalizeAnswerFormat(document.querySelector('input[name="answerFormat"]:checked')?.value);
+      const answerRaw = answerField.value;
+      const normalizedAnswer = normalizeAnswer(answerRaw, answerFormat);
+
       const validation = validatePasswords(password, passwordConfirm);
       if (validation) {
         formStatus.textContent = validation;
+        return;
+      }
+      if (!questionId) {
+        formStatus.textContent = '秘密の質問を選択してください。';
+        return;
+      }
+      if (!normalizedAnswer) {
+        formStatus.textContent = answerFormat === 'katakana'
+          ? '回答はカタカナで入力してください（空白は使用できません）。'
+          : '回答はひらがなで入力してください（空白は使用できません）。';
         return;
       }
 
@@ -93,16 +226,34 @@
           const data = await res.json().catch(() => ({}));
           throw new Error(data.message || '招待の受け入れに失敗しました。');
         }
-        const data = await res.json();
+        const authData = await res.json();
+
+        if (authData?.tokens?.accessToken) {
+          const secRes = await fetch(`${API_BASE}/api/auth/securityQuestion`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${authData.tokens.accessToken}`,
+            },
+            body: JSON.stringify({
+              questionId,
+              answerFormat,
+              answer: normalizedAnswer,
+            }),
+          });
+          if (!secRes.ok) {
+            const secError = await secRes.json().catch(() => ({}));
+            throw new Error(secError.message || '秘密の質問の登録に失敗しました。');
+          }
+        }
+
         formStatus.className = 'text-sm text-emerald-600';
-        formStatus.textContent = data.mailStatus === 'sent'
-          ? 'アカウントを有効化しました。'
-          : 'アカウントを有効化しました。';
+        formStatus.textContent = 'アカウントを有効化しました。';
         document.getElementById('successPanel').classList.remove('hidden');
         event.target.classList.add('hidden');
 
         try {
-          localStorage.setItem('ncdAuth', JSON.stringify(data));
+          localStorage.setItem('ncdAuth', JSON.stringify(authData));
         } catch (_) {}
         setTimeout(() => {
           window.location.href = '/index.html';

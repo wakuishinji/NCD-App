@@ -34,6 +34,24 @@ const ADMIN_REQUEST_PREFIX = 'adminRequest:';
 const ADMIN_REQUEST_PENDING_EMAIL_PREFIX = 'adminRequest:pendingEmail:';
 const ADMIN_REQUEST_DEFAULT_LIMIT = 20;
 
+const ORGANIZATION_ID_PREFIX = 'organization:';
+const ORGANIZATION_ID_KEY_PREFIX = 'organization:id:';
+const ORGANIZATION_SLUG_INDEX_PREFIX = 'organization:slug:';
+const DEFAULT_ORGANIZATION_SLUG = 'default';
+const DEFAULT_ORGANIZATION_ID = `${ORGANIZATION_ID_PREFIX}${DEFAULT_ORGANIZATION_SLUG}`;
+
+const SECURITY_QUESTIONS = [
+  { id: 'first_trip', label: '初めて旅行した場所は？' },
+  { id: 'childhood_nickname', label: '子どもの頃のあだ名は？' },
+  { id: 'favorite_teacher', label: '好きだった先生の名前は？' },
+  { id: 'favorite_subject', label: '好きだった学校の科目は？' },
+  { id: 'sports_club', label: '小・中学校で入っていたクラブは？' },
+  { id: 'favorite_food', label: '好きだった給食（または家庭料理）は？' },
+  { id: 'memorable_place', label: 'よく遊んでいた場所は？' },
+  { id: 'memorable_song', label: 'よく聴いていた歌のタイトルは？' },
+];
+const SECURITY_ANSWER_FORMATS = new Set(['hiragana', 'katakana']);
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -121,6 +139,65 @@ export default {
       const trimmed = nk(value);
       if (!trimmed) return "";
       return trimmed.toLowerCase();
+    }
+
+    function normalizeMhlwFacilityId(value) {
+      const trimmed = nk(value);
+      if (!trimmed) return '';
+      return trimmed.replace(/\s+/g, '').toUpperCase();
+    }
+
+    function normalizeSecurityAnswerFormat(format) {
+      const normalized = nk(format).toLowerCase();
+      if (SECURITY_ANSWER_FORMATS.has(normalized)) {
+        return normalized;
+      }
+      return 'hiragana';
+    }
+
+    function toHiragana(value) {
+      return value.replace(/[ァ-ヶ]/g, (char) => {
+        const code = char.charCodeAt(0);
+        if (char === 'ヵ') return 'か';
+        if (char === 'ヶ') return 'け';
+        if (code >= 0x30a1 && code <= 0x30f6) {
+          return String.fromCharCode(code - 0x60);
+        }
+        return char;
+      });
+    }
+
+    function toKatakana(value) {
+      return value.replace(/[ぁ-ゖ]/g, (char) => {
+        const code = char.charCodeAt(0);
+        if (char === 'ゕ') return 'ヵ';
+        if (char === 'ゖ') return 'ヶ';
+        if (code >= 0x3041 && code <= 0x3096) {
+          return String.fromCharCode(code + 0x60);
+        }
+        return char;
+      });
+    }
+
+    function normalizeSecurityAnswer(rawAnswer, format) {
+      const trimmed = nk(rawAnswer);
+      if (!trimmed) return '';
+      const normalizedFormat = normalizeSecurityAnswerFormat(format);
+      let result = trimmed.normalize('NFKC');
+      result = result.replace(/\s+/g, '');
+      if (!result) return '';
+      if (normalizedFormat === 'hiragana') {
+        result = toHiragana(result);
+        if (/[^ぁ-ゖー・゛゜]/.test(result)) {
+          return '';
+        }
+      } else {
+        result = toKatakana(result);
+        if (/[^ァ-ヶー・゙゚]/.test(result)) {
+          return '';
+        }
+      }
+      return result;
     }
 
     function getSessionStore(env) {
@@ -250,6 +327,8 @@ export default {
     clinicAdmin: ['clinicAdmin', 'clinicStaff'],
     clinicStaff: ['clinicStaff'],
   };
+
+  const SYSTEM_ROOT_ONLY = ['systemRoot'];
 
     function hasRole(payload, roles) {
       if (!payload) return false;
@@ -763,6 +842,7 @@ export default {
         status,
         passwordHash,
         profile,
+        securityQuestion: null,
         membershipIds: [],
         createdAt: nowIso,
         updatedAt: nowIso,
@@ -782,6 +862,82 @@ export default {
       if (!key) throw new Error('Invalid account identifier');
       account.updatedAt = new Date().toISOString();
       await kvPutJSON(env, key, account);
+    }
+
+    function getSecurityQuestionById(questionId) {
+      const normalized = nk(questionId);
+      if (!normalized) return null;
+      return SECURITY_QUESTIONS.find((q) => q.id === normalized) || null;
+    }
+
+    function publicSecurityQuestionView(securityQuestion) {
+      if (!securityQuestion || typeof securityQuestion !== 'object') {
+        return null;
+      }
+      const { questionId, answerFormat, updatedAt } = securityQuestion;
+      if (!questionId || !SECURITY_ANSWER_FORMATS.has(answerFormat)) {
+        return null;
+      }
+      return {
+        questionId,
+        answerFormat,
+        updatedAt: updatedAt || null,
+      };
+    }
+
+    async function setAccountSecurityQuestion(env, account, { questionId, answer, answerFormat }) {
+      if (!account || !account.id) {
+        throw new Error('Account is required to set security question');
+      }
+      const question = getSecurityQuestionById(questionId);
+      if (!question) {
+        const error = new Error('INVALID_SECURITY_QUESTION');
+        error.code = 'INVALID_SECURITY_QUESTION';
+        throw error;
+      }
+      const format = normalizeSecurityAnswerFormat(answerFormat);
+      const normalizedAnswer = normalizeSecurityAnswer(answer, format);
+      if (!normalizedAnswer) {
+        const error = new Error('INVALID_SECURITY_ANSWER');
+        error.code = 'INVALID_SECURITY_ANSWER';
+        throw error;
+      }
+      const answerHash = await hashPassword(normalizedAnswer);
+      account.securityQuestion = {
+        questionId: question.id,
+        answerFormat: format,
+        answerHash,
+        answerNormalized: normalizedAnswer,
+        updatedAt: new Date().toISOString(),
+      };
+      await saveAccountRecord(env, account);
+      return publicSecurityQuestionView(account.securityQuestion);
+    }
+
+    async function verifyAccountSecurityAnswer(account, answer) {
+      if (!account || !account.securityQuestion) {
+        return false;
+      }
+      const { securityQuestion } = account;
+      const format = normalizeSecurityAnswerFormat(securityQuestion.answerFormat);
+      const normalizedAnswer = normalizeSecurityAnswer(answer, format);
+      if (!normalizedAnswer) {
+        return false;
+      }
+      if (securityQuestion.answerHash) {
+        try {
+          const isMatch = await verifyPassword(normalizedAnswer, securityQuestion.answerHash);
+          if (isMatch) {
+            return true;
+          }
+        } catch (err) {
+          console.warn('verifyAccountSecurityAnswer failed', err);
+        }
+      }
+      if (securityQuestion.answerNormalized) {
+        return securityQuestion.answerNormalized === normalizedAnswer;
+      }
+      return false;
     }
 
     async function createMembershipRecord(env, {
@@ -1311,6 +1467,13 @@ export default {
       // 互換: 旧キー
       return kvGetJSON(env, `clinic:${name}`);
     }
+    async function getClinicByMhlwFacilityId(env, facilityId) {
+      const normalized = normalizeMhlwFacilityId(facilityId);
+      if (!normalized) return null;
+      const pointer = await env.SETTINGS.get(`clinic:mhlw:${normalized}`);
+      if (!pointer) return null;
+      return getClinicById(env, pointer);
+    }
     async function saveClinic(env, clinic) {
       const now = Math.floor(Date.now()/1000);
       clinic.schema_version = SCHEMA_VERSION;
@@ -1331,6 +1494,25 @@ export default {
       } else if (!clinic.created_at && existing?.created_at) {
         clinic.created_at = existing.created_at;
       }
+
+      if (!clinic.facilityType) {
+        clinic.facilityType = existing?.facilityType || 'clinic';
+      }
+
+      const previousMhlwId = existing?.mhlwFacilityId ? normalizeMhlwFacilityId(existing.mhlwFacilityId) : '';
+      const newMhlwId = clinic.mhlwFacilityId ? normalizeMhlwFacilityId(clinic.mhlwFacilityId) : '';
+      if (newMhlwId) {
+        const existingByMhlw = await getClinicByMhlwFacilityId(env, newMhlwId);
+        if (existingByMhlw && existingByMhlw.id !== clinic.id) {
+          const conflictError = new Error('MHLW_FACILITY_ID_CONFLICT');
+          conflictError.code = 'MHLW_FACILITY_ID_CONFLICT';
+          conflictError.existingClinicId = existingByMhlw.id;
+          throw conflictError;
+        }
+        clinic.mhlwFacilityId = newMhlwId;
+      } else {
+        clinic.mhlwFacilityId = undefined;
+      }
       if (existing?.name && existing.name !== clinic.name) {
         await env.SETTINGS.delete(`clinic:name:${existing.name}`).catch(() => {});
         await env.SETTINGS.delete(`clinic:${existing.name}`).catch(() => {});
@@ -1339,8 +1521,64 @@ export default {
         await env.SETTINGS.put(`clinic:name:${clinic.name}`, clinic.id);
         await kvPutJSON(env, `clinic:${clinic.name}`, clinic); // 互換
       }
+      if (previousMhlwId && previousMhlwId !== newMhlwId) {
+        await env.SETTINGS.delete(`clinic:mhlw:${previousMhlwId}`).catch(() => {});
+      }
+      if (newMhlwId) {
+        await env.SETTINGS.put(`clinic:mhlw:${newMhlwId}`, clinic.id);
+      }
       await kvPutJSON(env, `clinic:id:${clinic.id}`, clinic);
       return clinic;
+    }
+
+    function applyMhlwDataToClinic(clinic, facilityData) {
+      if (!clinic) return null;
+      if (!facilityData || !facilityData.facilityId) return clinic;
+      const normalizedFacilityId = normalizeMhlwFacilityId(facilityData.facilityId);
+      const syncedAtIso = new Date().toISOString();
+      const updated = { ...clinic };
+      updated.mhlwFacilityId = normalizedFacilityId;
+      if (facilityData.facilityType) {
+        updated.facilityType = facilityData.facilityType.toLowerCase();
+      } else if (!updated.facilityType) {
+        updated.facilityType = 'clinic';
+      }
+      if (facilityData.name) {
+        updated.mhlwFacilityName = facilityData.name;
+      }
+      if (facilityData.address) {
+        updated.address = facilityData.address;
+      }
+      if (facilityData.postalCode) {
+        updated.postalCode = facilityData.postalCode;
+      }
+      if (facilityData.phone) {
+        updated.phone = facilityData.phone;
+      }
+      if (facilityData.prefecture) {
+        updated.prefecture = facilityData.prefecture;
+      }
+      if (facilityData.city) {
+        updated.city = facilityData.city;
+      }
+      if (typeof facilityData.latitude === 'number' && !Number.isNaN(facilityData.latitude) &&
+          typeof facilityData.longitude === 'number' && !Number.isNaN(facilityData.longitude)) {
+        updated.latitude = facilityData.latitude;
+        updated.longitude = facilityData.longitude;
+        updated.location = {
+          ...(updated.location || {}),
+          lat: facilityData.latitude,
+          lng: facilityData.longitude,
+          formattedAddress: facilityData.address || updated.location?.formattedAddress || '',
+          source: 'mhlw',
+          geocodedAt: syncedAtIso,
+        };
+      }
+      updated.mhlwSnapshot = {
+        ...facilityData,
+        syncedAt: syncedAtIso,
+      };
+      return updated;
     }
     async function listClinicsKV(env, {limit=2000, offset=0} = {}) {
       const prefix = "clinic:id:";
@@ -1503,6 +1741,11 @@ export default {
         profile: account.profile && typeof account.profile === 'object' ? account.profile : {},
         membershipIds,
       };
+      const securityQuestion = publicSecurityQuestionView(account.securityQuestion);
+      result.hasSecurityQuestion = Boolean(securityQuestion);
+      if (securityQuestion) {
+        result.securityQuestion = securityQuestion;
+      }
       if (membershipDetails.length) {
         result.memberships = membershipDetails;
       }
@@ -2074,6 +2317,83 @@ export default {
       return jsonResponse({ ok: true, request: sanitizeAdminRequest(requestRecord) });
     }
 
+    if (routeMatch(url, 'GET', 'auth/securityQuestions')) {
+      return jsonResponse({
+        ok: true,
+        questions: SECURITY_QUESTIONS,
+      });
+    }
+
+    if (routeMatch(url, 'POST', 'auth/securityQuestion')) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      let body;
+      try {
+        body = await request.json();
+      } catch (err) {
+        return jsonResponse({ error: 'INVALID_JSON', message: 'リクエスト形式が不正です。' }, 400);
+      }
+      const questionId = nk(body?.questionId || body?.id);
+      const answerFormat = nk(body?.answerFormat);
+      const answer = body?.answer;
+      try {
+        const summary = await setAccountSecurityQuestion(env, authContext.account, {
+          questionId,
+          answer,
+          answerFormat,
+        });
+        return jsonResponse({ ok: true, securityQuestion: summary, account: publicAccountView(authContext.account) });
+      } catch (err) {
+        if (err?.code === 'INVALID_SECURITY_QUESTION') {
+          return jsonResponse({ error: 'INVALID_SECURITY_QUESTION', message: '選択した質問が無効です。' }, 400);
+        }
+        if (err?.code === 'INVALID_SECURITY_ANSWER') {
+          return jsonResponse({ error: 'INVALID_SECURITY_ANSWER', message: '回答は指定の文字種で入力してください。' }, 400);
+        }
+        console.error('failed to set security question', err);
+        return jsonResponse({ error: 'SERVER_ERROR', message: '秘密の質問を登録できませんでした。' }, 500);
+      }
+    }
+
+    if (routeMatch(url, 'POST', 'auth/securityQuestion/verify')) {
+      let body;
+      try {
+        body = await request.json();
+      } catch (err) {
+        return jsonResponse({ error: 'INVALID_JSON', message: 'リクエスト形式が不正です。' }, 400);
+      }
+      let account = null;
+      const authContext = await authenticateRequest(request, env);
+      if (authContext) {
+        account = authContext.account;
+      }
+      const identifier = nk(body?.identifier || body?.email || body?.loginId);
+      if (!account && identifier) {
+        const lookup = await findAccountByIdentifier(env, identifier);
+        if (lookup?.account) {
+          account = lookup.account;
+        }
+      }
+      if (!account) {
+        return jsonResponse({ error: 'ACCOUNT_NOT_FOUND', message: '対象アカウントが見つかりません。' }, 404);
+      }
+      if (!account.securityQuestion) {
+        return jsonResponse({ error: 'SECURITY_QUESTION_NOT_SET', message: '秘密の質問が未登録です。' }, 400);
+      }
+      const questionId = nk(body?.questionId || body?.id);
+      if (questionId && account.securityQuestion.questionId !== questionId) {
+        return jsonResponse({ error: 'SECURITY_QUESTION_MISMATCH', message: '秘密の質問が一致しません。' }, 400);
+      }
+      const answer = body?.answer;
+      const verified = await verifyAccountSecurityAnswer(account, answer);
+      if (!verified) {
+        return jsonResponse({ error: 'INVALID_SECURITY_ANSWER', message: '回答が一致しません。' }, 403);
+      }
+      return jsonResponse({ ok: true, securityQuestion: publicSecurityQuestionView(account.securityQuestion) });
+    }
+
     if (routeMatch(url, 'POST', 'auth/login')) {
       let body;
       try {
@@ -2300,7 +2620,7 @@ export default {
       if (!authContext) {
         return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
       }
-      if (!hasRole(authContext.payload, ['systemAdmin', 'adminReviewer'])) {
+      if (!hasRole(authContext.payload, SYSTEM_ROOT_ONLY)) {
         return jsonResponse({ error: 'FORBIDDEN', message: '権限が不足しています。' }, 403);
       }
       const statusParam = nk(url.searchParams.get('status'));
@@ -2321,7 +2641,7 @@ export default {
       if (!authContext) {
         return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
       }
-      if (!hasRole(authContext.payload, ['systemAdmin', 'adminReviewer'])) {
+      if (!hasRole(authContext.payload, SYSTEM_ROOT_ONLY)) {
         return jsonResponse({ error: 'FORBIDDEN', message: '権限が不足しています。' }, 403);
       }
       const requestId = nk(url.searchParams.get('id'));
@@ -2340,7 +2660,7 @@ export default {
       if (!authContext) {
         return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
       }
-      if (!hasRole(authContext.payload, ['systemAdmin', 'adminReviewer'])) {
+      if (!hasRole(authContext.payload, SYSTEM_ROOT_ONLY)) {
         return jsonResponse({ error: 'FORBIDDEN', message: '権限が不足しています。' }, 403);
       }
       let body;
@@ -2516,7 +2836,7 @@ export default {
       if (!authContext) {
         return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
       }
-      if (!hasRole(authContext.payload, ['systemAdmin', 'adminReviewer'])) {
+      if (!hasRole(authContext.payload, SYSTEM_ROOT_ONLY)) {
         return jsonResponse({ error: 'FORBIDDEN', message: '権限が不足しています。' }, 403);
       }
       let body;
@@ -3658,7 +3978,14 @@ if (routeMatch(url, "POST", "registerClinic")) {
       });
     }
 
-    // 1) 既に新形式（name→id索引）がある場合は、そのレコードを返す
+    const mhlwFacilityId = normalizeMhlwFacilityId(body?.mhlwFacilityId || body?.facilityId || body?.mhlwId);
+    if (!mhlwFacilityId) {
+      return new Response(JSON.stringify({ error: 'MHLW_FACILITY_ID_REQUIRED', message: '厚生労働省の施設IDを指定してください。' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     const existingNew = await env.SETTINGS.get(`clinic:name:${name}`);
     if (existingNew) {
       const clinic = await kvGetJSON(env, `clinic:id:${existingNew}`);
@@ -3667,25 +3994,41 @@ if (routeMatch(url, "POST", "registerClinic")) {
       });
     }
 
-    // 2) 旧形式（clinic:{name}）がある場合は「その場で移行」して返す
     const legacy = await env.SETTINGS.get(`clinic:${name}`);
     if (legacy) {
       let obj = {};
       try { obj = JSON.parse(legacy) || {}; } catch(_) {}
-      // nameが無ければ補完
       if (!obj.name) obj.name = name;
-      const migrated = await saveClinic(env, obj); // id付与＋索引作成
+      obj.mhlwFacilityId = obj.mhlwFacilityId || mhlwFacilityId;
+      const migrated = await saveClinic(env, obj);
       return new Response(JSON.stringify({ ok: true, clinic: migrated, migrated: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // 3) 完全新規
-    const clinic = await saveClinic(env, { name });
+    let clinic;
+    try {
+      clinic = await saveClinic(env, { name, mhlwFacilityId });
+    } catch (err) {
+      if (err?.code === 'MHLW_FACILITY_ID_CONFLICT') {
+        return new Response(JSON.stringify({ error: 'MHLW_FACILITY_ID_CONFLICT', message: 'この厚生労働省施設IDは既に登録済みです。' }), {
+          status: 409,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      throw err;
+    }
+
     return new Response(JSON.stringify({ ok: true, clinic }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
+    if (err?.code === 'MHLW_FACILITY_ID_CONFLICT') {
+      return new Response(JSON.stringify({ error: 'MHLW_FACILITY_ID_CONFLICT', message: 'この厚生労働省施設IDは既に登録済みです。' }), {
+        status: 409,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
     return new Response("Error: " + err.message, { status: 500, headers: corsHeaders });
   }
 }
@@ -3777,13 +4120,79 @@ if (routeMatch(url, "GET", "listClinics")) {
         }
         let clinicData = await getClinicByName(env, name) || {};
         clinicData = { ...clinicData, ...body, name };
-        const saved = await saveClinic(env, clinicData);
+        if (body?.mhlwFacilityId || body?.facilityId || body?.mhlwId) {
+          clinicData.mhlwFacilityId = normalizeMhlwFacilityId(body.mhlwFacilityId || body.facilityId || body.mhlwId);
+        }
+        let saved;
+        try {
+          saved = await saveClinic(env, clinicData);
+        } catch (err) {
+          if (err?.code === 'MHLW_FACILITY_ID_CONFLICT') {
+            return new Response(JSON.stringify({ error: 'MHLW_FACILITY_ID_CONFLICT', message: 'この厚生労働省施設IDは既に登録済みです。' }), {
+              status: 409,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          }
+          throw err;
+        }
         return new Response(JSON.stringify({ ok: true, clinic: saved }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       } catch (err) {
+        if (err?.code === 'MHLW_FACILITY_ID_CONFLICT') {
+          return new Response(JSON.stringify({ error: 'MHLW_FACILITY_ID_CONFLICT', message: 'この厚生労働省施設IDは既に登録済みです。' }), {
+            status: 409,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
         return new Response("Error: " + err.message, { status: 500, headers: corsHeaders });
       }
+    }
+
+    if (routeMatch(url, 'POST', 'admin/clinic/syncFromMhlw')) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      if (!hasRole(authContext.payload, SYSTEM_ROOT_ONLY)) {
+        return jsonResponse({ error: 'FORBIDDEN', message: '権限が不足しています。' }, 403);
+      }
+      let body;
+      try {
+        body = await request.json();
+      } catch (err) {
+        return jsonResponse({ error: 'INVALID_JSON', message: 'リクエスト形式が不正です。' }, 400);
+      }
+      const facilityId = normalizeMhlwFacilityId(body?.facilityId);
+      if (!facilityId) {
+        return jsonResponse({ error: 'INVALID_REQUEST', message: '厚労省施設IDを指定してください。' }, 400);
+      }
+      let clinic = null;
+      if (body?.clinicId) {
+        clinic = await getClinicById(env, body.clinicId);
+      }
+      if (!clinic) {
+        clinic = await getClinicByMhlwFacilityId(env, facilityId);
+      }
+      if (!clinic) {
+        return jsonResponse({ error: 'CLINIC_NOT_FOUND', message: '対象診療所が見つかりません。先に厚労省IDを登録してください。' }, 404);
+      }
+      const facilityData = body?.facilityData;
+      if (!facilityData || normalizeMhlwFacilityId(facilityData.facilityId) !== facilityId) {
+        return jsonResponse({ error: 'INVALID_REQUEST', message: 'facilityData が不足しているか、施設IDが一致しません。' }, 400);
+      }
+      let updatedClinic;
+      try {
+        updatedClinic = applyMhlwDataToClinic(clinic, facilityData);
+        updatedClinic = await saveClinic(env, updatedClinic);
+      } catch (err) {
+        if (err?.code === 'MHLW_FACILITY_ID_CONFLICT') {
+          return jsonResponse({ error: 'MHLW_FACILITY_ID_CONFLICT', message: 'この厚生労働省施設IDは既に別の診療所に割り当てられています。' }, 409);
+        }
+        console.error('[mhlwSync] failed to save clinic', err);
+        return jsonResponse({ error: 'SERVER_ERROR', message: '厚労省データの同期に失敗しました。' }, 500);
+      }
+      return jsonResponse({ ok: true, clinic: updatedClinic });
     }
     // <<< END: CLINIC_UPDATE >>>
 

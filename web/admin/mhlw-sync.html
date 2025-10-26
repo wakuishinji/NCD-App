@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>厚労省ID同期 - NCD 管理</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="../js/auth.js" defer></script>
+  <script src="../js/sessionGuard.js" defer></script>
+  <script src="../js/mhlwSync.js" defer></script>
+</head>
+<body class="min-h-screen bg-slate-100 text-slate-800" data-require-role="systemRoot" data-guard-message="システム管理者専用ページです。トップページへ戻ります。">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-8 px-4 py-10">
+    <section class="rounded-lg bg-white p-6 shadow">
+      <header class="mb-6 flex flex-col gap-2">
+        <a href="/admin/admin.html" class="self-start text-sm text-blue-700 underline decoration-blue-400 hover:text-blue-900">← 管理ハブへ戻る</a>
+        <div>
+          <h1 class="text-xl font-semibold text-blue-900">厚労省ID同期</h1>
+          <p class="mt-1 text-sm text-slate-600">厚労省公開データの施設IDをNCDの診療所レコードへ紐付け、住所・連絡先等の情報を同期します。</p>
+        </div>
+      </header>
+
+      <div class="space-y-4">
+        <div class="rounded border border-blue-200 bg-blue-50/70 px-4 py-3 text-sm text-blue-900">
+          <p class="font-semibold">手順</p>
+          <ol class="mt-2 list-decimal space-y-1 pl-5">
+            <li>厚労省CSVを <code>scripts/importMhlwFacilities.mjs</code> で整形し <code>tmp/mhlw-facilities.json</code> を準備。</li>
+            <li>下の検索フォームで診療所を選び、厚労省IDを貼り付けて登録。</li>
+            <li>必要に応じて「公開データから同期」ボタンで住所・電話等を更新。</li>
+          </ol>
+        </div>
+
+        <form id="searchForm" class="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div>
+            <label class="block text-sm font-medium text-slate-700" for="clinicKeyword">診療所を検索</label>
+            <input id="clinicKeyword" type="text" placeholder="名称の一部を入力" class="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm" required />
+          </div>
+          <div class="flex items-end gap-2">
+            <button type="submit" class="inline-flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700">
+              検索
+            </button>
+            <button type="button" id="reloadMhlwDict" class="inline-flex items-center gap-2 rounded border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-800 transition hover:border-blue-300 hover:bg-blue-100">
+              CSV再読込
+            </button>
+          </div>
+        </form>
+
+        <div id="searchStatus" class="text-sm text-slate-500"></div>
+
+        <div id="clinicList" class="space-y-3"></div>
+      </div>
+    </section>
+
+    <section class="rounded-lg bg-white p-6 shadow">
+      <header class="mb-4">
+        <h2 class="text-lg font-semibold text-blue-900">厚労省データプレビュー</h2>
+        <p class="mt-1 text-sm text-slate-600">整形済みJSON（施設辞書）の先頭数件を表示します。必要に応じて確認してください。</p>
+      </header>
+      <div class="rounded border border-slate-200 bg-slate-50 p-3">
+        <pre id="mhlwPreview" class="max-h-64 overflow-auto text-xs text-slate-700">読み込み中...</pre>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

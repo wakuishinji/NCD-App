@@ -1,22 +1,23 @@
 {
-  "id": "account:a27f4179-7002-4d27-9309-244c613339ae",
+  "id": "account:system-root-template",
   "loginId": "root",
-  "primaryEmail": "wakui@altry-med.or.jp",
+  "primaryEmail": "system-root@example.com",
   "role": "systemRoot",
   "status": "active",
   "passwordHash": {
     "algorithm": "pbkdf2-sha256",
     "iterations": 100000,
-    "salt": "r7bzDVHE7q1CPYvQ8KEzvg",
-    "hash": "QK5qrpS8RCp15imW2OolVJtDNWXBND8eIcbMB3GXreg",
+    "salt": "REDACTED",
+    "hash": "REDACTED",
     "keyLength": 32
   },
   "profile": {
-    "displayName": "和久井 真司"
+    "displayName": "System Root"
   },
   "membershipIds": [
-    "membership:40e4a651-82a2-4fd7-b071-0fa687d8d11b"
+    "membership:system-root"
   ],
   "createdAt": "2025-01-01T00:00:00Z",
-  "updatedAt": "2025-10-20T16:33:50.379Z"
+  "updatedAt": "2025-10-21T00:00:00Z",
+  "managedBy": "Cloudflare KV"
 }

@@ -40,6 +40,6 @@
 			"./worker-configuration.d.ts"
 		]
 	},
-	"exclude": ["test"],
-	"include": ["worker-configuration.d.ts", "src/**/*.ts"]
+	"exclude": ["node_modules", "tmp"],
+	"include": ["misc/worker-configuration.d.ts", "misc/**/*.ts"]
 }

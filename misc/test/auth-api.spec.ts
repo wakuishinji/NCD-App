@@ -466,4 +466,66 @@ describe('auth API', () => {
       }),
     ).rejects.toThrowError(/revoked/i);
   });
+
+  it('lists, sets, and verifies security questions', async () => {
+    const env = createEnv();
+    await seedAccount(env, { email: 'admin@example.com', loginId: 'admin' });
+
+    const listRes = await worker.fetch(
+      jsonRequest('https://example.com/api/auth/securityQuestions', 'GET'),
+      env,
+    );
+    expect(listRes.status).toBe(200);
+    const listPayload = await listRes.json();
+    expect(listPayload.ok).toBe(true);
+    expect(Array.isArray(listPayload.questions)).toBe(true);
+    expect(listPayload.questions.length).toBeGreaterThan(0);
+
+    const loginRes = await worker.fetch(
+      jsonRequest('https://example.com/api/auth/login', 'POST', {
+        identifier: 'admin',
+        password: 'Passw0rd!',
+      }),
+      env,
+    );
+    const loginPayload = await loginRes.json();
+    const { accessToken } = loginPayload.tokens;
+
+    const setRes = await worker.fetch(
+      jsonAuthRequest('https://example.com/api/auth/securityQuestion', 'POST', {
+        questionId: 'first_trip',
+        answerFormat: 'hiragana',
+        answer: 'しんじゅく',
+      }, accessToken),
+      env,
+    );
+    expect(setRes.status).toBe(200);
+    const setPayload = await setRes.json();
+    expect(setPayload.ok).toBe(true);
+    expect(setPayload.securityQuestion.questionId).toBe('first_trip');
+    expect(setPayload.securityQuestion.answerFormat).toBe('hiragana');
+    expect(setPayload.account.hasSecurityQuestion).toBe(true);
+
+    const verifyRes = await worker.fetch(
+      jsonRequest('https://example.com/api/auth/securityQuestion/verify', 'POST', {
+        identifier: 'admin@example.com',
+        answer: 'しんじゅく',
+      }),
+      env,
+    );
+    expect(verifyRes.status).toBe(200);
+    const verifyPayload = await verifyRes.json();
+    expect(verifyPayload.ok).toBe(true);
+
+    const verifyFail = await worker.fetch(
+      jsonRequest('https://example.com/api/auth/securityQuestion/verify', 'POST', {
+        identifier: 'admin@example.com',
+        answer: 'しぶや',
+      }),
+      env,
+    );
+    expect(verifyFail.status).toBe(403);
+    const failPayload = await verifyFail.json();
+    expect(failPayload.error).toBe('INVALID_SECURITY_ANSWER');
+  });
 });
