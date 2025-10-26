@@ -112,16 +112,8 @@
     return new TextDecoder('utf-8');
   }
 
-  async function* readCsvLines(file) {
-    if (!file || typeof file.stream !== 'function') {
-      throw new Error('Invalid File object');
-    }
-    let stream = file.stream();
-    if (isGzipFile(file) && globalThis.DecompressionStream) {
-      stream = stream.pipeThrough(new DecompressionStream('gzip'));
-    }
+  async function* iterateCsvStream(stream, decoder) {
     const reader = stream.getReader();
-    const decoder = createCsvDecoder(file);
     let buffer = '';
     while (true) {
       const { value, done } = await reader.read();
@@ -143,6 +135,46 @@
       if (done) break;
     }
     if (buffer) yield buffer;
+  }
+
+  async function* readCsvLines(file) {
+    if (!file || typeof file.stream !== 'function') {
+      throw new Error('Invalid File object');
+    }
+    const decoder = createCsvDecoder(file);
+    const isGzip = isGzipFile(file);
+
+    if (isGzip) {
+      if (globalThis.DecompressionStream) {
+        const stream = file.stream().pipeThrough(new DecompressionStream('gzip'));
+        yield* iterateCsvStream(stream, decoder);
+        return;
+      }
+      if (globalThis.fflate && typeof globalThis.fflate.AsyncDecompressStream === 'function') {
+        const stream = file.stream().pipeThrough(new globalThis.fflate.AsyncDecompressStream());
+        yield* iterateCsvStream(stream, decoder);
+        return;
+      }
+      if (globalThis.fflate && typeof globalThis.fflate.decompressSync === 'function') {
+        const compressed = new Uint8Array(await file.arrayBuffer());
+        let decompressed;
+        try {
+          decompressed = globalThis.fflate.decompressSync(compressed);
+        } catch (_) {
+          throw new Error('gzip ファイルの解凍に失敗しました。CSV を解凍してから再度お試しください。');
+        }
+        const text = decoder.decode(decompressed);
+        const lines = text.split(/\r?\n/);
+        for (const line of lines) {
+          if (line) yield line;
+        }
+        return;
+      }
+      throw new Error('このブラウザでは gzip 圧縮CSVの解凍がサポートされていません。CSV を解凍してからアップロードしてください。');
+    }
+
+    const stream = file.stream();
+    yield* iterateCsvStream(stream, decoder);
   }
 
   async function importFacilityFile(file, facilityType, { onProgress } = {}) {
