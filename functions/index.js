@@ -82,7 +82,7 @@ export default {
     // 共通CORSヘッダー
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, PUT, HEAD, OPTIONS",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, HEAD, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization, Cache-Control",
     };
 

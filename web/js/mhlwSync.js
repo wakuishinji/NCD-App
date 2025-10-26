@@ -3,6 +3,7 @@
   const LOCAL_CACHE_KEY = 'mhlwFacilityCache';
   const LOCAL_CACHE_TS_KEY = 'mhlwFacilityCacheTimestamp';
   const LOCAL_CACHE_TTL_MS = 1000 * 60 * 60; // 1 hour
+  const DEFAULT_CACHE_CONTROL = 'public, max-age=600, stale-while-revalidate=3600';
 
   function resolveApiBase() {
     if (global.NcdAuth && typeof global.NcdAuth.resolveApiBase === 'function') {
@@ -237,6 +238,55 @@
       method: 'POST',
       headers: authHeader ? { Authorization: authHeader } : {},
       body: { uploadId, parts, facilityCount, scheduleCount },
+    });
+  }
+
+  async function uploadJsonDirect({ blob, facilityCount, scheduleCount }) {
+    const apiBase = resolveApiBase();
+    const authHeader = await getAuthHeader();
+    const headers = new Headers();
+    if (authHeader) headers.set('Authorization', authHeader);
+    headers.set('Content-Type', 'application/json');
+    headers.set('Cache-Control', DEFAULT_CACHE_CONTROL);
+
+    const res = await fetch(`${apiBase}/api/admin/mhlw/facilities`, {
+      method: 'PUT',
+      headers,
+      body: blob,
+    });
+
+    if (!res.ok) {
+      let details = '';
+      try {
+        const payload = await res.json();
+        details = payload?.message ? ` ${payload.message}` : '';
+      } catch (_) {}
+      throw new Error(`厚労省データのアップロードに失敗しました (HTTP ${res.status}).${details}`);
+    }
+
+    try {
+      await refreshMhlwMeta({ facilityCount, scheduleCount });
+    } catch (err) {
+      console.warn('[mhlwSync] failed to refresh meta after direct upload', err);
+    }
+
+    try {
+      return await res.json();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function refreshMhlwMeta({ facilityCount, scheduleCount }) {
+    const apiBase = resolveApiBase();
+    const authHeader = await getAuthHeader();
+    return fetchJson(`${apiBase}/api/admin/mhlw/refreshMeta`, {
+      method: 'POST',
+      headers: authHeader ? { Authorization: authHeader } : {},
+      body: {
+        facilityCount: Number.isFinite(facilityCount) ? facilityCount : null,
+        scheduleCount: Number.isFinite(scheduleCount) ? scheduleCount : null,
+      },
     });
   }
 
@@ -957,33 +1007,50 @@
         const facilityCount = dataset.stats?.facilityCount ?? dataset.facilities.length;
         const scheduleCount = dataset.stats?.scheduleCount ?? 0;
 
-        setStatus(uploadCsvStatus, 'アップロードを初期化しています…', 'info');
-        uploadSession = await startMultipartUpload({ facilityCount, scheduleCount });
-
         const jsonPayload = JSON.stringify({ count: facilityCount, facilities: dataset.facilities });
         const blob = new Blob([jsonPayload], { type: 'application/json' });
-        const partSize = Number(uploadSession.partSize) || DEFAULT_PART_SIZE_HINT;
-        const totalParts = Math.max(1, Math.ceil(blob.size / partSize));
-        const parts = [];
 
-        for (let partNumber = 1; partNumber <= totalParts; partNumber += 1) {
-          const start = (partNumber - 1) * partSize;
-          const end = Math.min(start + partSize, blob.size);
-          const chunk = blob.slice(start, end);
-          setStatus(uploadCsvStatus, `整形済み JSON (${formatBytes(blob.size)}) をアップロードしています… (${partNumber}/${totalParts})`, 'info');
-          const { etag } = await uploadPartChunk(uploadSession.uploadId, partNumber, chunk);
-          parts.push({ partNumber, etag });
+        let useMultipart = true;
+        try {
+          setStatus(uploadCsvStatus, 'アップロードを初期化しています…', 'info');
+          uploadSession = await startMultipartUpload({ facilityCount, scheduleCount });
+        } catch (err) {
+          if (err?.payload?.error === 'UNSUPPORTED') {
+            useMultipart = false;
+            console.warn('[mhlwSync] multipart upload unsupported, falling back to single PUT', err);
+          } else {
+            throw err;
+          }
         }
 
-        setStatus(uploadCsvStatus, 'アップロードを確定しています…', 'info');
-        await completeMultipartUpload({
-          uploadId: uploadSession.uploadId,
-          parts,
-          facilityCount,
-          scheduleCount,
-        });
+        if (!useMultipart) {
+          setStatus(uploadCsvStatus, '環境で multipart upload が利用できないため、単一リクエストでアップロードしています…', 'info');
+          await uploadJsonDirect({ blob, facilityCount, scheduleCount });
+          setStatus(uploadCsvStatus, `アップロードが完了しました（施設 ${facilityCount} 件、診療時間 ${scheduleCount} 件）。最新データを再読込します…`, 'success');
+        } else {
+          const partSize = Number(uploadSession.partSize) || DEFAULT_PART_SIZE_HINT;
+          const totalParts = Math.max(1, Math.ceil(blob.size / partSize));
+          const parts = [];
 
-        setStatus(uploadCsvStatus, `アップロードが完了しました（施設 ${facilityCount} 件、診療時間 ${scheduleCount} 件）。最新データを再読込します…`, 'success');
+          for (let partNumber = 1; partNumber <= totalParts; partNumber += 1) {
+            const start = (partNumber - 1) * partSize;
+            const end = Math.min(start + partSize, blob.size);
+            const chunk = blob.slice(start, end);
+            setStatus(uploadCsvStatus, `整形済み JSON (${formatBytes(blob.size)}) をアップロードしています… (${partNumber}/${totalParts})`, 'info');
+            const { etag } = await uploadPartChunk(uploadSession.uploadId, partNumber, chunk);
+            parts.push({ partNumber, etag });
+          }
+
+          setStatus(uploadCsvStatus, 'アップロードを確定しています…', 'info');
+          await completeMultipartUpload({
+            uploadId: uploadSession.uploadId,
+            parts,
+            facilityCount,
+            scheduleCount,
+          });
+
+          setStatus(uploadCsvStatus, `アップロードが完了しました（施設 ${facilityCount} 件、診療時間 ${scheduleCount} 件）。最新データを再読込します…`, 'success');
+        }
 
         clinicFacilityInput.value = '';
         clinicScheduleInput.value = '';
