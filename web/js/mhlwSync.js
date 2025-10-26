@@ -928,19 +928,37 @@
           throw new Error('CSV 解析モジュールが読み込まれていません。ページを再読み込みしてください。');
         }
 
+        const progressSummary = new Map();
+        const describeProgress = () => {
+          const parts = [];
+          for (const [key, value] of progressSummary.entries()) {
+            parts.push(`${key}: ${value}`);
+          }
+          return parts.join(' / ');
+        };
+
         const dataset = await global.MhlwCsvUtils.buildMhlwDatasetFromCsv({
           clinicFacilityFile,
           clinicScheduleFile,
           hospitalFacilityFile,
           hospitalScheduleFile,
+        }, {
+          onProgress: ({ kind, facilityType, processed, done }) => {
+            const labelPrefix = kind === 'facility' ? '施設票' : '診療時間票';
+            const typeLabel = facilityType === 'hospital' ? '病院' : '診療所';
+            const key = `${labelPrefix} (${typeLabel})`;
+            const suffix = done ? `${processed} 行` : `${processed} 行処理中…`;
+            progressSummary.set(key, suffix);
+            setStatus(uploadCsvStatus, `CSV を解析中です… ${describeProgress()}`, 'info');
+          },
         });
+
+        setStatus(uploadCsvStatus, '整形済み JSON をアップロードしています…', 'info');
 
         const jsonPayload = JSON.stringify({
           count: dataset.facilities.length,
           facilities: dataset.facilities,
         });
-
-        setStatus(uploadCsvStatus, '整形済み JSON をアップロードしています…', 'info');
 
         const apiBase = resolveApiBase();
         const headers = new Headers();

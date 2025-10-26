@@ -145,9 +145,11 @@
     if (buffer) yield buffer;
   }
 
-  async function importFacilityFile(file, facilityType) {
+  async function importFacilityFile(file, facilityType, { onProgress } = {}) {
     const facilities = [];
     let headerParsed = false;
+    let processed = 0;
+    const normalizedType = normalizeFacilityType(facilityType);
     for await (const line of readCsvLines(file)) {
       if (!headerParsed) {
         headerParsed = true;
@@ -164,7 +166,7 @@
       const latitude = record.latitude ? Number(record.latitude) : undefined;
       facilities.push({
         facilityId,
-        facilityType: normalizeFacilityType(facilityType),
+        facilityType: normalizedType,
         name: (record.facilityName || '').trim(),
         nameKana: normalizeKana(record.facilityNameKana),
         postalCode: normalizePostalCode(record.postalCode),
@@ -181,6 +183,14 @@
         scheduleEntries: [],
         mhlwDepartments: [],
       });
+      processed += 1;
+      if (onProgress && processed % 200 === 0) {
+        onProgress({ kind: 'facility', facilityType: normalizedType, processed, done: false });
+        await new Promise((resolve) => setTimeout(resolve));
+      }
+    }
+    if (onProgress) {
+      onProgress({ kind: 'facility', facilityType: normalizedType, processed, done: true });
     }
     return facilities;
   }
@@ -189,12 +199,13 @@
     return (value ?? '').toString().trim();
   }
 
-  async function importScheduleFile(file, facilityType) {
+  async function importScheduleFile(file, facilityType, { onProgress } = {}) {
     const schedules = [];
     const facilityTypeNormalized = normalizeFacilityType(facilityType);
     let headers = [];
     let facilityIdIndex = -1;
     let headerParsed = false;
+    let processed = 0;
     for await (const line of readCsvLines(file)) {
       const record = parseCsvLine(line);
       if (!headerParsed) {
@@ -236,6 +247,14 @@
           receptionEnd,
         });
       }
+      processed += 1;
+      if (onProgress && processed % 200 === 0) {
+        onProgress({ kind: 'schedule', facilityType: facilityTypeNormalized, processed, done: false });
+        await new Promise((resolve) => setTimeout(resolve));
+      }
+    }
+    if (onProgress) {
+      onProgress({ kind: 'schedule', facilityType: facilityTypeNormalized, processed, done: true });
     }
     return schedules;
   }
@@ -274,12 +293,12 @@
     clinicScheduleFile,
     hospitalFacilityFile,
     hospitalScheduleFile,
-  }) {
+  }, { onProgress } = {}) {
     const [clinicFacilities, hospitalFacilities, clinicSchedules, hospitalSchedules] = await Promise.all([
-      importFacilityFile(clinicFacilityFile, 'clinic'),
-      importFacilityFile(hospitalFacilityFile, 'hospital'),
-      importScheduleFile(clinicScheduleFile, 'clinic'),
-      importScheduleFile(hospitalScheduleFile, 'hospital'),
+      importFacilityFile(clinicFacilityFile, 'clinic', { onProgress }),
+      importFacilityFile(hospitalFacilityFile, 'hospital', { onProgress }),
+      importScheduleFile(clinicScheduleFile, 'clinic', { onProgress }),
+      importScheduleFile(hospitalScheduleFile, 'hospital', { onProgress }),
     ]);
 
     const facilities = mergeFacilitiesAndSchedules(
