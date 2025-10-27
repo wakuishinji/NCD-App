@@ -42,37 +42,57 @@
   }
 
   async function parseJsonResponse(response) {
-    const encoding = (response.headers.get('Content-Encoding') || '').toLowerCase();
-    if (encoding.includes('gzip')) {
-      const buffer = new Uint8Array(await response.arrayBuffer());
-      let text = '';
-
-      if (globalThis.fflate?.gunzipSync) {
-        try {
-          const decompressed = globalThis.fflate.gunzipSync(buffer);
-          text = UTF8_DECODER.decode(decompressed);
-        } catch (err) {
-          console.warn('[mhlwSync] fflate gunzip failed, trying fallback', err);
-        }
-      }
-
-      if (!text && typeof DecompressionStream === 'function') {
-        try {
-          const stream = new Blob([buffer]).stream().pipeThrough(new DecompressionStream('gzip'));
-          text = await new Response(stream).text();
-        } catch (err) {
-          console.warn('[mhlwSync] CompressionStream gunzip failed', err);
-        }
-      }
-
-      if (!text) {
-        text = UTF8_DECODER.decode(buffer);
-      }
-
-      return JSON.parse(text);
+    // Mostブラウザは Content-Encoding: gzip を自動展開してくれるため、まずは素直に .json() を試す
+    try {
+      return await response.clone().json();
+    } catch (fallbackReason) {
+      console.warn('[mhlwSync] response.json() failed, trying manual decode', fallbackReason);
     }
 
-    return response.json();
+    const encodingHeader = (response.headers.get('Content-Encoding') || '').toLowerCase();
+    const isGzip = encodingHeader.includes('gzip');
+    const buffer = new Uint8Array(await response.arrayBuffer());
+
+    const tryParse = (text) => {
+      if (typeof text !== 'string' || !text) return null;
+      try {
+        return JSON.parse(text);
+      } catch (err) {
+        console.warn('[mhlwSync] JSON.parse failed during manual decode', err);
+        return null;
+      }
+    };
+
+    let text = '';
+
+    if (isGzip && globalThis.fflate?.gunzipSync) {
+      try {
+        const decompressed = globalThis.fflate.gunzipSync(buffer);
+        text = UTF8_DECODER.decode(decompressed);
+      } catch (err) {
+        console.warn('[mhlwSync] fflate gunzip failed, trying fallback', err);
+      }
+    }
+
+    if (!text && isGzip && typeof DecompressionStream === 'function') {
+      try {
+        const stream = new Blob([buffer]).stream().pipeThrough(new DecompressionStream('gzip'));
+        text = await new Response(stream).text();
+      } catch (err) {
+        console.warn('[mhlwSync] DecompressionStream gunzip failed', err);
+      }
+    }
+
+    if (!text) {
+      text = UTF8_DECODER.decode(buffer);
+    }
+
+    const parsed = tryParse(text);
+    if (parsed !== null) {
+      return parsed;
+    }
+
+    throw new Error('厚労省データの取得に失敗しました。JSON の解凍または解析ができませんでした。');
   }
 
   function loadCachedMhlwData() {
@@ -177,6 +197,9 @@
 
     if (lastError) {
       console.warn('[mhlwSync] no facilities dataset available', lastError);
+      const error = new Error('厚労省施設データが読み込めませんでした。CSV のアップロード状況をご確認のうえ再読込してください。');
+      error.cause = lastError;
+      throw error;
     }
     return {};
   }
@@ -1044,10 +1067,28 @@
           localStorage.removeItem(LOCAL_CACHE_TS_KEY);
         } catch (_) {}
       }
+      if (previewEl) {
+        previewEl.classList.remove('text-red-600', 'bg-red-50');
+        previewEl.textContent = force ? '厚労省データを再読込しています…' : '厚労省データを読み込み中です…';
+      }
       await loadMeta(force);
-      mhlwDict = await loadMhlwFacilities({ bypassCache: force });
-      mhlwEntries = mhlwDict && typeof mhlwDict === 'object' ? Object.values(mhlwDict) : [];
-      renderMhlwPreview(mhlwDict, previewEl);
+      try {
+        mhlwDict = await loadMhlwFacilities({ bypassCache: force });
+        mhlwEntries = mhlwDict && typeof mhlwDict === 'object' ? Object.values(mhlwDict) : [];
+        if (previewEl) {
+          previewEl.classList.remove('text-red-600', 'bg-red-50');
+        }
+        renderMhlwPreview(mhlwDict, previewEl);
+      } catch (err) {
+        mhlwDict = {};
+        mhlwEntries = [];
+        console.error('[mhlwSync] failed to load MHLW dataset', err);
+        if (previewEl) {
+          previewEl.classList.add('text-red-600');
+          previewEl.classList.add('bg-red-50');
+          previewEl.textContent = err?.message || '厚労省施設データの読み込みに失敗しました。';
+        }
+      }
     }
 
     loadDictAndPreview(false);
