@@ -92,7 +92,13 @@
       return parsed;
     }
 
-    throw new Error('厚労省データの取得に失敗しました。JSON の解凍または解析ができませんでした。');
+    const snippet = typeof text === 'string' ? text.slice(0, 256) : '';
+    const error = new Error('厚労省データの取得に失敗しました。JSON の解凍または解析ができませんでした。');
+    if (snippet) {
+      console.warn('[mhlwSync] API response snippet:', snippet);
+      error.snippet = snippet;
+    }
+    throw error;
   }
 
   function loadCachedMhlwData() {
@@ -153,6 +159,19 @@
     return parseJsonResponse(res);
   }
 
+  function shouldUseLocalFallback() {
+    try {
+      const { protocol, hostname } = globalThis.location || {};
+      if (!protocol) return false;
+      if (protocol === 'file:') return true;
+      if (hostname === 'localhost' || hostname === '127.0.0.1') return true;
+      if (hostname && hostname.endsWith('.local')) return true;
+    } catch (_) {
+      // ignore location access failures
+    }
+    return false;
+  }
+
   async function fetchMhlwFacilitiesFromLocalFile() {
     const res = await fetch('/tmp/mhlw-facilities.json');
     if (!res.ok) {
@@ -178,7 +197,8 @@
       console.warn('[mhlwSync] failed to load facilities via API', err);
     }
 
-    if (!dataset || Object.keys(dataset).length === 0) {
+    const shouldFallback = shouldUseLocalFallback();
+    if ((!dataset || Object.keys(dataset).length === 0) && shouldFallback) {
       try {
         const localPayload = await fetchMhlwFacilitiesFromLocalFile();
         dataset = normalizeFacilitiesPayload(localPayload);
@@ -197,7 +217,8 @@
 
     if (lastError) {
       console.warn('[mhlwSync] no facilities dataset available', lastError);
-      const error = new Error('厚労省施設データが読み込めませんでした。CSV のアップロード状況をご確認のうえ再読込してください。');
+      const fallbackNote = shouldFallback ? 'CSV のアップロード状況をご確認のうえ再読込してください。' : 'API から厚労省施設データを取得できませんでした。Workers 側の `/api/mhlw/facilities` 応答を確認してください。';
+      const error = new Error(`厚労省施設データが読み込めませんでした。${fallbackNote}`);
       error.cause = lastError;
       throw error;
     }
@@ -1086,7 +1107,12 @@
         if (previewEl) {
           previewEl.classList.add('text-red-600');
           previewEl.classList.add('bg-red-50');
-          previewEl.textContent = err?.message || '厚労省施設データの読み込みに失敗しました。';
+          const messages = [err?.message || '厚労省施設データの読み込みに失敗しました。'];
+          if (typeof err?.snippet === 'string' && err.snippet.trim()) {
+            messages.push('--- 応答スニペット ---');
+            messages.push(err.snippet.trim());
+          }
+          previewEl.textContent = messages.join('\n');
         }
       }
     }

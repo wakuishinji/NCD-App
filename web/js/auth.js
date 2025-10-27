@@ -4,7 +4,8 @@
  */
 (function attachAuthHelpers(global) {
   const STORAGE_KEY = 'ncdAuth';
-  const DEFAULT_API_BASE = 'https://ncd-app.altry.workers.dev';
+  const WORKERS_API_BASE = 'https://ncd-app.altry.workers.dev';
+  const DEFAULT_API_BASE = WORKERS_API_BASE;
   const EXPIRY_SKEW_MS = 30 * 1000;
   const ROLE_CANONICAL = {
     systemroot: 'systemRoot',
@@ -31,6 +32,21 @@
   }
 
   function resolveApiBase() {
+    const forcedHosts = new Set(['ncd.altry.net', 'www.ncd.altry.net']);
+    try {
+      const currentHost = (global.location?.hostname || '').toLowerCase();
+      if (forcedHosts.has(currentHost)) {
+        global.NCD_API_BASE = WORKERS_API_BASE;
+        try {
+          global.localStorage?.removeItem('ncdApiBase');
+          global.localStorage?.removeItem('ncdApiBaseUrl');
+        } catch (_) {}
+        return WORKERS_API_BASE;
+      }
+    } catch (_) {
+      // ignore location access errors
+    }
+
     const candidates = [];
     if (typeof global.API_BASE_OVERRIDE === 'string') {
       candidates.push(global.API_BASE_OVERRIDE);
@@ -48,9 +64,18 @@
     } catch (_) {
       // ignore storage errors (e.g. private mode)
     }
+    const isBlocked = (value) => {
+      try {
+        const url = new URL(value);
+        return forcedHosts.has(url.hostname.toLowerCase());
+      } catch (_) {
+        return false;
+      }
+    };
+
     for (const candidate of candidates) {
       const normalized = normalizeBase(candidate);
-      if (normalized) {
+      if (normalized && !isBlocked(normalized)) {
         global.NCD_API_BASE = normalized;
         return normalized;
       }

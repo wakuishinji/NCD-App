@@ -481,6 +481,17 @@
 
 <script>
 const DEFAULT_API_BASE = "https://ncd-app.altry.workers.dev";
+const FORCED_HOSTS = new Set(['ncd.altry.net', 'www.ncd.altry.net']);
+
+function isForcedHost(url) {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return FORCED_HOSTS.has(parsed.hostname.toLowerCase());
+  } catch (_) {
+    return false;
+  }
+}
 
 const geocodeCache = new Map();
 
@@ -688,7 +699,12 @@ function setActiveApiBase(value, { persist = false } = {}) {
   }
   if (persist) {
     try {
-      localStorage.setItem('ncdApiBase', sanitized);
+      if (isForcedHost(sanitized)) {
+        localStorage.removeItem('ncdApiBase');
+        localStorage.removeItem('ncdApiBaseUrl');
+      } else {
+        localStorage.setItem('ncdApiBase', sanitized);
+      }
     } catch (_) {}
   }
 }
