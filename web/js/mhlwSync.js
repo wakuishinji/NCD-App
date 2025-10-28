@@ -773,6 +773,19 @@
     const rawPostal = (clinic?.postalCode || '').toString().replace(/[^0-9]/g, '');
     const postalCandidates = new Set();
     if (rawPostal) postalCandidates.add(rawPostal);
+    const clinicPrefToken = normalizeFuzzy(clinic?.prefecture || clinic?.prefectureName || '');
+    const clinicCityToken = normalizeFuzzy(clinic?.city || clinic?.cityName || '');
+    const clinicAddressTokens = new Set();
+    const clinicAddressPieces = [
+      clinic?.address,
+      `${clinic?.prefecture || ''}${clinic?.city || ''}`,
+      `${clinic?.prefectureName || ''}${clinic?.cityName || ''}`,
+    ];
+    clinicAddressPieces.forEach((piece) => {
+      tokenizeForSearch(piece).forEach((token) => {
+        if (token) clinicAddressTokens.add(token);
+      });
+    });
 
     const results = [];
 
@@ -801,6 +814,12 @@
       }
       if (!matched) continue;
 
+      const facilityPrefToken = cache.prefectureToken || '';
+      const facilityCityToken = cache.cityToken || '';
+      if (clinicPrefToken && facilityPrefToken && clinicPrefToken !== facilityPrefToken) {
+        continue;
+      }
+
       let score = 0;
       if (nameQueries.length) {
         let bestSim = 0;
@@ -823,8 +842,34 @@
         }
       }
 
+      if (clinicPrefToken && facilityPrefToken && clinicPrefToken === facilityPrefToken) {
+        score += 160;
+      }
+      if (clinicCityToken && facilityCityToken) {
+        if (clinicCityToken === facilityCityToken) {
+          score += 140;
+        } else {
+          score -= 60;
+        }
+      }
+
       const facilityPostal = cache.postalCode || '';
       const postalMatch = rawPostal && facilityPostal === rawPostal;
+      if (postalMatch) {
+        score += 400;
+      } else if (rawPostal && facilityPostal && facilityPostal.startsWith(rawPostal.slice(0, 3))) {
+        score += 80;
+      }
+
+      if (clinicAddressTokens.size && cache.addressTokens instanceof Set) {
+        let addressMatches = 0;
+        clinicAddressTokens.forEach((token) => {
+          if (cache.addressTokens.has(token)) addressMatches += 1;
+        });
+        if (addressMatches) {
+          score += addressMatches * 60;
+        }
+      }
 
       results.push({ facility, score, postalMatch });
     }
