@@ -127,17 +127,26 @@
 
   function normalizeFacilitiesPayload(payload) {
     const entries = [];
-    if (Array.isArray(payload?.facilities)) {
-      entries.push(...payload.facilities);
-    } else if (Array.isArray(payload)) {
-      entries.push(...payload);
-    } else if (payload && typeof payload === 'object') {
-      for (const value of Object.values(payload)) {
-        if (value && typeof value === 'object' && value.facilityId) {
+    const visit = (value, depth = 0) => {
+      if (depth > 3) return;
+      if (!value) return;
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          visit(item, depth + 1);
+        }
+        return;
+      }
+      if (typeof value === 'object') {
+        if (value.facilityId) {
           entries.push(value);
+          return;
+        }
+        for (const key of Object.keys(value)) {
+          visit(value[key], depth + 1);
         }
       }
-    }
+    };
+    visit(payload, 0);
     const result = {};
     for (const entry of entries) {
       if (!entry || !entry.facilityId) continue;
