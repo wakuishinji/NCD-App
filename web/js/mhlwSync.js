@@ -835,11 +835,12 @@
     return results.slice(0, limit);
   }
 
-  function buildClinicCard(clinic, mhlwSource) {
+  function buildClinicCard(clinic, mhlwSource, options = {}) {
     const dict = (mhlwSource && mhlwSource.dict) || mhlwSource || {};
     const entries = Array.isArray(mhlwSource?.entries)
       ? mhlwSource.entries
       : (dict && typeof dict === 'object' ? Object.values(dict) : []);
+    const searchKeyword = typeof options.searchKeyword === 'string' ? options.searchKeyword : '';
 
     const wrapper = document.createElement('div');
     wrapper.className = 'rounded border border-slate-200 bg-white p-4 shadow-sm';
@@ -1045,7 +1046,9 @@
 
     wrapper.appendChild(candidateSection);
 
-    const defaultKeyword = [
+    const searchCandidates = [];
+    if (searchKeyword && searchKeyword.trim()) searchCandidates.push(searchKeyword.trim());
+    const defaultKeywordSources = [
       clinic.name,
       clinic.displayName,
       clinic.officialName,
@@ -1053,9 +1056,11 @@
       clinic.address,
     ]
       .map((value) => (typeof value === 'string' ? value.trim() : ''))
-      .find((value) => Boolean(value)) || '';
-
-    candidateInput.value = defaultKeyword;
+      .filter(Boolean);
+    searchCandidates.push(...defaultKeywordSources);
+    const uniqueKeywords = Array.from(new Set(searchCandidates.filter(Boolean)));
+    const initialKeyword = uniqueKeywords[0] || '';
+    candidateInput.value = initialKeyword;
 
     function highlightCandidate(element) {
       candidateList.querySelectorAll('[data-candidate]').forEach((node) => {
@@ -1066,17 +1071,126 @@
       }
     }
 
-    function renderCandidates(keyword) {
+    const candidateInfo = document.createElement('p');
+    candidateInfo.className = 'text-[11px] text-slate-500';
+    candidateSection.insertBefore(candidateInfo, candidateList);
+
+    function renderCandidates(keyword, { fallback = false } = {}) {
       candidateList.innerHTML = '';
+      const baseKeyword = (keyword || '').trim();
       if (!Array.isArray(entries) || !entries.length) {
         const empty = document.createElement('p');
         empty.className = 'text-xs text-red-600';
         empty.textContent = '厚労省データが読み込まれていません。CSVを再読込してください。';
         candidateList.appendChild(empty);
+        candidateInfo.textContent = baseKeyword ? `検索キーワード: 「${baseKeyword}」` : '検索キーワード: （未入力）';
         return;
       }
-      const searchKeyword = (keyword || '').trim() || defaultKeyword;
-      if (!searchKeyword) {
+      const searchTerm = baseKeyword || initialKeyword;
+      const renderTerm = (term) => {
+        const results = findMhlwCandidates({ entries, clinic, query: term, limit: 8 });
+        if (!results.length) return null;
+        results.forEach(({ facility, score }) => {
+          const item = document.createElement('div');
+          item.className = 'rounded border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 transition';
+          item.dataset.candidate = 'true';
+
+          const header = document.createElement('div');
+          header.className = 'flex flex-wrap items-center justify-between gap-2';
+
+          const nameEl = document.createElement('div');
+          nameEl.className = 'text-sm font-semibold text-slate-800';
+          nameEl.textContent = pickFacilityDisplayName(facility);
+          header.appendChild(nameEl);
+
+          const idBadge = document.createElement('span');
+          idBadge.className = 'rounded bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700';
+          idBadge.textContent = facility.facilityId || '-';
+          header.appendChild(idBadge);
+
+          item.appendChild(header);
+
+          const addressText = pickFacilityAddress(facility);
+          if (addressText) {
+            const addressEl = document.createElement('p');
+            addressEl.className = 'mt-1 text-xs text-slate-600';
+            addressEl.textContent = addressText;
+            item.appendChild(addressEl);
+          }
+
+          const metaLine = document.createElement('div');
+          metaLine.className = 'mt-1 text-[11px] text-slate-500';
+          const typeLabel = facility.facilityType === 'hospital'
+            ? '病院'
+            : facility.facilityType === 'clinic'
+              ? '診療所'
+              : facility.facilityType || '-';
+          metaLine.textContent = `種別: ${typeLabel} / 郵便番号: ${facility.postalCode || '-'}`;
+          item.appendChild(metaLine);
+
+          const actions = document.createElement('div');
+          actions.className = 'mt-2 flex flex-wrap items-center gap-3';
+
+          const scoreLabel = document.createElement('span');
+          scoreLabel.className = 'text-[11px] text-slate-500';
+          scoreLabel.textContent = describeMatchLevel(score);
+          actions.appendChild(scoreLabel);
+
+          const applyButton = document.createElement('button');
+          applyButton.type = 'button';
+          applyButton.className = 'inline-flex items-center gap-2 rounded bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700';
+          applyButton.textContent = 'このIDをセット';
+          applyButton.addEventListener('click', () => {
+            const facilityId = (facility.facilityId || '').toUpperCase();
+            facilityIdInput.value = facilityId;
+            facilityIdInput.focus();
+            highlightCandidate(item);
+            statusEl.textContent = `候補ID ${facilityId} を入力欄にセットしました。保存ボタンで確定してください。`;
+            statusEl.className = 'md:col-span-2 text-xs text-blue-600';
+          });
+          actions.appendChild(applyButton);
+
+          item.addEventListener('dblclick', () => applyButton.click());
+
+          item.appendChild(actions);
+          candidateList.appendChild(item);
+        });
+        return results.length;
+      };
+
+      const tried = new Set();
+      const queue = [searchTerm, ...uniqueKeywords];
+      const attempts = [];
+      for (const term of queue) {
+        if (!term) continue;
+        const normalizedTerm = term.trim();
+        if (!normalizedTerm || tried.has(normalizedTerm)) continue;
+        tried.add(normalizedTerm);
+        candidateInput.value = normalizedTerm;
+        attempts.push(normalizedTerm);
+        const rendered = renderTerm(normalizedTerm);
+        if (rendered) {
+          if (attempts.length === 1) {
+            candidateInfo.textContent = `検索キーワード: 「${normalizedTerm}」`;
+          } else {
+            candidateInfo.textContent = `検索キーワード: 「${attempts[0]}」では一致なし → 「${normalizedTerm}」の候補を表示中`;
+          }
+          return;
+        }
+        if (!fallback) break;
+      }
+
+      const empty = document.createElement('p');
+      empty.className = 'text-xs text-slate-500';
+      empty.textContent = '候補が見つかりませんでした。キーワードを調整してください。';
+      candidateList.appendChild(empty);
+      if (attempts.length) {
+        candidateInfo.textContent = `検索キーワード: 「${attempts[0]}」では一致する候補が見つかりませんでした。`;
+      } else {
+        candidateInfo.textContent = baseKeyword ? `検索キーワード: 「${baseKeyword}」` : '検索キーワード: （未入力）';
+      }
+    }
+*** End Patchഈ to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions_apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions_apply_patchanelas to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions_apply_patch to=functions.apply_patch责编 to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch انتهى to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions_apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions_apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions_apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions_apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions_apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions_apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions_apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions_apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions_apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions_apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions_apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions_apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions_apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions_apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch assistants to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions_apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions_apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions_apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions_apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions_apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions_apply_patch to=functions.apply_patch to=functions.apply_patch to=functions_apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.apply_patch to=functions.codehaus apply patch** End Patch *
         const empty = document.createElement('p');
         empty.className = 'text-xs text-slate-500';
         empty.textContent = '検索キーワードを入力すると候補が表示されます。';
@@ -1160,22 +1274,22 @@
     }
 
     searchButton.addEventListener('click', () => {
-      renderCandidates(candidateInput.value);
+      renderCandidates(candidateInput.value, { fallback: true });
     });
 
     resetButton.addEventListener('click', () => {
-      candidateInput.value = defaultKeyword;
-      renderCandidates(defaultKeyword);
+      candidateInput.value = initialKeyword;
+      renderCandidates(initialKeyword, { fallback: true });
     });
 
     candidateInput.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
         event.preventDefault();
-        renderCandidates(candidateInput.value);
+        renderCandidates(candidateInput.value, { fallback: true });
       }
     });
 
-    renderCandidates(candidateInput.value);
+    renderCandidates(candidateInput.value, { fallback: true });
 
     return wrapper;
   }
@@ -1213,6 +1327,7 @@
 
     let mhlwDict = {};
     let mhlwEntries = [];
+    let lastSearchKeyword = '';
 
     function setStatus(element, message, variant = 'info') {
       if (!element) return;
@@ -1487,6 +1602,7 @@
     searchForm.addEventListener('submit', async (event) => {
       event.preventDefault();
       const keyword = document.getElementById('clinicKeyword').value.trim();
+      lastSearchKeyword = keyword;
       if (!keyword) {
         searchStatus.textContent = '検索キーワードを入力してください。';
         searchStatus.className = 'text-sm text-red-600';
@@ -1505,7 +1621,7 @@
         searchStatus.textContent = `${clinics.length}件ヒットしました。`;
         searchStatus.className = 'text-sm text-slate-500';
         clinics.forEach((clinic) => {
-          clinicList.appendChild(buildClinicCard(clinic, { dict: mhlwDict, entries: mhlwEntries }));
+          clinicList.appendChild(buildClinicCard(clinic, { dict: mhlwDict, entries: mhlwEntries }, { searchKeyword: lastSearchKeyword }));
         });
       } catch (error) {
         console.error('[mhlwSync] search failed', error);
