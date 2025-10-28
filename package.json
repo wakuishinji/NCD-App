@@ -1,12 +1,14 @@
 {
   "scripts": {
     "test": "vitest",
+    "test:playwright": "playwright test",
     "migrate:master-ids": "node ./scripts/migrateMasterIds.mjs",
     "cleanup:legacy-masters": "node ./scripts/cleanupLegacyMasters.mjs",
     "publish:mhlw": "node ./scripts/publishMhlwFacilities.mjs",
     "upload:mhlw": "node ./scripts/uploadMhlwToR2.mjs"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
     "@cloudflare/vitest-pool-workers": "^0.9.8",
     "vitest": "^3.2.4",
     "wrangler": "^4.38.0"
