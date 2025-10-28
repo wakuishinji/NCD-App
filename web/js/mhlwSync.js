@@ -490,8 +490,75 @@
       .filter(Boolean);
   }
 
+  function normalizeForSimilarity(value) {
+    if (value == null) return '';
+    const base = toHiragana(String(value)).toLowerCase();
+    return base.replace(/[\s\u3000・･,、。;；:：\/／\\()（）［］｛｝「」『』【】<>＜＞=＋+!?？＆&\-＿―─‐〜～·・]/g, '');
+  }
+
+  function jaroWinklerDistance(a, b) {
+    if (!a || !b) return 0;
+    if (a === b) return 1;
+    const aLen = a.length;
+    const bLen = b.length;
+    const matchDistance = Math.floor(Math.max(aLen, bLen) / 2) - 1;
+    const aMatches = new Array(aLen).fill(false);
+    const bMatches = new Array(bLen).fill(false);
+    let matches = 0;
+
+    for (let i = 0; i < aLen; i += 1) {
+      const start = Math.max(0, i - matchDistance);
+      const end = Math.min(i + matchDistance + 1, bLen);
+      for (let j = start; j < end; j += 1) {
+        if (bMatches[j]) continue;
+        if (a[i] !== b[j]) continue;
+        aMatches[i] = true;
+        bMatches[j] = true;
+        matches += 1;
+        break;
+      }
+    }
+
+    if (matches === 0) return 0;
+
+    let transpositions = 0;
+    let k = 0;
+    for (let i = 0; i < aLen; i += 1) {
+      if (!aMatches[i]) continue;
+      while (!bMatches[k]) k += 1;
+      if (a[i] !== b[k]) transpositions += 1;
+      k += 1;
+    }
+
+    const m = matches;
+    const jaro = (m / aLen + m / bLen + (m - transpositions / 2) / m) / 3;
+    let prefix = 0;
+    const maxPrefix = 4;
+    for (let i = 0; i < Math.min(maxPrefix, aLen, bLen); i += 1) {
+      if (a[i] === b[i]) prefix += 1;
+      else break;
+    }
+    return jaro + prefix * 0.1 * (1 - jaro);
+  }
+
   function buildFacilitySearchCache(facility) {
     const stringSet = new Set();
+    const nameVariants = [];
+    const nameCandidates = [
+      facility?.name,
+      facility?.officialName,
+      facility?.corporationName,
+      facility?.nameKana,
+    ];
+    for (const value of nameCandidates) {
+      if (typeof value === 'string' && value.trim()) {
+        const trimmed = value.trim();
+        stringSet.add(trimmed);
+        const normalized = normalizeForSimilarity(trimmed);
+        if (normalized) nameVariants.push(normalized);
+      }
+    }
+
     if (facility && typeof facility === 'object') {
       for (const key of Object.keys(facility)) {
         const value = facility[key];
@@ -509,20 +576,38 @@
         if (token) tokenSet.add(token);
       });
     }
+    const addressTokens = new Set();
+    const addressPieces = [
+      facility?.address,
+      facility?.fullAddress,
+      `${facility?.prefecture || ''}${facility?.city || ''}`,
+    ];
+    addressPieces.forEach((piece) => {
+      tokenizeForSearch(piece).forEach((token) => {
+        if (token) addressTokens.add(token);
+      });
+    });
+    const postalCode = (facility?.postalCode || '').toString().replace(/[^0-9]/g, '');
     return {
       normalizedStrings,
       tokens: tokenSet,
       facilityIdUpper: (facility?.facilityId || '').toString().toUpperCase(),
+      nameVariants,
+      addressTokens,
+      addressNormalized: normalizeForSimilarity(facility?.address || facility?.fullAddress || ''),
+      prefectureToken: normalizeFuzzy(facility?.prefecture || ''),
+      cityToken: normalizeFuzzy(facility?.city || ''),
+      postalCode,
     };
   }
 
   function pickFacilityDisplayName(facility) {
     const candidates = [
+      facility?.name,
+      facility?.officialName,
+      facility?.corporationName,
       facility?.prefecture,
       facility?.city,
-      facility?.officialName,
-      facility?.name,
-      facility?.corporationName,
     ];
     for (const value of candidates) {
       if (typeof value === 'string' && value.trim()) {
@@ -571,6 +656,18 @@
     const clinicNameNorm = normalizeFuzzy(clinic?.name || clinic?.displayName || clinic?.officialName || '');
     const clinicNameTokens = tokenizeForSearch(clinic?.name || clinic?.displayName || clinic?.officialName || '');
     const clinicAddressTokens = tokenizeForSearch(clinic?.address || '');
+    const clinicAddressTokenSet = new Set(clinicAddressTokens);
+    const clinicPrefToken = normalizeFuzzy(clinic?.prefecture || '');
+    const clinicCityToken = normalizeFuzzy(clinic?.city || '');
+    const clinicPostalCode = (clinic?.postalCode || '').toString().replace(/[^0-9]/g, '');
+    const clinicAddressNormalized = normalizeForSimilarity(clinic?.address || '');
+    const clinicNameVariants = [
+      clinic?.name,
+      clinic?.displayName,
+      clinic?.officialName,
+      clinic?.shortName,
+    ].map(normalizeForSimilarity).filter(Boolean);
+    const queryNameVariant = normalizedQuery ? normalizeForSimilarity(trimmedQuery) : '';
 
     const results = [];
 
@@ -591,10 +688,30 @@
 
       if (numericQuery) {
         if (cache.facilityIdUpper === numericQuery) {
-          score += 250;
+          score += 420;
         } else if (cache.facilityIdUpper.startsWith(numericQuery)) {
           const diff = Math.max(1, cache.facilityIdUpper.length - numericQuery.length);
-          score += 150 - diff * 8;
+          score += Math.max(0, 220 - diff * 10);
+        }
+        if (cache.postalCode && cache.postalCode === numericQuery) {
+          score += 220;
+        }
+      }
+
+      if (clinicNameVariants.length && Array.isArray(cache.nameVariants) && cache.nameVariants.length) {
+        let best = 0;
+        for (const clinicName of clinicNameVariants) {
+          for (const facilityName of cache.nameVariants) {
+            const sim = jaroWinklerDistance(clinicName, facilityName);
+            if (sim > best) best = sim;
+          }
+        }
+        if (best >= 0.9) {
+          score += Math.round(best * 220);
+        } else if (best >= 0.8) {
+          score += Math.round(best * 160);
+        } else if (best >= 0.7) {
+          score += Math.round(best * 120);
         }
       }
 
@@ -617,7 +734,21 @@
             if (token.length < 2) continue;
             if (cache.tokens.has(token)) tokenMatches += 1;
           }
-          if (tokenMatches) score += 30 * tokenMatches;
+          if (tokenMatches) score += 22 * tokenMatches;
+        }
+        if (!numericQuery && queryNameVariant && Array.isArray(cache.nameVariants) && cache.nameVariants.length) {
+          let bestQuerySim = 0;
+          for (const facilityName of cache.nameVariants) {
+            const sim = jaroWinklerDistance(queryNameVariant, facilityName);
+            if (sim > bestQuerySim) bestQuerySim = sim;
+          }
+          if (bestQuerySim >= 0.9) {
+            score += Math.round(bestQuerySim * 160);
+          } else if (bestQuerySim >= 0.75) {
+            score += Math.round(bestQuerySim * 120);
+          } else if (bestQuerySim >= 0.65) {
+            score += Math.round(bestQuerySim * 80);
+          }
         }
       }
 
@@ -631,7 +762,7 @@
           if (token.length < 2) continue;
           if (cache.tokens.has(token)) matched += 1;
         }
-        if (matched) score += 25 * matched;
+        if (matched) score += 20 * matched;
       }
 
       if (clinicAddressTokens.length) {
@@ -641,6 +772,45 @@
           if (cache.tokens.has(token)) matched += 1;
         }
         if (matched) score += 15 * matched;
+      }
+
+      if (clinicAddressTokenSet.size && cache.addressTokens instanceof Set && cache.addressTokens.size) {
+        let addrHits = 0;
+        cache.addressTokens.forEach((token) => {
+          if (clinicAddressTokenSet.has(token)) addrHits += 1;
+        });
+        if (addrHits) score += 18 * addrHits;
+      }
+
+      if (cache.prefectureToken) {
+        if ((clinicPrefToken && clinicPrefToken === cache.prefectureToken) || clinicAddressTokenSet.has(cache.prefectureToken)) {
+          score += 55;
+        }
+      }
+      if (cache.cityToken) {
+        if ((clinicCityToken && clinicCityToken === cache.cityToken) || clinicAddressTokenSet.has(cache.cityToken)) {
+          score += 45;
+        }
+      }
+
+      if (cache.postalCode) {
+        if (clinicPostalCode && clinicPostalCode === cache.postalCode) {
+          score += 120;
+        } else {
+          const addressDigits = (clinic?.address || '').replace(/[^0-9]/g, '');
+          if (addressDigits.includes(cache.postalCode)) {
+            score += 80;
+          }
+        }
+      }
+
+      if (clinicAddressNormalized && cache.addressNormalized) {
+        const addrSim = jaroWinklerDistance(clinicAddressNormalized, cache.addressNormalized);
+        if (addrSim >= 0.8) {
+          score += Math.round(addrSim * 100);
+        } else if (addrSim >= 0.65) {
+          score += Math.round(addrSim * 70);
+        }
       }
 
       if (score === 0 && normalizedQuery) {
@@ -740,6 +910,7 @@
       box.innerHTML = `
         <div class="font-semibold text-slate-700">厚労省データ概要</div>
         <dl class="mt-1 grid grid-cols-1 gap-1 sm:grid-cols-2">
+          <div><dt class="font-medium">厚労省ID</dt><dd>${mhlwInfo.facilityId || '-'}</dd></div>
           <div><dt class="font-medium">名称</dt><dd>${pickFacilityDisplayName(mhlwInfo)}</dd></div>
           <div><dt class="font-medium">住所</dt><dd>${pickFacilityAddress(mhlwInfo) || '-'}</dd></div>
           <div><dt class="font-medium">種別</dt><dd>${mhlwTypeLabel}</dd></div>
