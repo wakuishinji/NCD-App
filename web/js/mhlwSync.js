@@ -627,6 +627,7 @@
   function buildFacilitySearchCache(facility) {
     const stringSet = new Set();
     const nameVariantSet = new Set();
+    const shortNameVariantSet = new Set();
     const nameCandidates = [
       facility?.name,
       facility?.officialName,
@@ -637,13 +638,20 @@
       facility?.nameKana,
     ];
 
-    const recordNameVariant = (text) => {
+    const recordVariant = (text, targetSet) => {
       if (typeof text !== 'string') return;
       const trimmed = text.trim();
       if (!trimmed) return;
       stringSet.add(trimmed);
       const normalized = normalizeForSimilarity(trimmed);
-      if (normalized) nameVariantSet.add(normalized);
+      if (normalized) targetSet.add(normalized);
+    };
+
+    const recordNameVariant = (text) => recordVariant(text, nameVariantSet);
+    const recordShortVariant = (text) => recordVariant(text, shortNameVariantSet);
+    const recordBothVariants = (text) => {
+      recordNameVariant(text);
+      recordShortVariant(text);
     };
 
     for (const value of nameCandidates) {
@@ -651,6 +659,12 @@
       recordNameVariant(value);
       generateCorporateNameVariants(value).forEach(recordNameVariant);
     }
+
+    [facility?.shortName, facility?.shortNameKana].forEach((value) => {
+      if (typeof value !== 'string') return;
+      recordBothVariants(value);
+      generateCorporateNameVariants(value).forEach(recordBothVariants);
+    });
 
     if (facility && typeof facility === 'object') {
       for (const key of Object.keys(facility)) {
@@ -688,6 +702,7 @@
       tokens: tokenSet,
       facilityIdUpper: (facility?.facilityId || '').toString().toUpperCase(),
       nameVariants: Array.from(nameVariantSet),
+      shortNameVariants: Array.from(shortNameVariantSet),
       addressTokens,
       addressNormalized: normalizeForSimilarity(facility?.address || facility?.fullAddress || ''),
       prefectureToken: normalizeFuzzy(facility?.prefecture || ''),
@@ -745,30 +760,12 @@
 
     const trimmedQuery = (query || '').trim();
     const queryVariantSet = new Set();
-    const normalizedQuery = normalizeFuzzy(trimmedQuery);
+    const normalizedQuery = normalizeForSimilarity(trimmedQuery);
     if (normalizedQuery) queryVariantSet.add(normalizedQuery);
     generateCorporateNameVariants(trimmedQuery).forEach((variant) => {
-      const normalizedVariant = normalizeFuzzy(variant);
+      const normalizedVariant = normalizeForSimilarity(variant);
       if (normalizedVariant) queryVariantSet.add(normalizedVariant);
     });
-
-    const clinicNameSources = [
-      clinic?.name,
-      clinic?.displayName,
-      clinic?.officialName,
-      clinic?.alias,
-      clinic?.corporationName,
-    ];
-    for (const source of clinicNameSources) {
-      if (typeof source !== 'string') continue;
-      const normalizedSource = normalizeFuzzy(source);
-      if (normalizedSource) queryVariantSet.add(normalizedSource);
-      generateCorporateNameVariants(source).forEach((variant) => {
-        const normalizedVariant = normalizeFuzzy(variant);
-        if (normalizedVariant) queryVariantSet.add(normalizedVariant);
-      });
-    }
-
     const nameQueries = Array.from(queryVariantSet).filter(Boolean);
     const rawPostal = (clinic?.postalCode || '').toString().replace(/[^0-9]/g, '');
     const postalCandidates = new Set();
@@ -808,11 +805,10 @@
         : (facilityName ? [facilityName] : []);
       if (!facilityVariants.length) continue;
 
-      let matched = nameQueries.length === 0;
-      if (!matched && nameQueries.length) {
-        matched = facilityVariants.some((variant) => nameQueries.some((q) => q && variant.includes(q)));
-      }
-      if (!matched) continue;
+      const shortNameVariants = cache.shortNameVariants || [];
+      if (!shortNameVariants.length) continue;
+      const shortMatched = shortNameVariants.some((variant) => queryVariantSet.has(variant));
+      if (!shortMatched) continue;
 
       const facilityPrefToken = cache.prefectureToken || '';
       const facilityCityToken = cache.cityToken || '';
@@ -820,20 +816,7 @@
         continue;
       }
 
-      let score = 0;
-      if (nameQueries.length) {
-        let bestSim = 0;
-        for (const variant of facilityVariants) {
-          if (!variant) continue;
-          for (const q of nameQueries) {
-            if (!q) continue;
-            const sim = jaroWinklerDistance(q, variant);
-            if (sim > bestSim) bestSim = sim;
-          }
-        }
-        score += Math.round(bestSim * 400);
-      }
-
+      let score = 1000;
       const facilityIdUpper = cache.facilityIdUpper || '';
       for (const q of nameQueries) {
         if (!q) continue;
