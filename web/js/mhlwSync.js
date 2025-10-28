@@ -50,8 +50,11 @@
     }
 
     const encodingHeader = (response.headers.get('Content-Encoding') || '').toLowerCase();
-    const isGzip = encodingHeader.includes('gzip');
+    let isGzip = encodingHeader.includes('gzip');
     const buffer = new Uint8Array(await response.arrayBuffer());
+    if (!isGzip && buffer.length >= 2 && buffer[0] === 0x1f && buffer[1] === 0x8b) {
+      isGzip = true;
+    }
 
     const tryParse = (text) => {
       if (typeof text !== 'string' || !text) return null;
