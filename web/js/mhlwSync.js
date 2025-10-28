@@ -1012,7 +1012,7 @@
     candidateTitle.textContent = '厚労省データ候補';
     candidateHeader.appendChild(candidateTitle);
     const candidateHint = document.createElement('p');
-    candidateHint.textContent = '施設名・住所・厚労省IDで候補を検索し、入力欄にセットできます。';
+    candidateHint.textContent = '厚労省公開データの施設名（略称を含む）で検索し、見つかった候補を入力欄へセットできます。';
     candidateHeader.appendChild(candidateHint);
     candidateSection.appendChild(candidateHeader);
 
@@ -1023,12 +1023,12 @@
     candidateInputWrap.className = 'flex-1';
     const candidateLabel = document.createElement('label');
     candidateLabel.className = 'block text-xs font-medium text-slate-600';
-    candidateLabel.textContent = '候補検索キーワード';
+    candidateLabel.textContent = '施設名で検索';
     candidateInputWrap.appendChild(candidateLabel);
     const candidateInput = document.createElement('input');
     candidateInput.type = 'text';
     candidateInput.className = 'mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm';
-    candidateInput.placeholder = '施設名・住所・厚労省IDで検索';
+    candidateInput.placeholder = '厚労省データの施設名・略称などを入力';
     candidateInputWrap.appendChild(candidateInput);
     candidateControls.appendChild(candidateInputWrap);
 
