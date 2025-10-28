@@ -12,3 +12,10 @@ data/medical-open-data/*
 .env
 .dev.vars
 *.pid
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/

@@ -1485,15 +1485,21 @@
         const facilityCount = dataset.stats?.facilityCount ?? dataset.facilities.length;
         const scheduleCount = dataset.stats?.scheduleCount ?? 0;
 
-        const jsonPayload = JSON.stringify({ count: facilityCount, facilities: dataset.facilities });
-        const encoder = new TextEncoder();
-        const rawBytes = encoder.encode(jsonPayload);
-        const rawBlob = new Blob([rawBytes], { type: 'application/json' });
+        const jsonParts = [];
+        jsonParts.push(`{"count":${facilityCount},"facilities":[`);
+        dataset.facilities.forEach((facility, index) => {
+          jsonParts.push(JSON.stringify(facility));
+          if (index !== dataset.facilities.length - 1) {
+            jsonParts.push(',');
+          }
+        });
+        jsonParts.push(']}');
+        const rawBlob = new Blob(jsonParts, { type: 'application/json' });
 
         let directPayloadPromise = null;
         const getDirectPayload = () => {
           if (!directPayloadPromise) {
-            directPayloadPromise = prepareDirectUploadPayload(rawBytes, rawBlob);
+            directPayloadPromise = prepareDirectUploadPayload(null, rawBlob);
           }
           return directPayloadPromise;
         };
