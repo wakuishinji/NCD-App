@@ -496,6 +496,89 @@
     return base.replace(/[\s\u3000・･,、。;；:：\/／\\()（）［］｛｝「」『』【】<>＜＞=＋+!?？＆&\-＿―─‐〜～·・]/g, '');
   }
 
+  const CORPORATE_PREFIXES = [
+    '医療法人社団',
+    '医療法人財団',
+    '社会医療法人',
+    '社会福祉法人',
+    '特定医療法人',
+    '公益社団法人',
+    '公益財団法人',
+    '一般社団法人',
+    '一般財団法人',
+    '学校法人',
+    '国立研究開発法人',
+    '地方独立行政法人',
+    '医療法人',
+    '医療生協',
+  ].sort((a, b) => b.length - a.length);
+
+  function trimLeadingPunctuation(text) {
+    return text.replace(/^[\s\u3000・･,、。()（）［］「」『』【】]+/, '');
+  }
+
+  function removeLeadingCorporateDesignators(name) {
+    let result = name.trim();
+    let changed = false;
+    let loop = true;
+    while (loop && result) {
+      loop = false;
+      result = trimLeadingPunctuation(result);
+      for (const prefix of CORPORATE_PREFIXES) {
+        if (result.startsWith(prefix)) {
+          result = trimLeadingPunctuation(result.slice(prefix.length));
+          changed = true;
+          loop = true;
+          break;
+        }
+        if (result.startsWith(`(${prefix})`)) {
+          result = trimLeadingPunctuation(result.slice(prefix.length + 2));
+          changed = true;
+          loop = true;
+          break;
+        }
+        if (result.startsWith(`（${prefix}）`)) {
+          result = trimLeadingPunctuation(result.slice(prefix.length + 2));
+          changed = true;
+          loop = true;
+          break;
+        }
+      }
+    }
+    return changed ? result.trim() : null;
+  }
+
+  function generateCorporateNameVariants(value) {
+    if (typeof value !== 'string') return [];
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    const variants = new Set();
+
+    const leadingRemoved = removeLeadingCorporateDesignators(trimmed);
+    if (leadingRemoved && leadingRemoved !== trimmed) {
+      variants.add(leadingRemoved);
+      const afterSpace = leadingRemoved.replace(/^[^\s\u3000]+[\s\u3000]+/, '').trim();
+      if (afterSpace && afterSpace !== leadingRemoved) {
+        variants.add(afterSpace);
+      }
+    }
+
+    const bracketRemoved = trimmed.replace(
+      /[（(]\s*(?:医療法人(?:社団|財団)?|社会医療法人|社会福祉法人|特定医療法人|公益(?:社団|財団)法人|一般(?:社団|財団)法人|学校法人|地方独立行政法人|国立研究開発法人)[^）)]*[）)]/g,
+      '',
+    ).trim();
+    if (bracketRemoved && bracketRemoved !== trimmed) {
+      variants.add(bracketRemoved);
+    }
+
+    const afterSpaceOriginal = trimmed.replace(/^[^\s\u3000]+[\s\u3000]+/, '').trim();
+    if (afterSpaceOriginal && afterSpaceOriginal !== trimmed) {
+      variants.add(afterSpaceOriginal);
+    }
+
+    return Array.from(variants).filter(Boolean);
+  }
+
   function jaroWinklerDistance(a, b) {
     if (!a || !b) return 0;
     if (a === b) return 1;
@@ -543,27 +626,35 @@
 
   function buildFacilitySearchCache(facility) {
     const stringSet = new Set();
-    const nameVariants = [];
+    const nameVariantSet = new Set();
     const nameCandidates = [
       facility?.name,
       facility?.officialName,
       facility?.corporationName,
       facility?.nameKana,
     ];
+
+    const recordNameVariant = (text) => {
+      if (typeof text !== 'string') return;
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      stringSet.add(trimmed);
+      const normalized = normalizeForSimilarity(trimmed);
+      if (normalized) nameVariantSet.add(normalized);
+    };
+
     for (const value of nameCandidates) {
-      if (typeof value === 'string' && value.trim()) {
-        const trimmed = value.trim();
-        stringSet.add(trimmed);
-        const normalized = normalizeForSimilarity(trimmed);
-        if (normalized) nameVariants.push(normalized);
-      }
+      if (typeof value !== 'string') continue;
+      recordNameVariant(value);
+      generateCorporateNameVariants(value).forEach(recordNameVariant);
     }
 
     if (facility && typeof facility === 'object') {
       for (const key of Object.keys(facility)) {
         const value = facility[key];
         if (typeof value === 'string' && value.trim()) {
-          stringSet.add(value.trim());
+          recordNameVariant(value);
+          generateCorporateNameVariants(value).forEach(recordNameVariant);
         }
       }
     }
@@ -592,7 +683,7 @@
       normalizedStrings,
       tokens: tokenSet,
       facilityIdUpper: (facility?.facilityId || '').toString().toUpperCase(),
-      nameVariants,
+      nameVariants: Array.from(nameVariantSet),
       addressTokens,
       addressNormalized: normalizeForSimilarity(facility?.address || facility?.fullAddress || ''),
       prefectureToken: normalizeFuzzy(facility?.prefecture || ''),
@@ -649,9 +740,32 @@
     if (!Array.isArray(entries) || !entries.length) return [];
 
     const trimmedQuery = (query || '').trim();
+    const queryVariantSet = new Set();
     const normalizedQuery = normalizeFuzzy(trimmedQuery);
-    const clinicNameNorm = normalizeFuzzy(clinic?.name || clinic?.displayName || clinic?.officialName || '');
-    const nameQueries = [normalizedQuery, clinicNameNorm].filter(Boolean);
+    if (normalizedQuery) queryVariantSet.add(normalizedQuery);
+    generateCorporateNameVariants(trimmedQuery).forEach((variant) => {
+      const normalizedVariant = normalizeFuzzy(variant);
+      if (normalizedVariant) queryVariantSet.add(normalizedVariant);
+    });
+
+    const clinicNameSources = [
+      clinic?.name,
+      clinic?.displayName,
+      clinic?.officialName,
+      clinic?.alias,
+      clinic?.corporationName,
+    ];
+    for (const source of clinicNameSources) {
+      if (typeof source !== 'string') continue;
+      const normalizedSource = normalizeFuzzy(source);
+      if (normalizedSource) queryVariantSet.add(normalizedSource);
+      generateCorporateNameVariants(source).forEach((variant) => {
+        const normalizedVariant = normalizeFuzzy(variant);
+        if (normalizedVariant) queryVariantSet.add(normalizedVariant);
+      });
+    }
+
+    const nameQueries = Array.from(queryVariantSet).filter(Boolean);
     const rawPostal = (clinic?.postalCode || '').toString().replace(/[^0-9]/g, '');
     const postalCandidates = new Set();
     if (rawPostal) postalCandidates.add(rawPostal);
@@ -672,25 +786,27 @@
       }
 
       const facilityName = normalizeForSimilarity(facility?.name || facility?.officialName || facility?.corporationName || '');
-      if (!facilityName) continue;
+      const facilityVariants = (cache.nameVariants && cache.nameVariants.length)
+        ? cache.nameVariants
+        : (facilityName ? [facilityName] : []);
+      if (!facilityVariants.length) continue;
 
-      let matched = false;
-      for (const q of nameQueries) {
-        if (!q) continue;
-        if (facilityName.includes(q)) {
-          matched = true;
-          break;
-        }
+      let matched = nameQueries.length === 0;
+      if (!matched && nameQueries.length) {
+        matched = facilityVariants.some((variant) => nameQueries.some((q) => q && variant.includes(q)));
       }
-      if (!matched && nameQueries.length) continue;
+      if (!matched) continue;
 
       let score = 0;
       if (nameQueries.length) {
         let bestSim = 0;
-        for (const q of nameQueries) {
-          if (!q) continue;
-          const sim = jaroWinklerDistance(q, facilityName);
-          if (sim > bestSim) bestSim = sim;
+        for (const variant of facilityVariants) {
+          if (!variant) continue;
+          for (const q of nameQueries) {
+            if (!q) continue;
+            const sim = jaroWinklerDistance(q, variant);
+            if (sim > bestSim) bestSim = sim;
+          }
         }
         score += Math.round(bestSim * 400);
       }
