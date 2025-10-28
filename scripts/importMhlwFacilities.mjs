@@ -4,23 +4,140 @@ import path from 'node:path';
 import readline from 'node:readline';
 import zlib from 'node:zlib';
 
-const FACILITY_COLUMNS = [
-  'prefCode',
-  'prefName',
-  'cityCode',
-  'cityName',
-  'facilityId',
-  'facilityName',
-  'facilityNameKana',
-  'postalCode',
-  'address',
-  'phone',
-  'fax',
-  'longitude',
-  'latitude',
-  'foundingType',
-  'careType',
-  'bedCount',
+const PREFECTURES = [
+  { code: '01', name: '北海道' },
+  { code: '02', name: '青森県' },
+  { code: '03', name: '岩手県' },
+  { code: '04', name: '宮城県' },
+  { code: '05', name: '秋田県' },
+  { code: '06', name: '山形県' },
+  { code: '07', name: '福島県' },
+  { code: '08', name: '茨城県' },
+  { code: '09', name: '栃木県' },
+  { code: '10', name: '群馬県' },
+  { code: '11', name: '埼玉県' },
+  { code: '12', name: '千葉県' },
+  { code: '13', name: '東京都' },
+  { code: '14', name: '神奈川県' },
+  { code: '15', name: '新潟県' },
+  { code: '16', name: '富山県' },
+  { code: '17', name: '石川県' },
+  { code: '18', name: '福井県' },
+  { code: '19', name: '山梨県' },
+  { code: '20', name: '長野県' },
+  { code: '21', name: '岐阜県' },
+  { code: '22', name: '静岡県' },
+  { code: '23', name: '愛知県' },
+  { code: '24', name: '三重県' },
+  { code: '25', name: '滋賀県' },
+  { code: '26', name: '京都府' },
+  { code: '27', name: '大阪府' },
+  { code: '28', name: '兵庫県' },
+  { code: '29', name: '奈良県' },
+  { code: '30', name: '和歌山県' },
+  { code: '31', name: '鳥取県' },
+  { code: '32', name: '島根県' },
+  { code: '33', name: '岡山県' },
+  { code: '34', name: '広島県' },
+  { code: '35', name: '山口県' },
+  { code: '36', name: '徳島県' },
+  { code: '37', name: '香川県' },
+  { code: '38', name: '愛媛県' },
+  { code: '39', name: '高知県' },
+  { code: '40', name: '福岡県' },
+  { code: '41', name: '佐賀県' },
+  { code: '42', name: '長崎県' },
+  { code: '43', name: '熊本県' },
+  { code: '44', name: '大分県' },
+  { code: '45', name: '宮崎県' },
+  { code: '46', name: '鹿児島県' },
+  { code: '47', name: '沖縄県' },
+];
+
+const FACILITY_FIELD_ALIASES = {
+  facilityId: ['ID', '"ID"', '医療機関コード', 'medicalinstitutioncode'],
+  officialName: ['正式名称'],
+  officialNameKana: ['正式名称（フリガナ）', '正式名称(フリガナ)'],
+  shortName: ['略称'],
+  shortNameKana: ['略称（フリガナ）', '略称(フリガナ)'],
+  englishName: ['英語表記（ローマ字表記）', '英語表記', '英語表記(ローマ字表記)'],
+  facilityCategory: ['機関区分'],
+  prefectureCode: ['都道府県コード'],
+  cityCode: ['市区町村コード'],
+  address: ['所在地'],
+  latitude: ['所在地座標（緯度）', '緯度'],
+  longitude: ['所在地座標（経度）', '経度'],
+  homepageUrl: ['案内用ホームページアドレス', '案内用ホームページ', 'ホームページアドレス'],
+  weeklyClosedMon: ['毎週決まった曜日に休診（月）'],
+  weeklyClosedTue: ['毎週決まった曜日に休診（火）'],
+  weeklyClosedWed: ['毎週決まった曜日に休診（水）'],
+  weeklyClosedThu: ['毎週決まった曜日に休診（木）'],
+  weeklyClosedFri: ['毎週決まった曜日に休診（金）'],
+  weeklyClosedSat: ['毎週決まった曜日に休診（土）'],
+  weeklyClosedSun: ['毎週決まった曜日に休診（日）'],
+  periodicClosedWeek1Mon: ['決まった週に休診（定期週）第1週（月）'],
+  periodicClosedWeek1Tue: ['決まった週に休診（定期週）第1週（火）'],
+  periodicClosedWeek1Wed: ['決まった週に休診（定期週）第1週（水）'],
+  periodicClosedWeek1Thu: ['決まった週に休診（定期週）第1週（木）'],
+  periodicClosedWeek1Fri: ['決まった週に休診（定期週）第1週（金）'],
+  periodicClosedWeek1Sat: ['決まった週に休診（定期週）第1週（土）'],
+  periodicClosedWeek1Sun: ['決まった週に休診（定期週）第1週（日）'],
+  periodicClosedWeek2Mon: ['決まった週に休診（定期週）第2週（月）'],
+  periodicClosedWeek2Tue: ['決まった週に休診（定期週）第2週（火）'],
+  periodicClosedWeek2Wed: ['決まった週に休診（定期週）第2週（水）'],
+  periodicClosedWeek2Thu: ['決まった週に休診（定期週）第2週（木）'],
+  periodicClosedWeek2Fri: ['決まった週に休診（定期週）第2週（金）'],
+  periodicClosedWeek2Sat: ['決まった週に休診（定期週）第2週（土）'],
+  periodicClosedWeek2Sun: ['決まった週に休診（定期週）第2週（日）'],
+  periodicClosedWeek3Mon: ['決まった週に休診（定期週）第3週（月）'],
+  periodicClosedWeek3Tue: ['決まった週に休診（定期週）第3週（火）'],
+  periodicClosedWeek3Wed: ['決まった週に休診（定期週）第3週（水）'],
+  periodicClosedWeek3Thu: ['決まった週に休診（定期週）第3週（木）'],
+  periodicClosedWeek3Fri: ['決まった週に休診（定期週）第3週（金）'],
+  periodicClosedWeek3Sat: ['決まった週に休診（定期週）第3週（土）'],
+  periodicClosedWeek3Sun: ['決まった週に休診（定期週）第3週（日）'],
+  periodicClosedWeek4Mon: ['決まった週に休診（定期週）第4週（月）'],
+  periodicClosedWeek4Tue: ['決まった週に休診（定期週）第4週（火）'],
+  periodicClosedWeek4Wed: ['決まった週に休診（定期週）第4週（水）'],
+  periodicClosedWeek4Thu: ['決まった週に休診（定期週）第4週（木）'],
+  periodicClosedWeek4Fri: ['決まった週に休診（定期週）第4週（金）'],
+  periodicClosedWeek4Sat: ['決まった週に休診（定期週）第4週（土）'],
+  periodicClosedWeek4Sun: ['決まった週に休診（定期週）第4週（日）'],
+  periodicClosedWeek5Mon: ['決まった週に休診（定期週）第5週（月）'],
+  periodicClosedWeek5Tue: ['決まった週に休診（定期週）第5週（火）'],
+  periodicClosedWeek5Wed: ['決まった週に休診（定期週）第5週（水）'],
+  periodicClosedWeek5Thu: ['決まった週に休診（定期週）第5週（木）'],
+  periodicClosedWeek5Fri: ['決まった週に休診（定期週）第5週（金）'],
+  periodicClosedWeek5Sat: ['決まった週に休診（定期週）第5週（土）'],
+  periodicClosedWeek5Sun: ['決まった週に休診（定期週）第5週（日）'],
+  holidayClosed: ['祝日に休診'],
+  otherClosedNote: ['その他の休診日（gw、お盆等）', 'その他の休診日'],
+  bedsGeneral: ['一般病床'],
+  bedsLongTerm: ['療養病床'],
+  bedsLongTermMedical: ['療養病床のうち医療保険適用'],
+  bedsLongTermCare: ['療養病床のうち介護保険適用'],
+  bedsPsychiatric: ['精神病床'],
+  bedsTuberculosis: ['結核病床'],
+  bedsInfectious: ['感染症病床'],
+  bedsTotal: ['合計病床数'],
+};
+
+const WEEKDAY_DEFS = [
+  { key: 'mon', alias: 'Mon' },
+  { key: 'tue', alias: 'Tue' },
+  { key: 'wed', alias: 'Wed' },
+  { key: 'thu', alias: 'Thu' },
+  { key: 'fri', alias: 'Fri' },
+  { key: 'sat', alias: 'Sat' },
+  { key: 'sun', alias: 'Sun' },
+];
+
+const PERIODIC_WEEK_DEFS = [
+  { key: 'week1', alias: 'Week1' },
+  { key: 'week2', alias: 'Week2' },
+  { key: 'week3', alias: 'Week3' },
+  { key: 'week4', alias: 'Week4' },
+  { key: 'week5', alias: 'Week5' },
 ];
 
 function parseArgs(argv) {
@@ -147,42 +264,26 @@ async function* readCsvLines(filePath) {
   }
 }
 
-async function importFacilityFile(filePath, facilityType, limit, alreadyProcessed) {
+async function importFacilityFile(filePath, facilityType, limit) {
   const facilities = [];
+  let headers = [];
   let headerParsed = false;
-  let processed = alreadyProcessed;
+  let count = 0;
+  const normalizedType = normalizeFacilityType(facilityType);
   for await (const line of readCsvLines(filePath)) {
     if (!headerParsed) {
+      headers = parseCsvLine(line).map((header) => normalizeHeaderName(header));
       headerParsed = true;
       continue;
     }
     const columns = parseCsvLine(line);
-    const record = {};
-    for (let i = 0; i < FACILITY_COLUMNS.length; i += 1) {
-      record[FACILITY_COLUMNS[i]] = columns[i] ?? '';
-    }
-    const facilityId = normalizeFacilityId(record.facilityId);
-    if (!facilityId) continue;
-  const entry = {
-    facilityId,
-    facilityType,
-    name: record.facilityName?.trim() || '',
-    nameKana: normalizeKana(record.facilityNameKana),
-    postalCode: normalizePostalCode(record.postalCode),
-    address: normalizeAddress(record.address),
-    prefecture: record.prefName?.trim() || '',
-    city: record.cityName?.trim() || '',
-    phone: (record.phone || '').trim(),
-    fax: (record.fax || '').trim(),
-    longitude: record.longitude ? Number(record.longitude) : undefined,
-    latitude: record.latitude ? Number(record.latitude) : undefined,
-    foundingType: record.foundingType || '',
-    careType: record.careType || '',
-    bedCount: record.bedCount ? Number(record.bedCount) : undefined,
-  };
-    facilities.push(entry);
-    processed += 1;
-    if (limit && processed >= limit) {
+    if (!columns || columns.length === 0) continue;
+    const canonicalRow = buildCanonicalRow(headers, columns);
+    const facility = buildFacilityFromRow(canonicalRow, normalizedType);
+    if (!facility) continue;
+    facilities.push(facility);
+    count += 1;
+    if (limit && count >= limit) {
       break;
     }
   }
@@ -198,7 +299,7 @@ async function importFacilitySources({ sources, limit }) {
   for (const source of sources) {
     const remaining = limit ? Math.max(limit - processed, 0) : undefined;
     if (remaining === 0) break;
-    const entries = await importFacilityFile(source.file, source.facilityType, remaining, processed);
+    const entries = await importFacilityFile(source.file, source.facilityType, remaining);
     facilities.push(...entries);
     processed += entries.length;
   }
@@ -206,7 +307,213 @@ async function importFacilitySources({ sources, limit }) {
 }
 
 function normalizeHeaderName(header) {
-  return (header ?? '').toString().replace(/^\ufeff/, '').trim();
+  return (header ?? '')
+    .toString()
+    .replace(/^\ufeff/, '')
+    .replace(/^"+|"+$/g, '')
+    .trim();
+}
+
+function canonicalizeHeaderName(header) {
+  return normalizeHeaderName(header)
+    .replace(/[\"'“”]/g, '')
+    .replace(/（/g, '(')
+    .replace(/）/g, ')')
+    .replace(/[＿]/g, '_')
+    .replace(/[\s　]/g, '')
+    .toLowerCase();
+}
+
+function buildCanonicalRow(headers, columns) {
+  const row = {};
+  headers.forEach((header, index) => {
+    const key = canonicalizeHeaderName(header);
+    if (key) {
+      row[key] = columns[index] ?? '';
+    }
+  });
+  return row;
+}
+
+function extractValue(canonicalRow, aliases, { trim = true } = {}) {
+  if (!aliases || aliases.length === 0) return '';
+  for (const alias of aliases) {
+    const key = canonicalizeHeaderName(alias);
+    if (Object.prototype.hasOwnProperty.call(canonicalRow, key)) {
+      const raw = canonicalRow[key];
+      if (raw == null) continue;
+      const value = trim ? toNormalizedValue(raw) : raw;
+      if (value !== '') return value;
+    }
+  }
+  return '';
+}
+
+function parseBooleanFlag(value) {
+  const normalized = toNormalizedValue(value).toLowerCase();
+  if (!normalized) return false;
+  return normalized === '1' || normalized === 'true' || normalized === '○' || normalized === '◯';
+}
+
+function parseNumber(value) {
+  const normalized = toNormalizedValue(value);
+  if (!normalized) return null;
+  const numeric = Number(normalized.replace(/,/g, ''));
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function derivePrefectureName(prefCode, address) {
+  const normalizedCode = (prefCode || '').toString().padStart(2, '0');
+  const prefecture = PREFECTURES.find((item) => item.code === normalizedCode);
+  if (prefecture) return prefecture.name;
+  if (address) {
+    const match = PREFECTURES.find((item) => address.startsWith(item.name));
+    if (match) return match.name;
+  }
+  return '';
+}
+
+function deriveCityName(prefectureName, address) {
+  if (!address) return '';
+  let rest = address.trim();
+  if (prefectureName && rest.startsWith(prefectureName)) {
+    rest = rest.slice(prefectureName.length);
+  }
+  rest = rest.trim();
+  if (!rest) return '';
+
+  let result = '';
+  for (let i = 0; i < rest.length; i += 1) {
+    const char = rest[i];
+    if ('市区町村'.includes(char)) {
+      result = rest.slice(0, i + 1);
+    } else if (char === '郡') {
+      const match = rest.match(/^(.+郡.+?[町村])/);
+      if (match) {
+        result = match[1];
+      } else {
+        result = rest.slice(0, i + 1);
+      }
+    }
+  }
+  return toNormalizedValue(result);
+}
+
+function buildWeeklyClosedDays(row) {
+  const out = {};
+  for (const def of WEEKDAY_DEFS) {
+    const aliases = FACILITY_FIELD_ALIASES[`weeklyClosed${def.alias}`] || [];
+    out[def.key] = parseBooleanFlag(extractValue(row, aliases));
+  }
+  return out;
+}
+
+function buildPeriodicClosedMap(row) {
+  const result = {};
+  for (const week of PERIODIC_WEEK_DEFS) {
+    const dayMap = {};
+    for (const day of WEEKDAY_DEFS) {
+      const aliasKey = `periodicClosed${week.alias}${day.alias}`;
+      const aliases = FACILITY_FIELD_ALIASES[aliasKey] || [];
+      dayMap[day.key] = parseBooleanFlag(extractValue(row, aliases));
+    }
+    result[week.key] = dayMap;
+  }
+  return result;
+}
+
+function buildBedCounts(row) {
+  const mapping = {
+    general: 'bedsGeneral',
+    longTerm: 'bedsLongTerm',
+    longTermMedical: 'bedsLongTermMedical',
+    longTermCare: 'bedsLongTermCare',
+    psychiatric: 'bedsPsychiatric',
+    tuberculosis: 'bedsTuberculosis',
+    infectious: 'bedsInfectious',
+    total: 'bedsTotal',
+  };
+  const out = {};
+  for (const [key, aliasKey] of Object.entries(mapping)) {
+    const aliases = FACILITY_FIELD_ALIASES[aliasKey] || [];
+    const value = parseNumber(extractValue(row, aliases));
+    if (value !== null) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+function buildFacilityFromRow(canonicalRow, facilityType) {
+  const facilityIdRaw = extractValue(canonicalRow, FACILITY_FIELD_ALIASES.facilityId);
+  const facilityId = normalizeFacilityId(facilityIdRaw);
+  if (!facilityId) return null;
+
+  const officialName = extractValue(canonicalRow, FACILITY_FIELD_ALIASES.officialName);
+  const officialNameKana = normalizeKana(extractValue(canonicalRow, FACILITY_FIELD_ALIASES.officialNameKana));
+  const shortName = extractValue(canonicalRow, FACILITY_FIELD_ALIASES.shortName);
+  const shortNameKana = normalizeKana(extractValue(canonicalRow, FACILITY_FIELD_ALIASES.shortNameKana));
+  const englishName = extractValue(canonicalRow, FACILITY_FIELD_ALIASES.englishName);
+  const facilityCategoryValue = extractValue(canonicalRow, FACILITY_FIELD_ALIASES.facilityCategory);
+  const facilityCategory = facilityCategoryValue ? Number(facilityCategoryValue) : undefined;
+
+  const prefectureCodeRaw = extractValue(canonicalRow, FACILITY_FIELD_ALIASES.prefectureCode);
+  const prefectureCode = prefectureCodeRaw ? prefectureCodeRaw.toString().padStart(2, '0') : '';
+  const cityCodeRaw = extractValue(canonicalRow, FACILITY_FIELD_ALIASES.cityCode);
+  const cityCode = cityCodeRaw ? cityCodeRaw.toString().padStart(5, '0') : '';
+
+  const address = normalizeAddress(extractValue(canonicalRow, FACILITY_FIELD_ALIASES.address));
+  const latitudeValue = parseNumber(extractValue(canonicalRow, FACILITY_FIELD_ALIASES.latitude));
+  const longitudeValue = parseNumber(extractValue(canonicalRow, FACILITY_FIELD_ALIASES.longitude));
+  const homepageUrl = extractValue(canonicalRow, FACILITY_FIELD_ALIASES.homepageUrl);
+
+  const prefectureName = derivePrefectureName(prefectureCode, address);
+  const cityName = deriveCityName(prefectureName, address);
+
+  const weeklyClosedDays = buildWeeklyClosedDays(canonicalRow);
+  const periodicClosedDays = buildPeriodicClosedMap(canonicalRow);
+  const holidayClosed = parseBooleanFlag(extractValue(canonicalRow, FACILITY_FIELD_ALIASES.holidayClosed));
+  const otherClosedNote = extractValue(canonicalRow, FACILITY_FIELD_ALIASES.otherClosedNote);
+
+  const bedCounts = buildBedCounts(canonicalRow);
+  const totalBedCount = bedCounts.total ?? bedCounts.general ?? null;
+
+  const latitude = latitudeValue !== null ? latitudeValue : undefined;
+  const longitude = longitudeValue !== null ? longitudeValue : undefined;
+
+  return {
+    facilityId,
+    facilityType,
+    name: officialName,
+    nameKana: officialNameKana,
+    officialName,
+    officialNameKana,
+    shortName,
+    shortNameKana,
+    englishName,
+    facilityCategory: Number.isFinite(facilityCategory) ? facilityCategory : undefined,
+    prefectureCode,
+    prefecture: prefectureName,
+    prefectureName,
+    cityCode,
+    city: cityName,
+    cityName,
+    address,
+    postalCode: '', // 現行 CSV には郵便番号が含まれていない
+    phone: '',
+    fax: '',
+    homepageUrl,
+    latitude,
+    longitude,
+    weeklyClosedDays,
+    periodicClosedDays,
+    holidayClosed,
+    otherClosedNote,
+    bedCounts,
+    bedCount: totalBedCount !== null ? totalBedCount : undefined,
+    scheduleEntries: [],
+    mhlwDepartments: [],
+  };
 }
 
 function detectColumnIndex(headers, keywords) {

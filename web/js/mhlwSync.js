@@ -630,7 +630,10 @@
     const nameCandidates = [
       facility?.name,
       facility?.officialName,
-      facility?.corporationName,
+      facility?.officialNameKana,
+      facility?.shortName,
+      facility?.shortNameKana,
+      facility?.englishName,
       facility?.nameKana,
     ];
 
@@ -672,6 +675,7 @@
       facility?.address,
       facility?.fullAddress,
       `${facility?.prefecture || ''}${facility?.city || ''}`,
+      `${facility?.prefectureName || ''}${facility?.cityName || ''}`,
     ];
     addressPieces.forEach((piece) => {
       tokenizeForSearch(piece).forEach((token) => {
@@ -696,7 +700,7 @@
     const candidates = [
       facility?.name,
       facility?.officialName,
-      facility?.corporationName,
+      facility?.shortName,
       facility?.prefecture,
       facility?.city,
     ];
