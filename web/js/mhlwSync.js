@@ -946,6 +946,9 @@
         });
         statusEl.textContent = '厚労省IDを登録しました。再読み込みしてください。';
         statusEl.className = 'md:col-span-2 text-xs text-emerald-600';
+        if (typeof onLinked === 'function') {
+          onLinked();
+        }
       } catch (error) {
         console.error('[mhlwSync] failed to update clinic', error);
         statusEl.textContent = error?.payload?.message || error.message || '更新に失敗しました。';
@@ -984,6 +987,9 @@
           });
           statusEl.textContent = '厚労省データから同期しました。再読み込みしてください。';
           statusEl.className = 'md:col-span-2 text-xs text-emerald-600';
+          if (typeof onLinked === 'function') {
+            onLinked();
+          }
         } catch (error) {
           console.error('[mhlwSync] sync failed', error);
           statusEl.textContent = error?.payload?.message || error.message || '同期に失敗しました。';
@@ -1053,7 +1059,7 @@
       clinic.displayName,
       clinic.officialName,
       clinic.shortName,
-      clinic.address,
+      clinic.nameKana,
     ]
       .map((value) => (typeof value === 'string' ? value.trim() : ''))
       .filter(Boolean);
@@ -1210,23 +1216,10 @@
     return wrapper;
   }
 
-  async function searchClinics(keyword) {
-    const apiBase = resolveApiBase();
-    const authHeader = await getAuthHeader();
-    const params = new URLSearchParams();
-    if (keyword) params.set('keyword', keyword);
-    const url = `${apiBase}/api/listClinics?${params.toString()}`;
-    const res = await fetchJson(url, {
-      method: 'GET',
-      headers: authHeader ? { Authorization: authHeader } : {},
-    });
-    return Array.isArray(res?.clinics) ? res.clinics : [];
-  }
-
   function init() {
-    const searchForm = document.getElementById('searchForm');
-    const searchStatus = document.getElementById('searchStatus');
     const clinicList = document.getElementById('clinicList');
+    const clinicListStatus = document.getElementById('clinicListStatus');
+    const refreshClinicsBtn = document.getElementById('refreshClinicList');
     const previewEl = document.getElementById('mhlwPreview');
     const reloadBtn = document.getElementById('reloadMhlwDict');
     const metaInfo = document.getElementById('mhlwMetaInfo');
@@ -1239,11 +1232,12 @@
     const hospitalFacilityInput = document.getElementById('mhlwHospitalFacilityCsv');
     const hospitalScheduleInput = document.getElementById('mhlwHospitalScheduleCsv');
 
-    if (!searchForm || !clinicList) return;
+    if (!clinicList) return;
 
     let mhlwDict = {};
     let mhlwEntries = [];
-    let lastSearchKeyword = '';
+    let clinicsCache = null;
+    let clinicsLoading = false;
 
     function setStatus(element, message, variant = 'info') {
       if (!element) return;
@@ -1295,6 +1289,36 @@
       }
     }
 
+    function renderClinicList() {
+      if (!clinicList) return;
+      clinicList.innerHTML = '';
+      if (clinicsLoading) {
+        if (clinicListStatus) clinicListStatus.textContent = '未紐付けの診療所を読み込み中です…';
+        return;
+      }
+      if (!Array.isArray(clinicsCache)) {
+        if (clinicListStatus) clinicListStatus.textContent = '診療所一覧を取得できませんでした。再読み込みをお試しください。';
+        return;
+      }
+      const pending = clinicsCache.filter((clinic) => !clinic.mhlwFacilityId);
+      if (pending.length === 0) {
+        if (clinicListStatus) clinicListStatus.textContent = '厚労省ID未登録の診療所はありません。';
+        return;
+      }
+      pending.sort((a, b) => (a?.name || '').localeCompare(b?.name || '', 'ja'));
+      if (clinicListStatus) clinicListStatus.textContent = `厚労省ID未設定の診療所: ${pending.length} 件`;
+      pending.forEach((clinic) => {
+        clinicList.appendChild(buildClinicCard(
+          clinic,
+          { dict: mhlwDict, entries: mhlwEntries },
+          {
+            searchKeyword: clinic?.name || '',
+            onLinked: () => loadClinics(true),
+          },
+        ));
+      });
+    }
+
     async function loadDictAndPreview(force = false) {
       if (force) {
         try {
@@ -1329,15 +1353,54 @@
           previewEl.textContent = messages.join('\n');
         }
       }
+      renderClinicList();
+    }
+
+    async function fetchClinics(keyword) {
+      const apiBase = resolveApiBase();
+      const authHeader = await getAuthHeader();
+      let url = `${apiBase}/api/listClinics`;
+      if (keyword) {
+        const params = new URLSearchParams({ keyword });
+        url = `${url}?${params.toString()}`;
+      }
+      const res = await fetchJson(url, {
+        method: 'GET',
+        headers: authHeader ? { Authorization: authHeader } : {},
+      });
+      return Array.isArray(res?.clinics) ? res.clinics : [];
+    }
+
+    async function loadClinics(force = false) {
+      clinicsLoading = true;
+      renderClinicList();
+      try {
+        const clinics = await fetchClinics(force ? '' : undefined);
+        clinicsCache = Array.isArray(clinics) ? clinics : [];
+      } catch (err) {
+        console.error('[mhlwSync] failed to fetch clinics', err);
+        clinicsCache = null;
+        if (clinicListStatus) {
+          clinicListStatus.textContent = err?.message || '診療所一覧の取得に失敗しました。';
+        }
+      } finally {
+        clinicsLoading = false;
+        renderClinicList();
+      }
     }
 
     loadDictAndPreview(false);
+    loadClinics(false);
 
     reloadBtn?.addEventListener('click', () => {
       if (previewEl) {
         previewEl.textContent = 'CSVを再読込しています…';
       }
       loadDictAndPreview(true);
+    });
+
+    refreshClinicsBtn?.addEventListener('click', () => {
+      loadClinics(true);
     });
 
     uploadCsvForm?.addEventListener('submit', async (event) => {
@@ -1515,36 +1578,7 @@
         });
     });
 
-    searchForm.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const keyword = document.getElementById('clinicKeyword').value.trim();
-      lastSearchKeyword = keyword;
-      if (!keyword) {
-        searchStatus.textContent = '検索キーワードを入力してください。';
-        searchStatus.className = 'text-sm text-red-600';
-        return;
-      }
-      searchStatus.textContent = '検索中…';
-      searchStatus.className = 'text-sm text-slate-500';
-      clinicList.innerHTML = '';
-      try {
-        const clinics = await searchClinics(keyword);
-        if (!clinics.length) {
-          searchStatus.textContent = '該当する診療所が見つかりませんでした。';
-          searchStatus.className = 'text-sm text-slate-500';
-          return;
-        }
-        searchStatus.textContent = `${clinics.length}件ヒットしました。`;
-        searchStatus.className = 'text-sm text-slate-500';
-        clinics.forEach((clinic) => {
-          clinicList.appendChild(buildClinicCard(clinic, { dict: mhlwDict, entries: mhlwEntries }, { searchKeyword: lastSearchKeyword }));
-        });
-      } catch (error) {
-        console.error('[mhlwSync] search failed', error);
-        searchStatus.textContent = error.message || '検索に失敗しました。';
-        searchStatus.className = 'text-sm text-red-600';
-      }
-    });
+    // 検索フォームは廃止し、未紐付けの診療所を常に一覧表示する
   }
 
   if (document.readyState === 'loading') {
