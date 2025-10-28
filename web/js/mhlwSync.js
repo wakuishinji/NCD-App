@@ -1087,12 +1087,13 @@
     const searchCandidates = [];
     if (searchKeyword && searchKeyword.trim()) searchCandidates.push(searchKeyword.trim());
     const defaultKeywordSources = [
+      clinic.shortName,
       clinic.name,
       clinic.displayName,
       clinic.officialName,
-      clinic.shortName,
+      clinic.alias,
+      clinic.corporationName,
       clinic.nameKana,
-      clinic.address,
     ]
       .map((value) => (typeof value === 'string' ? value.trim() : ''))
       .filter(Boolean);
