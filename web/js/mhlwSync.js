@@ -639,9 +639,9 @@
   }
 
   function describeMatchLevel(score) {
-    if (score >= 180) return '一致度: 非常に高';
-    if (score >= 120) return '一致度: 高';
-    if (score >= 80) return '一致度: 中';
+    if (score >= 320) return '一致度: 非常に高';
+    if (score >= 220) return '一致度: 高';
+    if (score >= 120) return '一致度: 中';
     return '一致度: 参考';
   }
 
@@ -650,24 +650,17 @@
 
     const trimmedQuery = (query || '').trim();
     const normalizedQuery = normalizeFuzzy(trimmedQuery);
-    const normalizedQueryTokens = tokenizeForSearch(trimmedQuery);
     const numericQuery = trimmedQuery.replace(/\s+/g, '').toUpperCase();
 
     const clinicNameNorm = normalizeFuzzy(clinic?.name || clinic?.displayName || clinic?.officialName || '');
     const clinicNameTokens = tokenizeForSearch(clinic?.name || clinic?.displayName || clinic?.officialName || '');
-    const clinicAddressTokens = tokenizeForSearch(clinic?.address || '');
-    const clinicAddressTokenSet = new Set(clinicAddressTokens);
-    const clinicPrefToken = normalizeFuzzy(clinic?.prefecture || '');
-    const clinicCityToken = normalizeFuzzy(clinic?.city || '');
-    const clinicPostalCode = (clinic?.postalCode || '').toString().replace(/[^0-9]/g, '');
-    const clinicAddressNormalized = normalizeForSimilarity(clinic?.address || '');
     const clinicNameVariants = [
       clinic?.name,
       clinic?.displayName,
       clinic?.officialName,
       clinic?.shortName,
+      clinic?.nameKana,
     ].map(normalizeForSimilarity).filter(Boolean);
-    const queryNameVariant = normalizedQuery ? normalizeForSimilarity(trimmedQuery) : '';
 
     const results = [];
 
@@ -716,43 +709,24 @@
       }
 
       if (normalizedQuery) {
-        for (const value of cache.normalizedStrings) {
-          if (!value) continue;
-          if (value === normalizedQuery) {
-            score += 140;
-            break;
-          }
-          if (value.includes(normalizedQuery)) {
-            const ratio = normalizedQuery.length / Math.max(value.length, 1);
-            score += Math.max(30, Math.min(100, Math.floor(ratio * 100)));
-            break;
-          }
+        const queryVariant = normalizeForSimilarity(trimmedQuery);
+        let bestQuerySim = 0;
+        for (const facilityName of cache.nameVariants || []) {
+          const sim = jaroWinklerDistance(queryVariant, facilityName);
+          if (sim > bestQuerySim) bestQuerySim = sim;
         }
-        if (score === 0 && normalizedQueryTokens.length) {
-          let tokenMatches = 0;
-          for (const token of normalizedQueryTokens) {
-            if (token.length < 2) continue;
-            if (cache.tokens.has(token)) tokenMatches += 1;
-          }
-          if (tokenMatches) score += 22 * tokenMatches;
+        if (bestQuerySim >= 0.9) {
+          score += 400;
+        } else if (bestQuerySim >= 0.8) {
+          score += 300;
+        } else if (bestQuerySim >= 0.7) {
+          score += 220;
+        } else if (bestQuerySim >= 0.6) {
+          score += 150;
+        } else if (bestQuerySim >= 0.5) {
+          score += 90;
         }
-        if (!numericQuery && queryNameVariant && Array.isArray(cache.nameVariants) && cache.nameVariants.length) {
-          let bestQuerySim = 0;
-          for (const facilityName of cache.nameVariants) {
-            const sim = jaroWinklerDistance(queryNameVariant, facilityName);
-            if (sim > bestQuerySim) bestQuerySim = sim;
-          }
-          if (bestQuerySim >= 0.9) {
-            score += Math.round(bestQuerySim * 160);
-          } else if (bestQuerySim >= 0.75) {
-            score += Math.round(bestQuerySim * 120);
-          } else if (bestQuerySim >= 0.65) {
-            score += Math.round(bestQuerySim * 80);
-          }
-        }
-      }
-
-      if (!normalizedQuery && clinicNameNorm && cache.normalizedStrings.some((value) => value.includes(clinicNameNorm))) {
+      } else if (clinicNameNorm && cache.normalizedStrings.some((value) => value.includes(clinicNameNorm))) {
         score += 60;
       }
 
@@ -762,76 +736,20 @@
           if (token.length < 2) continue;
           if (cache.tokens.has(token)) matched += 1;
         }
-        if (matched) score += 20 * matched;
-      }
-
-      if (clinicAddressTokens.length) {
-        let matched = 0;
-        for (const token of clinicAddressTokens) {
-          if (token.length < 2) continue;
-          if (cache.tokens.has(token)) matched += 1;
-        }
-        if (matched) score += 15 * matched;
-      }
-
-      if (clinicAddressTokenSet.size && cache.addressTokens instanceof Set && cache.addressTokens.size) {
-        let addrHits = 0;
-        cache.addressTokens.forEach((token) => {
-          if (clinicAddressTokenSet.has(token)) addrHits += 1;
-        });
-        if (addrHits) score += 18 * addrHits;
-      }
-
-      if (cache.prefectureToken) {
-        if ((clinicPrefToken && clinicPrefToken === cache.prefectureToken) || clinicAddressTokenSet.has(cache.prefectureToken)) {
-          score += 55;
-        }
-      }
-      if (cache.cityToken) {
-        if ((clinicCityToken && clinicCityToken === cache.cityToken) || clinicAddressTokenSet.has(cache.cityToken)) {
-          score += 45;
-        }
-      }
-
-      if (cache.postalCode) {
-        if (clinicPostalCode && clinicPostalCode === cache.postalCode) {
-          score += 120;
-        } else {
-          const addressDigits = (clinic?.address || '').replace(/[^0-9]/g, '');
-          if (addressDigits.includes(cache.postalCode)) {
-            score += 80;
-          }
-        }
-      }
-
-      if (clinicAddressNormalized && cache.addressNormalized) {
-        const addrSim = jaroWinklerDistance(clinicAddressNormalized, cache.addressNormalized);
-        if (addrSim >= 0.8) {
-          score += Math.round(addrSim * 100);
-        } else if (addrSim >= 0.65) {
-          score += Math.round(addrSim * 70);
-        }
-      }
-
-      if (score === 0 && normalizedQuery) {
-        const short = normalizedQuery.slice(0, Math.min(6, normalizedQuery.length));
-        if (short.length >= 2 && cache.normalizedStrings.some((value) => value.includes(short))) {
-          score = 12;
-        }
-      }
-
-      if (score === 0 && clinicNameNorm) {
-        const short = clinicNameNorm.slice(0, Math.min(6, clinicNameNorm.length));
-        if (short.length >= 2 && cache.normalizedStrings.some((value) => value.includes(short))) {
-          score = 12;
-        }
+        if (matched) score += 40 * matched;
       }
 
       if (score <= 0) continue;
-      results.push({ facility, score });
+      const postalMatch = cache.postalCode && clinic?.postalCode && cache.postalCode === clinic.postalCode.replace(/[^0-9]/g, '');
+      results.push({ facility, score, postalMatch });
     }
 
-    results.sort((a, b) => b.score - a.score);
+    results.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (a.postalMatch && !b.postalMatch) return -1;
+      if (!a.postalMatch && b.postalMatch) return 1;
+      return (a.facility?.facilityId || '').localeCompare(b.facility?.facilityId || '');
+    });
     return results.slice(0, limit);
   }
 
@@ -1060,6 +978,7 @@
       clinic.officialName,
       clinic.shortName,
       clinic.nameKana,
+      clinic.address,
     ]
       .map((value) => (typeof value === 'string' ? value.trim() : ''))
       .filter(Boolean);
