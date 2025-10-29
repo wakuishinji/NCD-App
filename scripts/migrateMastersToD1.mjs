@@ -292,17 +292,33 @@ function sanitizeExplanations(list) {
   return result;
 }
 
-async function executeSql(db, sql, index, { useRemote = true, usePreview = false } = {}) {
+async function executeSql(db, statements, index, { useRemote = true, usePreview = false } = {}) {
+  if (!Array.isArray(statements) || !statements.length) return;
+  if (useRemote) {
+    for (let i = 0; i < statements.length; i += 1) {
+      const sql = statements[i];
+      await new Promise((resolve, reject) => {
+        const args = ['d1', 'execute', '--remote'];
+        if (usePreview) {
+          args.push('--preview');
+        }
+        args.push(db, '--yes', '--command', sql);
+        const proc = spawn('wrangler', args, { stdio: 'inherit' });
+        proc.on('exit', (code) => {
+          if (code === 0) resolve();
+          else reject(new Error(`wrangler d1 execute exited with code ${code}`));
+        });
+      });
+    }
+    return;
+  }
+
   const tempFile = path.join(os.tmpdir(), `masters-d1-${Date.now()}-${index}.sql`);
-  await fs.promises.writeFile(tempFile, sql, 'utf8');
+  const fileBody = statements.join('\n');
+  await fs.promises.writeFile(tempFile, fileBody, 'utf8');
   try {
     await new Promise((resolve, reject) => {
-      const args = ['d1', 'execute'];
-      if (useRemote) {
-        args.push('--remote');
-      } else {
-        args.push('--local');
-      }
+      const args = ['d1', 'execute', '--local'];
       if (usePreview) {
         args.push('--preview');
       }
@@ -323,7 +339,7 @@ function chunkStatements(statements, chunkSize) {
   const chunks = [];
   for (let i = 0; i < statements.length; i += chunkSize) {
     const chunk = statements.slice(i, i + chunkSize);
-    chunks.push(chunk.join('\n'));
+    chunks.push(chunk);
   }
   return chunks;
 }
@@ -736,7 +752,8 @@ async function main() {
   if (options.output) {
     const outDir = path.dirname(options.output);
     await fs.promises.mkdir(outDir, { recursive: true });
-    await fs.promises.writeFile(options.output, sqlChunks.join('\n\n'), 'utf8');
+    const fileBody = sqlChunks.map((chunk) => chunk.join('\n')).join('\n\n');
+    await fs.promises.writeFile(options.output, fileBody, 'utf8');
     console.log(`[masters] SQL written to ${options.output}`);
   }
 
