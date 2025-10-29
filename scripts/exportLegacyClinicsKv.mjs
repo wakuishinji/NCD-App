@@ -90,39 +90,31 @@ function runWrangler(args) {
 }
 
 async function listKeys(binding, prefix) {
-  let cursor;
-  const allKeys = [];
-  do {
-    const args = ['kv:key', 'list', '--binding', binding, '--json'];
-    if (prefix) args.push('--prefix', prefix);
-    if (cursor) args.push('--cursor', cursor);
-    const output = await runWrangler(args);
-    let parsed;
-    try {
-      parsed = JSON.parse(output);
-    } catch (err) {
-      throw new Error(`Failed to parse wrangler list output: ${err.message}`);
-    }
-    if (!Array.isArray(parsed) && parsed?.keys) {
-      parsed.keys.forEach((entry) => allKeys.push(entry.name));
-      cursor = parsed.cursor || undefined;
-    } else if (Array.isArray(parsed)) {
-      parsed.forEach((entry) => allKeys.push(entry.name));
-      cursor = undefined;
-    } else {
-      cursor = undefined;
-    }
-  } while (cursor);
-  return allKeys;
+  const args = ['kv', 'key', 'list', '--binding', binding];
+  if (prefix) args.push('--prefix', prefix);
+  const output = await runWrangler(args);
+  let parsed;
+  try {
+    parsed = JSON.parse(output);
+  } catch (err) {
+    throw new Error(`Failed to parse wrangler list output: ${err.message}`);
+  }
+  if (Array.isArray(parsed)) {
+    return parsed.map((entry) => entry.name || entry);
+  }
+  if (Array.isArray(parsed?.keys)) {
+    return parsed.keys.map((entry) => entry.name);
+  }
+  return [];
 }
 
 async function getValue(binding, key) {
-  const args = ['kv:key', 'get', '--binding', binding, key];
+  const args = ['kv', 'key', 'get', '--binding', binding, key];
   return runWrangler(args);
 }
 
 async function deleteKey(binding, key) {
-  const args = ['kv:key', 'delete', '--binding', binding, key];
+  const args = ['kv', 'key', 'delete', '--binding', binding, key];
   await runWrangler(args);
 }
 
