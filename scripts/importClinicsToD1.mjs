@@ -32,6 +32,7 @@ Options:
   --execute               生成した SQL を wrangler d1 execute --remote で実行
   --no-remote             ローカル D1 (preview) へ実行したい場合に指定
   --chunk-size <n>        1 トランザクション内のレコード数（既定: 100）
+  --organization <id>     既定の organizationId（例: organization:nakano-med）
   --help                  このメッセージを表示
 `);
 }
@@ -44,6 +45,7 @@ function parseArgs(argv) {
     execute: false,
     useRemote: true,
     chunkSize: 100,
+    organizationId: null,
     help: false,
   };
   for (let i = 2; i < argv.length; i += 1) {
@@ -71,6 +73,9 @@ function parseArgs(argv) {
         }
         break;
       }
+      case '--organization':
+        options.organizationId = argv[++i] || null;
+        break;
       case '--help':
       case '-h':
         options.help = true;
@@ -139,7 +144,7 @@ function extractLocation(clinic) {
   };
 }
 
-function buildInsertStatements(clinics) {
+function buildInsertStatements(clinics, defaultOrganizationId = null) {
   const statements = [];
   const columns = [
     'id',
@@ -158,6 +163,7 @@ function buildInsertStatements(clinics) {
     'fax',
     'email',
     'website',
+    'organization_id',
     'metadata',
   ];
   for (const clinic of clinics) {
@@ -185,6 +191,7 @@ function buildInsertStatements(clinics) {
       fax: basics.fax,
       email: basics.email,
       website: basics.website,
+      organization_id: normalizeString(clinic.organizationId || clinic.organization_id || defaultOrganizationId || '' ) || null,
       metadata: JSON.stringify(clinic),
     };
 
@@ -229,6 +236,7 @@ function buildInsertStatements(clinics) {
         category: normalizeString(svc.category || svc.type || ''),
         source: normalizeString(svc.source || ''),
         notes: normalizeString(svc.notes || ''),
+        organization_id: row.organization_id,
       };
       if (!record.name && !record.master_id) return;
       statements.push(sqlInsert('facility_services', record, ['facility_id', 'master_id', 'name', 'category', 'source', 'notes']));
@@ -244,6 +252,7 @@ function buildInsertStatements(clinics) {
         category: normalizeString(test.category || test.type || ''),
         source: normalizeString(test.source || ''),
         notes: normalizeString(test.notes || ''),
+        organization_id: row.organization_id,
       };
       if (!record.name && !record.master_id) return;
       statements.push(sqlInsert('facility_tests', record, ['facility_id', 'master_id', 'name', 'category', 'source', 'notes']));
@@ -259,6 +268,7 @@ function buildInsertStatements(clinics) {
         issuer: normalizeString(qual.issuer || qual.organization || ''),
         obtained_at: normalizeString(qual.obtainedAt || ''),
         notes: normalizeString(qual.notes || ''),
+        organization_id: row.organization_id,
       };
       if (!record.name && !record.master_id) return;
       statements.push(sqlInsert('facility_qualifications', record, ['facility_id', 'master_id', 'name', 'issuer', 'obtained_at', 'notes']));
@@ -310,7 +320,7 @@ async function main() {
   const clinics = await loadClinics(options.input);
   console.log(`[info] Loaded ${clinics.length} records.`);
 
-  const statements = buildInsertStatements(clinics);
+  const statements = buildInsertStatements(clinics, options.organizationId);
   if (!statements.length) {
     console.log('[warn] No statements generated.');
     return;

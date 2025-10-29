@@ -333,6 +333,7 @@ export default {
       const clinic = clonePlain(input);
       clinic.schemaVersion = CLINIC_SCHEMA_VERSION;
       clinic.schema_version = CLINIC_SCHEMA_VERSION;
+      clinic.organizationId = clinic.organizationId || clinic.organization_id || null;
 
       const basic = clonePlain(clinic.basic);
       const assignFromBasic = (field, basicKey) => {
@@ -416,6 +417,7 @@ export default {
         fax: nk(basic.fax),
         email: nk(basic.email),
         website: nk(basic.website),
+        organizationId: normalized.organizationId || null,
         metadata: JSON.stringify(normalized),
       };
     }
@@ -442,8 +444,8 @@ export default {
       }
 
       const insertService = env.MASTERS_D1.prepare(`
-        INSERT INTO facility_services (id, facility_id, master_id, name, category, source, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO facility_services (id, facility_id, master_id, name, category, source, notes, organization_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           facility_id = excluded.facility_id,
           master_id = excluded.master_id,
@@ -451,6 +453,7 @@ export default {
           category = excluded.category,
           source = excluded.source,
           notes = excluded.notes,
+          organization_id = excluded.organization_id,
           updated_at = strftime('%s','now')
       `);
       for (const svc of clinic.services || []) {
@@ -467,6 +470,7 @@ export default {
             nk(svc.category || svc.type || ''),
             nk(svc.source || ''),
             nk(svc.notes || ''),
+            clinic.organizationId || null,
           ).run();
         } catch (err) {
           console.error('[clinic] failed to insert facility_service', err);
@@ -474,8 +478,8 @@ export default {
       }
 
       const insertTest = env.MASTERS_D1.prepare(`
-        INSERT INTO facility_tests (id, facility_id, master_id, name, category, source, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO facility_tests (id, facility_id, master_id, name, category, source, notes, organization_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           facility_id = excluded.facility_id,
           master_id = excluded.master_id,
@@ -483,6 +487,7 @@ export default {
           category = excluded.category,
           source = excluded.source,
           notes = excluded.notes,
+          organization_id = excluded.organization_id,
           updated_at = strftime('%s','now')
       `);
       for (const test of clinic.tests || []) {
@@ -499,6 +504,7 @@ export default {
             nk(test.category || test.type || ''),
             nk(test.source || ''),
             nk(test.notes || ''),
+            clinic.organizationId || null,
           ).run();
         } catch (err) {
           console.error('[clinic] failed to insert facility_test', err);
@@ -506,8 +512,8 @@ export default {
       }
 
       const insertQual = env.MASTERS_D1.prepare(`
-        INSERT INTO facility_qualifications (id, facility_id, master_id, name, issuer, obtained_at, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO facility_qualifications (id, facility_id, master_id, name, issuer, obtained_at, notes, organization_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           facility_id = excluded.facility_id,
           master_id = excluded.master_id,
@@ -515,6 +521,7 @@ export default {
           issuer = excluded.issuer,
           obtained_at = excluded.obtained_at,
           notes = excluded.notes,
+          organization_id = excluded.organization_id,
           updated_at = strftime('%s','now')
       `);
       for (const qual of clinic.qualifications || []) {
@@ -531,6 +538,7 @@ export default {
             nk(qual.issuer || qual.organization || ''),
             nk(qual.obtainedAt || ''),
             nk(qual.notes || ''),
+            clinic.organizationId || null,
           ).run();
         } catch (err) {
           console.error('[clinic] failed to insert facility_qualification', err);
@@ -555,7 +563,7 @@ export default {
       };
 
       const serviceRows = await fetchRows('facility_services', [
-        'id', 'master_id', 'name', 'category', 'source', 'notes',
+        'id', 'master_id', 'name', 'category', 'source', 'notes', 'organization_id',
       ]);
       clinic.services = serviceRows.map((row) => ({
         id: row.id,
@@ -567,7 +575,7 @@ export default {
       }));
 
       const testRows = await fetchRows('facility_tests', [
-        'id', 'master_id', 'name', 'category', 'source', 'notes',
+        'id', 'master_id', 'name', 'category', 'source', 'notes', 'organization_id',
       ]);
       clinic.tests = testRows.map((row) => ({
         id: row.id,
@@ -579,7 +587,7 @@ export default {
       }));
 
       const qualRows = await fetchRows('facility_qualifications', [
-        'id', 'master_id', 'name', 'issuer', 'obtained_at', 'notes',
+        'id', 'master_id', 'name', 'issuer', 'obtained_at', 'notes', 'organization_id',
       ]);
       clinic.qualifications = qualRows.map((row) => ({
         id: row.id,
@@ -589,6 +597,14 @@ export default {
         obtainedAt: row.obtained_at || undefined,
         notes: row.notes || undefined,
       }));
+
+      if (!clinic.organizationId) {
+        clinic.organizationId = serviceRows[0]?.organization_id
+          || testRows[0]?.organization_id
+          || qualRows[0]?.organization_id
+          || clinic.organizationId
+          || null;
+      }
 
       return normalizeClinicRecord(clinic);
     }
@@ -602,8 +618,8 @@ export default {
         INSERT INTO facilities (
           id, external_id, name, short_name, official_name, prefecture, city,
           address, postal_code, latitude, longitude, facility_type, phone, fax,
-          email, website, metadata
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          email, website, organization_id, metadata
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           external_id = excluded.external_id,
           name = excluded.name,
@@ -620,11 +636,12 @@ export default {
           fax = excluded.fax,
           email = excluded.email,
           website = excluded.website,
+          organization_id = excluded.organization_id,
           metadata = excluded.metadata
         RETURNING
           id, external_id, name, short_name, official_name, prefecture, city,
           address, postal_code, latitude, longitude, facility_type, phone, fax,
-          email, website, metadata
+          email, website, organization_id, metadata
       `);
       const result = await stmt
         .bind(
@@ -644,6 +661,7 @@ export default {
           row.fax || null,
           row.email || null,
           row.website || null,
+          row.organizationId || null,
           row.metadata,
         )
         .first()
@@ -717,6 +735,7 @@ export default {
       payload.basic.prefecture = payload.basic.prefecture || row.prefecture || '';
       payload.basic.city = payload.basic.city || row.city || '';
       payload.mhlwFacilityId = payload.mhlwFacilityId || row.external_id || null;
+      payload.organizationId = payload.organizationId || row.organization_id || null;
       if (!payload.location || typeof payload.location !== 'object') {
         payload.location = {};
       }
@@ -749,7 +768,7 @@ export default {
       const stmt = env.MASTERS_D1.prepare(`
         SELECT id, external_id, name, short_name, official_name, prefecture, city,
                address, postal_code, latitude, longitude, facility_type,
-               phone, fax, email, website, metadata
+               phone, fax, email, website, organization_id, metadata
         FROM facilities
         WHERE ${sqlColumn} = ?
         LIMIT 1
@@ -768,7 +787,7 @@ export default {
       const listQuery = env.MASTERS_D1.prepare(`
         SELECT id, external_id, name, short_name, official_name, prefecture, city,
                address, postal_code, latitude, longitude, facility_type,
-               phone, fax, email, website, metadata
+               phone, fax, email, website, organization_id, metadata
         FROM facilities
         ORDER BY name
         LIMIT ? OFFSET ?

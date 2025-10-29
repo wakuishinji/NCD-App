@@ -84,7 +84,8 @@
 3. `node scripts/importClinicsToD1.mjs --input tmp/clinics-v2.jsonl --db MASTERS_D1 --output tmp/clinics-import.sql --execute` で D1 へ投入する。  
 4. Workers の `saveClinic` / `getClinic*` を D1 対応に書き換え、`SCHEMA_VERSION = 2` へ更新。  
 5. UI/API テストを v2 スキーマに合わせて更新（Playwright/Vitest）。  
-6. 多テナント化用の `organizationId` 付与と Runbook 整備。
+6. `node scripts/assignOrganizationToClinics.mjs --db <binding> --organization <id>` で既存施設へ `organizationId` を付与する。  
+7. 多テナント化用の Runbook を整備し、API/UI 側の組織切替を実装する。
 
 ---
 

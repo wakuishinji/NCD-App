@@ -103,7 +103,7 @@
    - `organization` テーブル（`schema/d1/schema.sql` へ追記予定）に `organization:nakano-med` を投入。  
    - `scripts/organizationSeed.mjs`（作成予定）で名称・住所・連絡先をD1へ登録し、`org:nakano-med:settings` KV を初期化。
 3. **施設レコードへの付与**  
-   - `scripts/assignOrganizationToClinics.mjs` を作成し、対象テナントの `facility.id` 一覧を取得 → `UPDATE facilities SET organization_id = ? WHERE id IN (...)` を実行。  
+   - `node scripts/assignOrganizationToClinics.mjs --db MASTERS_D1 --organization organization:nakano-med --dry-run` で対象件数を確認し、問題なければ `--dry-run` を外して実行する。  
    - 併せて KV 互換キー（`clinic:id:<id>`）/`metadata` 内の JSON にも `organizationId` を追記する。  
    - 実行前に `tmp/clinics-before.jsonl` と `tmp/clinics-after.jsonl` を出力し、差分レビューを行う。
 4. **API/Workers 更新**  

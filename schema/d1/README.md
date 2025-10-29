@@ -51,7 +51,7 @@ wrangler d1 execute <DATABASE_NAME> --file schema/d1/schema.sql
 
 ## 今後の拡張
 1. 施設・医療者以外のマスター（診療メニュー、資格、カテゴリなど）も D1 に移行する場合は、このディレクトリにテーブル追加 DDL を追記してください。
-2. マイグレーションを細かく管理する場合は `schema/d1/migrations/` 以下に順序付きファイルを追加してください（例: `002_facilities_extras.sql` で基本カラム追加、`003_facility_service_tables.sql` でサービス／検査／資格テーブルを正規化）。
+2. マイグレーションを細かく管理する場合は `schema/d1/migrations/` 以下に順序付きファイルを追加してください（例: `002_facilities_extras.sql` で基本カラム追加、`003_facility_service_tables.sql` でサービス／検査／資格テーブルを正規化、`004_organization_support.sql` で `organizations` と `organization_id` 列を追加）。
 3. テーブル構造を変更した際は、Playwright や API テストを更新し、`docs/roadmap.md` のデータ基盤計画を最新化してください。
 
 詳しい移行・セットアップ手順は `docs/d1-master-migration.md` を参照。
