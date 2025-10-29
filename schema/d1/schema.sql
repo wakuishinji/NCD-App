@@ -202,3 +202,141 @@ CREATE INDEX IF NOT EXISTS audit_log_target_idx
 CREATE INDEX IF NOT EXISTS audit_log_actor_idx
   ON audit_log (actor_id, created_at DESC);
 
+----------------------------------------------------------------------------
+-- Master Data: categories
+----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS master_categories (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  organization_id TEXT,
+  type            TEXT NOT NULL,
+  name            TEXT NOT NULL,
+  display_order   INTEGER,
+  is_default      INTEGER NOT NULL DEFAULT 0,
+  metadata        TEXT,
+  created_at      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+  updated_at      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+  UNIQUE(organization_id, type, name)
+);
+
+CREATE INDEX IF NOT EXISTS master_categories_type_idx
+  ON master_categories (organization_id, type, display_order);
+
+CREATE TRIGGER IF NOT EXISTS master_categories_updated_at
+AFTER UPDATE ON master_categories
+FOR EACH ROW
+BEGIN
+  UPDATE master_categories
+    SET updated_at = strftime('%s','now')
+    WHERE id = OLD.id;
+END;
+
+----------------------------------------------------------------------------
+-- Master Data: items
+----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS master_items (
+  id                 TEXT PRIMARY KEY,
+  organization_id    TEXT,
+  type               TEXT NOT NULL,
+  category           TEXT NOT NULL,
+  name               TEXT NOT NULL,
+  canonical_name     TEXT,
+  status             TEXT NOT NULL DEFAULT 'candidate',
+  classification     TEXT,
+  medical_field      TEXT,
+  sort_group         TEXT,
+  sort_order         INTEGER,
+  description        TEXT,
+  notes              TEXT,
+  reference_url      TEXT,
+  count              INTEGER NOT NULL DEFAULT 0,
+  sources            TEXT,
+  desc_samples       TEXT,
+  explanations       TEXT,
+  metadata           TEXT,
+  legacy_key         TEXT,
+  legacy_aliases     TEXT,
+  comparable_key     TEXT,
+  normalized_name    TEXT,
+  normalized_category TEXT,
+  created_at         INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+  updated_at         INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+
+CREATE INDEX IF NOT EXISTS master_items_lookup_idx
+  ON master_items (organization_id, type, status, category);
+
+CREATE INDEX IF NOT EXISTS master_items_category_name_idx
+  ON master_items (type, category, name);
+
+CREATE UNIQUE INDEX IF NOT EXISTS master_items_legacy_key_idx
+  ON master_items (legacy_key)
+  WHERE legacy_key IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS master_items_comparable_key_idx
+  ON master_items (comparable_key)
+  WHERE comparable_key IS NOT NULL;
+
+CREATE TRIGGER IF NOT EXISTS master_items_updated_at
+AFTER UPDATE ON master_items
+FOR EACH ROW
+BEGIN
+  UPDATE master_items
+    SET updated_at = strftime('%s','now')
+    WHERE id = OLD.id;
+END;
+
+----------------------------------------------------------------------------
+-- Master Data: aliases (legacy keys, synonyms)
+----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS master_item_aliases (
+  alias             TEXT PRIMARY KEY,
+  item_id           TEXT NOT NULL REFERENCES master_items(id) ON DELETE CASCADE,
+  normalized_alias  TEXT,
+  source            TEXT,
+  created_at        INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+
+CREATE INDEX IF NOT EXISTS master_item_aliases_item_idx
+  ON master_item_aliases (item_id);
+
+CREATE INDEX IF NOT EXISTS master_item_aliases_normalized_idx
+  ON master_item_aliases (normalized_alias);
+
+----------------------------------------------------------------------------
+-- Master Data: long-form explanations
+----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS master_explanations (
+  id                  TEXT PRIMARY KEY,
+  organization_id     TEXT,
+  type                TEXT NOT NULL,
+  target_slug         TEXT NOT NULL,
+  base_text           TEXT NOT NULL,
+  audience            TEXT,
+  context             TEXT,
+  inherit_from        TEXT,
+  status              TEXT NOT NULL DEFAULT 'draft',
+  tags                TEXT,
+  source_facility_ids TEXT,
+  versions            TEXT,
+  created_at          INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+  updated_at          INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+
+CREATE INDEX IF NOT EXISTS master_explanations_lookup_idx
+  ON master_explanations (organization_id, type, target_slug, status);
+
+CREATE INDEX IF NOT EXISTS master_explanations_updated_idx
+  ON master_explanations (updated_at DESC);
+
+CREATE TRIGGER IF NOT EXISTS master_explanations_updated_at
+AFTER UPDATE ON master_explanations
+FOR EACH ROW
+BEGIN
+  UPDATE master_explanations
+    SET updated_at = strftime('%s','now')
+    WHERE id = OLD.id;
+END;

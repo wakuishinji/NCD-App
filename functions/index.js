@@ -3,6 +3,7 @@ import { createToken, verifyToken, invalidateSession } from './lib/auth/jwt.js';
 import { hashPassword, verifyPassword } from './lib/auth/password.js';
 import { generateInviteToken, generateTokenString } from './lib/auth/token.js';
 import { createMailClient } from './lib/mail/index.js';
+import { hasD1MasterStore, listMasterItemsD1, listMasterCategoriesD1, upsertMasterItemD1, replaceMasterCategoriesD1, deleteMasterItemD1 } from './lib/masterStore.js';
 
 const MASTER_TYPE_LIST = [
   'test',
@@ -1941,7 +1942,12 @@ export default {
     }
 
     async function loadMasterItemsRaw(env, type) {
-      const prefix = `master:${type}:` ;
+      const d1Items = await listMasterItemsD1(env, { type });
+      if (d1Items !== null) {
+        return d1Items.map(item => ({ ...item }));
+      }
+
+      const prefix = `master:${type}:`;
       let cursor = undefined;
       const out = [];
       do {
@@ -3734,6 +3740,11 @@ export default {
       const aliases = Array.from(aliasSet);
       const payload = { ...record, type, legacyAliases: aliases };
       record.legacyAliases = aliases;
+      try {
+        await upsertMasterItemD1(env, payload);
+      } catch (err) {
+        console.warn('[masterStore] failed to upsert into D1', err);
+      }
       await env.SETTINGS.put(key, JSON.stringify(payload));
       for (const alias of aliases) {
         await writeLegacyPointer(env, type, alias, payload);
@@ -5507,22 +5518,45 @@ if (routeMatch(url, "GET", "listClinics")) {
       const type = url.searchParams.get("type");
       const status = url.searchParams.get("status");
       const includeSimilar = url.searchParams.get("includeSimilar") === "true";
-      let items = await getMasterCache(env, type, status);
+      let items = null;
 
-      if (!items) {
-        const typesToLoad = type ? [type] : Array.from(MASTER_ALLOWED_TYPES);
+      if (type) {
+        const d1Items = await listMasterItemsD1(env, { type, status });
+        if (d1Items !== null) {
+          items = d1Items.map(item => ({ ...item }));
+        }
+      } else if (hasD1MasterStore(env)) {
         const aggregated = [];
-        for (const t of typesToLoad) {
-          const subset = await loadMastersByType(env, t);
+        let d1Failed = false;
+        for (const t of MASTER_ALLOWED_TYPES) {
+          const subset = await listMasterItemsD1(env, { type: t, status });
+          if (subset === null) {
+            d1Failed = true;
+            break;
+          }
           aggregated.push(...subset);
         }
-        items = aggregated;
-        if (status) {
-          items = items.filter(item => item.status === status);
+        if (!d1Failed) {
+          items = aggregated.map(item => ({ ...item }));
         }
-        await setMasterCache(env, type, status, items);
-      } else {
-        items = items.map(item => ({ ...item }));
+      }
+
+      if (!items) {
+        let cached = await getMasterCache(env, type, status);
+        if (!cached) {
+          const typesToLoad = type ? [type] : Array.from(MASTER_ALLOWED_TYPES);
+          const aggregated = [];
+          for (const t of typesToLoad) {
+            const subset = await loadMastersByType(env, t);
+            aggregated.push(...subset);
+          }
+          cached = aggregated;
+          if (status) {
+            cached = cached.filter(item => item.status === status);
+          }
+          await setMasterCache(env, type, status, cached);
+        }
+        items = cached.map(item => ({ ...item }));
       }
 
       const collator = new Intl.Collator('ja');
@@ -5849,6 +5883,11 @@ if (routeMatch(url, "GET", "listClinics")) {
             status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
+        try {
+          await deleteMasterItemD1(env, { id: record.id });
+        } catch (err) {
+          console.warn('[masterStore] failed to delete master item in D1', err);
+        }
         await env.SETTINGS.delete(masterIdKey(type, record.id));
         if (Array.isArray(record.legacyAliases)) {
           await Promise.all(record.legacyAliases.map(alias => env.SETTINGS.delete(alias).catch(() => {})));
@@ -5957,14 +5996,41 @@ if (routeMatch(url, "GET", "listClinics")) {
     ];
 
     async function getCategories(env, type) {
+      if (!type) return null;
+      if (hasD1MasterStore(env)) {
+        try {
+          const d1Cats = await listMasterCategoriesD1(env, { type });
+          if (Array.isArray(d1Cats)) {
+            return d1Cats;
+          }
+        } catch (err) {
+          console.warn('failed to read categories from D1', err);
+        }
+      }
+
       const key = `categories:${type}`;
       const raw = await env.SETTINGS.get(key);
-      if (raw) { try { return JSON.parse(raw); } catch(_) {} }
-      return null;
+      if (!raw) return null;
+      try {
+        return JSON.parse(raw);
+      } catch (err) {
+        console.warn('failed to parse categories from KV', err);
+        return null;
+      }
     }
     async function putCategories(env, type, arr) {
+      const list = Array.isArray(arr) ? arr : [];
+      let handled = false;
+      if (hasD1MasterStore(env)) {
+        try {
+          handled = await replaceMasterCategoriesD1(env, { type, categories: list });
+        } catch (err) {
+          console.warn('[masterStore] failed to replace categories in D1', err);
+        }
+      }
       const key = `categories:${type}`;
-      await env.SETTINGS.put(key, JSON.stringify(arr));
+      await env.SETTINGS.put(key, JSON.stringify(list));
+      return handled;
     }
     function defaultsFor(type){
       switch(type){
@@ -5992,8 +6058,17 @@ if (routeMatch(url, "GET", "listClinics")) {
       });
     }
 
-    let cats = await getCategories(env, type);
-    if (!cats) { cats = defaultsFor(type); await putCategories(env, type, cats); }
+    let cats = null;
+    const d1Cats = await listMasterCategoriesD1(env, { type });
+    if (d1Cats !== null) {
+      cats = d1Cats;
+    } else {
+      cats = await getCategories(env, type);
+      if (!cats) {
+        cats = defaultsFor(type);
+        await putCategories(env, type, cats);
+      }
+    }
 
     return new Response(JSON.stringify({ ok: true, categories: cats }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -6746,9 +6821,8 @@ if (url.pathname === "/api/_seedQualifications" && request.method === "POST") {
     ];
 
     // 既に categories:qual があればスキップ（force以外）
-    const catKey = "categories:qual";
-    const catExists = await env.SETTINGS.get(catKey);
-    if (catExists && !force) {
+    const existingCategories = await getCategories(env, "qual");
+    if (!force && Array.isArray(existingCategories) && existingCategories.length > 0) {
       return new Response(JSON.stringify({ ok:true, skipped:true, reason:"categories:qual exists" }), {
         headers: { ...corsHeaders, "Content-Type":"application/json" }
       });
@@ -6811,27 +6885,37 @@ if (url.pathname === "/api/_seedQualifications" && request.method === "POST") {
       { category:"リハビリテーション領域", name:"リハビリテーション科専門医", issuer:"日本リハビリテーション医学会/日本専門医機構", status:"approved" }
     ];
 
-    // カテゴリ保存
-    await env.SETTINGS.put(catKey, JSON.stringify(qualCategories));
+    // カテゴリ保存（D1/KV 双方を更新）
+    await putCategories(env, "qual", qualCategories);
 
-    // マスター保存（prefix: master:qual:<sha> などでも良いが、ここでは連番）
-    // 既存を一旦クリアしたい場合は、force時のみ旧prefixをリスト→delete しても良い（ここでは上書き保存）。
-    let putCount = 0;
+    // マスター保存（既存があれば上書き、無ければ新規作成）
+    let createdCount = 0;
+    const now = Math.floor(Date.now() / 1000);
     for (const it of masterItems) {
-      // key例：master:qual:<category>:<name>
-      const k = `master:qual:${it.category}:${it.name}`;
-      await env.SETTINGS.put(k, JSON.stringify({
-        category: it.category,
-        name: it.name,
-        issuer: it.issuer || "",
-        status: it.status || "approved",
-        canonical_name: it.canonical_name || "",
-        sources: it.sources || []
-      }));
-      putCount++;
+      const { record, created } = await getOrCreateMasterRecord(env, { type: "qual", category: it.category, name: it.name });
+      record.status = it.status || record.status || "candidate";
+      record.issuer = it.issuer || record.issuer || "";
+      if (typeof it.canonical_name === "string") {
+        record.canonical_name = it.canonical_name || null;
+      }
+      if (Array.isArray(it.sources)) {
+        record.sources = it.sources;
+      }
+      record.updated_at = now;
+      await writeMasterRecord(env, "qual", record);
+      if (created) {
+        createdCount += 1;
+      }
     }
 
-    return new Response(JSON.stringify({ ok:true, categories: qualCategories.length, items: putCount }), {
+    await invalidateMasterCache(env, "qual");
+
+    return new Response(JSON.stringify({
+      ok: true,
+      categories: qualCategories.length,
+      items: masterItems.length,
+      created: createdCount,
+    }), {
       headers: { ...corsHeaders, "Content-Type":"application/json" }
     });
 

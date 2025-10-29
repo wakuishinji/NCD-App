@@ -15,3 +15,9 @@ preview_id = "0bab0d461acc4e54bca925c9ca383db2"
 binding = "MEDIA"
 bucket_name = "ncd-clinic-media"
 preview_bucket_name = "ncd-clinic-media-preview"
+
+[[d1_databases]]
+binding = "MASTERS_D1"
+database_name = "ncd-masters"
+database_id = "2d601bc3-8a3c-45f6-bb43-d9be3b64ee17"
+preview_database_id = "888a0e58-a8b3-40d9-a709-0231f63ac720"
