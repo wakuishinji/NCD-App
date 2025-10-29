@@ -100,38 +100,41 @@ async function main() {
   const orgLiteral = escapeLiteral(options.organizationId);
   const whereClause = options.whereClause ? ` AND (${options.whereClause})` : '';
 
-  const sql = `
-BEGIN TRANSACTION;
-UPDATE facilities
-  SET organization_id = '${orgLiteral}'
-  WHERE (organization_id IS NULL OR organization_id = '')
-  ${whereClause};
-UPDATE facility_services
-  SET organization_id = '${orgLiteral}'
-  WHERE (organization_id IS NULL OR organization_id = '')
-    AND facility_id IN (SELECT id FROM facilities WHERE organization_id = '${orgLiteral}');
-UPDATE facility_tests
-  SET organization_id = '${orgLiteral}'
-  WHERE (organization_id IS NULL OR organization_id = '')
-    AND facility_id IN (SELECT id FROM facilities WHERE organization_id = '${orgLiteral}');
-UPDATE facility_qualifications
-  SET organization_id = '${orgLiteral}'
-  WHERE (organization_id IS NULL OR organization_id = '')
-    AND facility_id IN (SELECT id FROM facilities WHERE organization_id = '${orgLiteral}');
-UPDATE facility_staff_lookup
-  SET organization_id = '${orgLiteral}'
-  WHERE (organization_id IS NULL OR organization_id = '')
-    AND facility_id IN (SELECT id FROM facilities WHERE organization_id = '${orgLiteral}');
-COMMIT;
-`.trim();
+  const sqlStatements = [
+    `UPDATE facilities
+      SET organization_id = '${orgLiteral}'
+      WHERE (organization_id IS NULL OR organization_id = '')
+      ${whereClause};`,
+    `UPDATE facility_services
+      SET organization_id = '${orgLiteral}'
+      WHERE (organization_id IS NULL OR organization_id = '')
+        AND facility_id IN (SELECT id FROM facilities WHERE organization_id = '${orgLiteral}');`,
+    `UPDATE facility_tests
+      SET organization_id = '${orgLiteral}'
+      WHERE (organization_id IS NULL OR organization_id = '')
+        AND facility_id IN (SELECT id FROM facilities WHERE organization_id = '${orgLiteral}');`,
+    `UPDATE facility_qualifications
+      SET organization_id = '${orgLiteral}'
+      WHERE (organization_id IS NULL OR organization_id = '')
+        AND facility_id IN (SELECT id FROM facilities WHERE organization_id = '${orgLiteral}');`,
+    `UPDATE facility_staff_lookup
+      SET organization_id = '${orgLiteral}'
+      WHERE (organization_id IS NULL OR organization_id = '')
+        AND facility_id IN (SELECT id FROM facilities WHERE organization_id = '${orgLiteral}');`,
+  ];
 
   if (options.dryRun) {
-    console.log('[dry-run] SQL:\n', sql);
+    console.log('[dry-run] Statements:');
+    sqlStatements.forEach((stmt) => {
+      console.log(`${stmt}\n---`);
+    });
     return;
   }
 
   console.log(`[info] Assigning organization_id='${options.organizationId}' (where='${options.whereClause || 'organization_id IS NULL'}')`);
-  await runWrangler(options.dbBinding, sql, options.useRemote);
+  for (const statement of sqlStatements) {
+    await runWrangler(options.dbBinding, statement, options.useRemote);
+  }
   console.log('[info] Completed organization assignment.');
 }
 
