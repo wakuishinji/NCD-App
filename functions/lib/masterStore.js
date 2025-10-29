@@ -133,14 +133,14 @@ export async function listMasterItemsD1(env, { type, status = null, organization
   const sql = `
 SELECT *
 FROM master_items
-WHERE type = ?
+WHERE type = ?1
   AND (
-    (?1 IS NOT NULL AND organization_id = ?1)
-    OR organization_id IS NULL
+    (?2 IS NULL AND organization_id IS NULL)
+    OR organization_id = ?2
   )
-  AND (?2 IS NULL OR status = ?2)
+  AND (?3 IS NULL OR status = ?3)
 ORDER BY
-  CASE WHEN organization_id = ?1 THEN 0 ELSE 1 END,
+  CASE WHEN organization_id = ?2 THEN 0 ELSE 1 END,
   CASE WHEN sort_order IS NULL THEN 1 ELSE 0 END,
   sort_order,
   name COLLATE NOCASE
@@ -176,13 +176,13 @@ export async function listMasterCategoriesD1(env, { type, organizationId = null 
   const sql = `
 SELECT name, organization_id, display_order
 FROM master_categories
-WHERE type = ?
+WHERE type = ?1
   AND (
-    (?1 IS NOT NULL AND organization_id = ?1)
-    OR organization_id IS NULL
+    (?2 IS NULL AND organization_id IS NULL)
+    OR organization_id = ?2
   )
 ORDER BY
-  CASE WHEN organization_id = ?1 THEN 0 ELSE 1 END,
+  CASE WHEN organization_id = ?2 THEN 0 ELSE 1 END,
   CASE WHEN display_order IS NULL THEN 1 ELSE 0 END,
   display_order,
   name COLLATE NOCASE
