@@ -94,4 +94,28 @@
 - 多言語ドメイン（`ncd-app.jp` など）との組み合わせ時に URL で組織を識別する方法（サブドメイン/パス）を決める必要がある。
 
 ---
+
+## 11. `organizationId` 移行 Runbook（草案）
+1. **現行データの確認**  
+   - `wrangler d1 execute MASTERS_D1 --remote --command "SELECT COUNT(*) FROM facilities WHERE organization_id IS NOT NULL;"` で未移行状態を確認。  
+   - 旧 KV の `clinic:id:*` に `organizationId` が存在するかサンプリングする（大半は未設定の想定）。
+2. **初期テナント登録**  
+   - `organization` テーブル（`schema/d1/schema.sql` へ追記予定）に `organization:nakano-med` を投入。  
+   - `scripts/organizationSeed.mjs`（作成予定）で名称・住所・連絡先をD1へ登録し、`org:nakano-med:settings` KV を初期化。
+3. **施設レコードへの付与**  
+   - `scripts/assignOrganizationToClinics.mjs` を作成し、対象テナントの `facility.id` 一覧を取得 → `UPDATE facilities SET organization_id = ? WHERE id IN (...)` を実行。  
+   - 併せて KV 互換キー（`clinic:id:<id>`）/`metadata` 内の JSON にも `organizationId` を追記する。  
+   - 実行前に `tmp/clinics-before.jsonl` と `tmp/clinics-after.jsonl` を出力し、差分レビューを行う。
+4. **API/Workers 更新**  
+   - `saveClinic` が `organizationId` を受け取り、未指定の場合はログインユーザーのデフォルト組織を設定する仕組みを導入。  
+   - `listClinics` / `clinicDetail` に `organizationId` フィルタを追加し、JWT の `memberships` からアクセス範囲を制限。  
+   - UI 側で現在の組織を選択する導線を実装し、API リクエストに `organizationId` を付与。
+5. **整合性チェック**  
+   - `SELECT organization_id, COUNT(*) FROM facilities GROUP BY organization_id;` を確認し、null が残っていないかを確認。  
+   - KV 側で `org:<slug>:clinic:<id>` のようなインデックスを用意し、`scripts/exportLegacyClinicsKv.mjs` でバックアップを取得後、旧インデックスとの整合性を確認。
+6. **段階的ロールアウト**  
+   - QA → ステージング → 本番の順で適用し、各段階で Playwright/E2E テストを実行。  
+   - 移行完了後、旧仕様に依存する UI/Script を洗い出し `organizationId` 必須化を宣言する。
+
+---
 このドラフトをベースに、詳細仕様・マイグレーションスクリプトのチケット化を進める。

@@ -121,7 +121,13 @@ describe('clinic API storage', () => {
       const record = {
         id,
         name: `テスト診療所${i}`,
-        schema_version: 1,
+        basic: {
+          name: `テスト診療所${i}`,
+          address: `東京都中野区${i}丁目`,
+          postalCode: '1650000',
+        },
+        schemaVersion: 2,
+        schema_version: 2,
         created_at: 1700000000 + i,
         updated_at: 1700000000 + i,
       };

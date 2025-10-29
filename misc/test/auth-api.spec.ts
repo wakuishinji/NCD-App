@@ -94,7 +94,13 @@ describe('auth API', () => {
     await env.SETTINGS.put('clinic:id:clinic-1', JSON.stringify({
       id: 'clinic-1',
       name: 'テスト診療所',
-      schema_version: 1,
+      basic: {
+        name: 'テスト診療所',
+        address: '東京都中野区サンプル1-1-1',
+        postalCode: '1650001',
+      },
+      schemaVersion: 2,
+      schema_version: 2,
     }));
 
     const res = await worker.fetch(
@@ -112,7 +118,13 @@ describe('auth API', () => {
     await env.SETTINGS.put('clinic:id:clinic-1', JSON.stringify({
       id: 'clinic-1',
       name: 'テスト診療所',
-      schema_version: 1,
+      basic: {
+        name: 'テスト診療所',
+        address: '東京都中野区サンプル1-1-1',
+        postalCode: '1650001',
+      },
+      schemaVersion: 2,
+      schema_version: 2,
       pendingInvites: [],
     }));
 
@@ -157,7 +169,13 @@ describe('auth API', () => {
     await env.SETTINGS.put('clinic:id:clinic-1', JSON.stringify({
       id: 'clinic-1',
       name: 'テスト診療所',
-      schema_version: 1,
+      basic: {
+        name: 'テスト診療所',
+        address: '東京都中野区サンプル1-1-1',
+        postalCode: '1650001',
+      },
+      schemaVersion: 2,
+      schema_version: 2,
       pendingInvites: [],
       managerAccounts: [],
       staffMemberships: [],
@@ -244,7 +262,13 @@ describe('auth API', () => {
     await env.SETTINGS.put('clinic:id:clinic-2', JSON.stringify({
       id: 'clinic-2',
       name: 'スタッフ診療所',
-      schema_version: 1,
+      basic: {
+        name: 'スタッフ診療所',
+        address: '東京都中野区スタッフ町2-2-2',
+        postalCode: '1650002',
+      },
+      schemaVersion: 2,
+      schema_version: 2,
       pendingInvites: [],
       managerAccounts: [],
       staffMemberships: [],

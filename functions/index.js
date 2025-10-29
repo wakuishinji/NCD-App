@@ -249,7 +249,7 @@ export default {
     // ============================================================
     // <<< START: UTILS >>>
     // ============================================================
-    const SCHEMA_VERSION = 1; // 施設スキーマのバージョン
+    const CLINIC_SCHEMA_VERSION = 2; // 施設スキーマのバージョン
 
     function nk(s) { return (s || "").trim(); }
 
@@ -307,6 +307,484 @@ export default {
       if (normalized.includes('hospital')) return 'hospital';
       if (normalized.includes('clinic')) return 'clinic';
       return normalized;
+    }
+
+    function hasFacilitiesD1(env) {
+      return !!env.MASTERS_D1 && typeof env.MASTERS_D1.prepare === 'function';
+    }
+
+    function clonePlain(value) {
+      if (value === undefined || value === null) return {};
+      try {
+        return JSON.parse(JSON.stringify(value));
+      } catch (err) {
+        console.warn('[clinic] failed to clone record', err);
+        return { ...value };
+      }
+    }
+
+    function toNumberOrNull(value) {
+      const num = Number(value);
+      return Number.isFinite(num) ? num : null;
+    }
+
+    function normalizeClinicRecord(input) {
+      if (!input || typeof input !== 'object') return null;
+      const clinic = clonePlain(input);
+      clinic.schemaVersion = CLINIC_SCHEMA_VERSION;
+      clinic.schema_version = CLINIC_SCHEMA_VERSION;
+
+      const basic = clonePlain(clinic.basic);
+      const assignFromBasic = (field, basicKey) => {
+        if (!basic[basicKey] && clinic[field]) {
+          basic[basicKey] = nk(clinic[field]);
+        }
+        if (!clinic[field] && basic[basicKey]) {
+          clinic[field] = nk(basic[basicKey]);
+        }
+      };
+      assignFromBasic('name', 'name');
+      assignFromBasic('nameKana', 'nameKana');
+      assignFromBasic('postalCode', 'postalCode');
+      assignFromBasic('address', 'address');
+      assignFromBasic('phone', 'phone');
+      assignFromBasic('fax', 'fax');
+      assignFromBasic('email', 'email');
+      assignFromBasic('website', 'website');
+      assignFromBasic('shortName', 'shortName');
+      assignFromBasic('prefecture', 'prefecture');
+      assignFromBasic('city', 'city');
+      clinic.basic = basic;
+
+      const location = clinic.location && typeof clinic.location === 'object'
+        ? { ...clinic.location }
+        : {};
+      const lat = toNumberOrNull(location.lat ?? location.latitude);
+      const lng = toNumberOrNull(location.lng ?? location.longitude);
+      clinic.location = {};
+      if (lat !== null) clinic.location.lat = lat;
+      if (lng !== null) clinic.location.lng = lng;
+      if (location.formattedAddress) clinic.location.formattedAddress = nk(location.formattedAddress);
+      if (location.source) clinic.location.source = nk(location.source);
+      if (location.geocodedAt) clinic.location.geocodedAt = location.geocodedAt;
+      if (location.geocodeStatus) clinic.location.geocodeStatus = location.geocodeStatus;
+      if (!Object.keys(clinic.location).length) clinic.location = null;
+
+      const resolvedMhlw = clinic.mhlwFacilityId
+        ? normalizeMhlwFacilityId(clinic.mhlwFacilityId)
+        : normalizeMhlwFacilityId(clinic.mhlwId || clinic.facilityId || '');
+      clinic.mhlwFacilityId = resolvedMhlw || null;
+
+      clinic.clinicType = normalizeFacilityType(clinic.clinicType || clinic.facilityType || '');
+      clinic.facilityType = clinic.clinicType;
+
+      const ensureArrayUnique = (value) => {
+        if (!Array.isArray(value)) return [];
+        return Array.from(new Set(value.map((item) => (typeof item === 'string' ? item.trim() : item)).filter(Boolean)));
+      };
+      clinic.managerAccounts = ensureArrayUnique(clinic.managerAccounts);
+      clinic.staffMemberships = ensureArrayUnique(clinic.staffMemberships);
+      clinic.services = Array.isArray(clinic.services) ? clinic.services : [];
+      clinic.tests = Array.isArray(clinic.tests) ? clinic.tests : [];
+      clinic.qualifications = Array.isArray(clinic.qualifications) ? clinic.qualifications : [];
+      clinic.pendingInvites = Array.isArray(clinic.pendingInvites) ? clinic.pendingInvites : [];
+      clinic.searchFacets = ensureArrayUnique(clinic.searchFacets);
+
+      if (!clinic.status) clinic.status = 'active';
+      return clinic;
+    }
+
+    function clinicToD1Row(clinic) {
+      const normalized = normalizeClinicRecord(clinic);
+      if (!normalized) return null;
+      const basic = normalized.basic || {};
+      const location = normalized.location || {};
+      return {
+        id: normalized.id,
+        externalId: normalized.mhlwFacilityId || null,
+        name: nk(basic.name),
+        shortName: nk(basic.shortName),
+        officialName: nk(basic.officialName || basic.name),
+        prefecture: nk(basic.prefecture || normalized.prefecture),
+        city: nk(basic.city || normalized.city),
+        address: nk(basic.address || normalized.address),
+        postalCode: nk(basic.postalCode || normalized.postalCode),
+        latitude: toNumberOrNull(location.lat),
+        longitude: toNumberOrNull(location.lng),
+        facilityType: normalized.clinicType || 'clinic',
+        phone: nk(basic.phone),
+        fax: nk(basic.fax),
+        email: nk(basic.email),
+        website: nk(basic.website),
+        metadata: JSON.stringify(normalized),
+      };
+    }
+
+    function generateCollectionId(facilityId, type, entry) {
+      const candidate = nk(entry?.id || entry?.masterId || entry?.masterKey);
+      if (candidate) return candidate;
+      if (typeof crypto?.randomUUID === 'function') {
+        return `${facilityId}:${type}:${crypto.randomUUID()}`;
+      }
+      return `${facilityId}:${type}:${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    }
+
+    async function replaceFacilityCollectionsD1(env, clinic) {
+      if (!hasFacilitiesD1(env) || !clinic?.id) return;
+      const facilityId = clinic.id;
+      try {
+        await env.MASTERS_D1.prepare('DELETE FROM facility_services WHERE facility_id = ?').bind(facilityId).run();
+        await env.MASTERS_D1.prepare('DELETE FROM facility_tests WHERE facility_id = ?').bind(facilityId).run();
+        await env.MASTERS_D1.prepare('DELETE FROM facility_qualifications WHERE facility_id = ?').bind(facilityId).run();
+      } catch (err) {
+        console.error('[clinic] failed to clear facility collections', err);
+        return;
+      }
+
+      const insertService = env.MASTERS_D1.prepare(`
+        INSERT INTO facility_services (id, facility_id, master_id, name, category, source, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          facility_id = excluded.facility_id,
+          master_id = excluded.master_id,
+          name = excluded.name,
+          category = excluded.category,
+          source = excluded.source,
+          notes = excluded.notes,
+          updated_at = strftime('%s','now')
+      `);
+      for (const svc of clinic.services || []) {
+        const masterId = nk(svc.masterId || svc.masterKey || '');
+        const name = nk(svc.name || svc.masterName || '');
+        if (!masterId && !name) continue;
+        const recordId = generateCollectionId(facilityId, 'service', svc);
+        try {
+          await insertService.bind(
+            recordId,
+            facilityId,
+            masterId || null,
+            name || (masterId ? masterId : null),
+            nk(svc.category || svc.type || ''),
+            nk(svc.source || ''),
+            nk(svc.notes || ''),
+          ).run();
+        } catch (err) {
+          console.error('[clinic] failed to insert facility_service', err);
+        }
+      }
+
+      const insertTest = env.MASTERS_D1.prepare(`
+        INSERT INTO facility_tests (id, facility_id, master_id, name, category, source, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          facility_id = excluded.facility_id,
+          master_id = excluded.master_id,
+          name = excluded.name,
+          category = excluded.category,
+          source = excluded.source,
+          notes = excluded.notes,
+          updated_at = strftime('%s','now')
+      `);
+      for (const test of clinic.tests || []) {
+        const masterId = nk(test.masterId || test.masterKey || '');
+        const name = nk(test.name || test.masterName || '');
+        if (!masterId && !name) continue;
+        const recordId = generateCollectionId(facilityId, 'test', test);
+        try {
+          await insertTest.bind(
+            recordId,
+            facilityId,
+            masterId || null,
+            name || (masterId ? masterId : null),
+            nk(test.category || test.type || ''),
+            nk(test.source || ''),
+            nk(test.notes || ''),
+          ).run();
+        } catch (err) {
+          console.error('[clinic] failed to insert facility_test', err);
+        }
+      }
+
+      const insertQual = env.MASTERS_D1.prepare(`
+        INSERT INTO facility_qualifications (id, facility_id, master_id, name, issuer, obtained_at, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          facility_id = excluded.facility_id,
+          master_id = excluded.master_id,
+          name = excluded.name,
+          issuer = excluded.issuer,
+          obtained_at = excluded.obtained_at,
+          notes = excluded.notes,
+          updated_at = strftime('%s','now')
+      `);
+      for (const qual of clinic.qualifications || []) {
+        const masterId = nk(qual.masterId || qual.masterKey || '');
+        const name = nk(qual.name || qual.masterName || '');
+        if (!masterId && !name) continue;
+        const recordId = generateCollectionId(facilityId, 'qual', qual);
+        try {
+          await insertQual.bind(
+            recordId,
+            facilityId,
+            masterId || null,
+            name || (masterId ? masterId : null),
+            nk(qual.issuer || qual.organization || ''),
+            nk(qual.obtainedAt || ''),
+            nk(qual.notes || ''),
+          ).run();
+        } catch (err) {
+          console.error('[clinic] failed to insert facility_qualification', err);
+        }
+      }
+    }
+
+    async function hydrateClinicCollectionsD1(env, clinic) {
+      if (!hasFacilitiesD1(env) || !clinic?.id) return clinic;
+      const facilityId = clinic.id;
+      const fetchRows = async (table, columns) => {
+        try {
+          const stmt = env.MASTERS_D1.prepare(
+            `SELECT ${columns.join(', ')} FROM ${table} WHERE facility_id = ? ORDER BY name`
+          );
+          const result = await stmt.bind(facilityId).all();
+          return result?.results || [];
+        } catch (err) {
+          console.error(`[clinic] failed to load ${table}`, err);
+          return [];
+        }
+      };
+
+      const serviceRows = await fetchRows('facility_services', [
+        'id', 'master_id', 'name', 'category', 'source', 'notes',
+      ]);
+      clinic.services = serviceRows.map((row) => ({
+        id: row.id,
+        masterId: row.master_id || undefined,
+        name: row.name || '',
+        category: row.category || undefined,
+        source: row.source || undefined,
+        notes: row.notes || undefined,
+      }));
+
+      const testRows = await fetchRows('facility_tests', [
+        'id', 'master_id', 'name', 'category', 'source', 'notes',
+      ]);
+      clinic.tests = testRows.map((row) => ({
+        id: row.id,
+        masterId: row.master_id || undefined,
+        name: row.name || '',
+        category: row.category || undefined,
+        source: row.source || undefined,
+        notes: row.notes || undefined,
+      }));
+
+      const qualRows = await fetchRows('facility_qualifications', [
+        'id', 'master_id', 'name', 'issuer', 'obtained_at', 'notes',
+      ]);
+      clinic.qualifications = qualRows.map((row) => ({
+        id: row.id,
+        masterId: row.master_id || undefined,
+        name: row.name || '',
+        issuer: row.issuer || undefined,
+        obtainedAt: row.obtained_at || undefined,
+        notes: row.notes || undefined,
+      }));
+
+      return normalizeClinicRecord(clinic);
+    }
+
+    async function upsertClinicD1(env, clinic) {
+      if (!hasFacilitiesD1(env)) return clinic;
+      const normalizedClinic = normalizeClinicRecord(clinic);
+      const row = clinicToD1Row(normalizedClinic);
+      if (!row?.id) return clinic;
+      const stmt = env.MASTERS_D1.prepare(`
+        INSERT INTO facilities (
+          id, external_id, name, short_name, official_name, prefecture, city,
+          address, postal_code, latitude, longitude, facility_type, phone, fax,
+          email, website, metadata
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          external_id = excluded.external_id,
+          name = excluded.name,
+          short_name = excluded.short_name,
+          official_name = excluded.official_name,
+          prefecture = excluded.prefecture,
+          city = excluded.city,
+          address = excluded.address,
+          postal_code = excluded.postal_code,
+          latitude = excluded.latitude,
+          longitude = excluded.longitude,
+          facility_type = excluded.facility_type,
+          phone = excluded.phone,
+          fax = excluded.fax,
+          email = excluded.email,
+          website = excluded.website,
+          metadata = excluded.metadata
+        RETURNING
+          id, external_id, name, short_name, official_name, prefecture, city,
+          address, postal_code, latitude, longitude, facility_type, phone, fax,
+          email, website, metadata
+      `);
+      const result = await stmt
+        .bind(
+          row.id,
+          row.externalId || null,
+          row.name || null,
+          row.shortName || null,
+          row.officialName || null,
+          row.prefecture || null,
+          row.city || null,
+          row.address || null,
+          row.postalCode || null,
+          row.latitude,
+          row.longitude,
+          row.facilityType || null,
+          row.phone || null,
+          row.fax || null,
+          row.email || null,
+          row.website || null,
+          row.metadata,
+        )
+        .first()
+        .catch((err) => {
+          console.error('[clinic] failed to upsert D1', err);
+          return null;
+        });
+      await replaceFacilityCollectionsD1(env, normalizedClinic);
+      if (result && result.metadata) {
+        try {
+          const parsed = normalizeClinicRecord(JSON.parse(result.metadata));
+          return hydrateClinicCollectionsD1(env, parsed);
+        } catch (err) {
+          console.warn('[clinic] failed to parse D1 metadata', err);
+        }
+      }
+      if (row.id) {
+        const fallback = await getClinicFromD1(env, 'id', row.id);
+        if (fallback) return fallback;
+      }
+      return hydrateClinicCollectionsD1(env, normalizedClinic);
+    }
+
+    function clinicFromD1Row(row) {
+      if (!row) return null;
+      let payload = null;
+      if (row.metadata) {
+        try {
+          payload = JSON.parse(row.metadata);
+        } catch (err) {
+          console.warn('[clinic] failed to parse metadata JSON', err);
+        }
+      }
+      if (!payload || typeof payload !== 'object') {
+        payload = {
+          id: row.id,
+          basic: {
+            name: row.name || '',
+            shortName: row.short_name || '',
+            address: row.address || '',
+            postalCode: row.postal_code || '',
+            phone: row.phone || '',
+            fax: row.fax || '',
+            email: row.email || '',
+            website: row.website || '',
+            prefecture: row.prefecture || '',
+            city: row.city || '',
+          },
+          clinicType: row.facility_type || 'clinic',
+          location: {
+            lat: row.latitude,
+            lng: row.longitude,
+          },
+          services: [],
+          tests: [],
+          qualifications: [],
+          managerAccounts: [],
+          staffMemberships: [],
+          status: 'active',
+        };
+      }
+      if (!payload.id) payload.id = row.id;
+      if (!payload.basic) payload.basic = {};
+      payload.basic.name = payload.basic.name || row.name || '';
+      payload.basic.address = payload.basic.address || row.address || '';
+      payload.basic.postalCode = payload.basic.postalCode || row.postal_code || '';
+      payload.basic.phone = payload.basic.phone || row.phone || '';
+      payload.basic.fax = payload.basic.fax || row.fax || '';
+      payload.basic.email = payload.basic.email || row.email || '';
+      payload.basic.website = payload.basic.website || row.website || '';
+      payload.basic.prefecture = payload.basic.prefecture || row.prefecture || '';
+      payload.basic.city = payload.basic.city || row.city || '';
+      payload.mhlwFacilityId = payload.mhlwFacilityId || row.external_id || null;
+      if (!payload.location || typeof payload.location !== 'object') {
+        payload.location = {};
+      }
+      if (row.latitude !== undefined && row.latitude !== null && payload.location.lat === undefined) {
+        payload.location.lat = row.latitude;
+      }
+      if (row.longitude !== undefined && row.longitude !== null && payload.location.lng === undefined) {
+        payload.location.lng = row.longitude;
+      }
+      payload.clinicType = payload.clinicType || row.facility_type || 'clinic';
+      return normalizeClinicRecord(payload);
+    }
+
+    async function getClinicFromD1(env, column, value) {
+      if (!hasFacilitiesD1(env) || !value) return null;
+      let sqlColumn = null;
+      switch (column) {
+        case 'id':
+          sqlColumn = 'id';
+          break;
+        case 'name':
+          sqlColumn = 'name';
+          break;
+        case 'external_id':
+          sqlColumn = 'external_id';
+          break;
+        default:
+          return null;
+      }
+      const stmt = env.MASTERS_D1.prepare(`
+        SELECT id, external_id, name, short_name, official_name, prefecture, city,
+               address, postal_code, latitude, longitude, facility_type,
+               phone, fax, email, website, metadata
+        FROM facilities
+        WHERE ${sqlColumn} = ?
+        LIMIT 1
+      `);
+      const row = await stmt.bind(value).first().catch((err) => {
+        console.error('[clinic] D1 lookup failed', err);
+        return null;
+      });
+      if (!row) return null;
+      const clinicRecord = clinicFromD1Row(row);
+      return hydrateClinicCollectionsD1(env, clinicRecord);
+    }
+
+    async function listClinicsD1(env, { limit = 2000, offset = 0 } = {}) {
+      if (!hasFacilitiesD1(env)) return { items: [], total: 0 };
+      const listQuery = env.MASTERS_D1.prepare(`
+        SELECT id, external_id, name, short_name, official_name, prefecture, city,
+               address, postal_code, latitude, longitude, facility_type,
+               phone, fax, email, website, metadata
+        FROM facilities
+        ORDER BY name
+        LIMIT ? OFFSET ?
+      `);
+      const result = await listQuery.bind(limit, offset).all().catch((err) => {
+        console.error('[clinic] failed to list D1 facilities', err);
+        return { results: [] };
+      });
+      const rows = result?.results || [];
+      const items = rows.map((row) => clinicFromD1Row(row)).filter(Boolean);
+      await Promise.all(items.map(async (clinic, index) => {
+        const hydrated = await hydrateClinicCollectionsD1(env, clinic);
+        items[index] = hydrated;
+      }));
+      const totalRow = await env.MASTERS_D1.prepare('SELECT COUNT(*) AS cnt FROM facilities;').first().catch(() => ({ cnt: 0 }));
+      return { items, total: totalRow?.cnt || 0 };
     }
 
     function isGzipFile(file) {
@@ -2134,24 +2612,40 @@ export default {
 
     // 施設: 取得/保存
     async function getClinicById(env, id) {
-      return kvGetJSON(env, `clinic:id:${id}`);
+      if (!id) return null;
+      if (hasFacilitiesD1(env)) {
+        const clinic = await getClinicFromD1(env, 'id', id);
+        if (clinic) return clinic;
+      }
+      const fallback = await kvGetJSON(env, `clinic:id:${id}`);
+      return normalizeClinicRecord(fallback);
     }
     async function getClinicByName(env, name) {
+      if (!name) return null;
+      if (hasFacilitiesD1(env)) {
+        const clinic = await getClinicFromD1(env, 'name', name);
+        if (clinic) return clinic;
+      }
       const idx = await env.SETTINGS.get(`clinic:name:${name}`);
       if (idx) return getClinicById(env, idx);
       // 互換: 旧キー
-      return kvGetJSON(env, `clinic:${name}`);
+      const fallback = await kvGetJSON(env, `clinic:${name}`);
+      return normalizeClinicRecord(fallback);
     }
     async function getClinicByMhlwFacilityId(env, facilityId) {
       const normalized = normalizeMhlwFacilityId(facilityId);
       if (!normalized) return null;
+      if (hasFacilitiesD1(env)) {
+        const clinic = await getClinicFromD1(env, 'external_id', normalized);
+        if (clinic) return clinic;
+      }
       const pointer = await env.SETTINGS.get(`clinic:mhlw:${normalized}`);
       if (!pointer) return null;
       return getClinicById(env, pointer);
     }
     async function saveClinic(env, clinic) {
       const now = Math.floor(Date.now()/1000);
-      clinic.schema_version = SCHEMA_VERSION;
+      clinic = clonePlain(clinic);
       clinic.updated_at = now;
       let existing = null;
       if (clinic.id) {
@@ -2186,21 +2680,34 @@ export default {
         }
         clinic.mhlwFacilityId = newMhlwId;
       } else {
-        clinic.mhlwFacilityId = undefined;
+        clinic.mhlwFacilityId = null;
       }
       if (existing?.name && existing.name !== clinic.name) {
         await env.SETTINGS.delete(`clinic:name:${existing.name}`).catch(() => {});
         await env.SETTINGS.delete(`clinic:${existing.name}`).catch(() => {});
       }
+      if (previousMhlwId && previousMhlwId !== newMhlwId) {
+        await env.SETTINGS.delete(`clinic:mhlw:${previousMhlwId}`).catch(() => {});
+      }
+      clinic = normalizeClinicRecord({
+        ...existing,
+        ...clinic,
+      });
+      clinic.updated_at = now;
+      if (!clinic.created_at && existing?.created_at) {
+        clinic.created_at = existing.created_at;
+      } else if (!clinic.created_at) {
+        clinic.created_at = now;
+      }
+
+      clinic = await upsertClinicD1(env, clinic);
+
       if (clinic.name) {
         await env.SETTINGS.put(`clinic:name:${clinic.name}`, clinic.id);
         await kvPutJSON(env, `clinic:${clinic.name}`, clinic); // 互換
       }
-      if (previousMhlwId && previousMhlwId !== newMhlwId) {
-        await env.SETTINGS.delete(`clinic:mhlw:${previousMhlwId}`).catch(() => {});
-      }
-      if (newMhlwId) {
-        await env.SETTINGS.put(`clinic:mhlw:${newMhlwId}`, clinic.id);
+      if (clinic.mhlwFacilityId) {
+        await env.SETTINGS.put(`clinic:mhlw:${clinic.mhlwFacilityId}`, clinic.id);
       }
       await kvPutJSON(env, `clinic:id:${clinic.id}`, clinic);
       return clinic;
@@ -2278,6 +2785,9 @@ export default {
       return updated;
     }
     async function listClinicsKV(env, {limit=2000, offset=0} = {}) {
+      if (hasFacilitiesD1(env)) {
+        return listClinicsD1(env, { limit, offset });
+      }
       const prefix = "clinic:id:";
       const ids = [];
       let cursor;
@@ -5336,10 +5846,21 @@ if (routeMatch(url, "GET", "listClinics")) {
         const _id = obj.id;
         const _name = obj.name;
 
+        if (hasFacilitiesD1(env) && _id) {
+          await env.MASTERS_D1.prepare('DELETE FROM facilities WHERE id = ?').bind(_id).run().catch((err) => {
+            console.error('[clinic] failed to delete facility from D1', err);
+          });
+        }
         if (_id) await env.SETTINGS.delete(`clinic:id:${_id}`);
         if (_name) {
           await env.SETTINGS.delete(`clinic:name:${_name}`);
           await env.SETTINGS.delete(`clinic:${_name}`); // 旧互換キー
+        }
+        if (obj?.mhlwFacilityId) {
+          const normalizedId = normalizeMhlwFacilityId(obj.mhlwFacilityId);
+          if (normalizedId) {
+            await env.SETTINGS.delete(`clinic:mhlw:${normalizedId}`).catch(() => {});
+          }
         }
 
         return new Response(JSON.stringify({ ok: true }), {

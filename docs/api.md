@@ -26,17 +26,35 @@ NCD-App で利用する主要な HTTP API をまとめる。パスはすべて `
     "ok": true,
     "clinic": {
       "id": "b5c9f5ac-...",
-      "name": "のがたクリニック",
-      "schema_version": 1,
-      "created_at": 1707283200,
-      "updated_at": 1707283200
+      "schemaVersion": 2,
+      "basic": {
+        "name": "のがたクリニック",
+        "address": "東京都中野区野方1-2-3",
+        "postalCode": "1650027",
+        "phone": "",
+        "fax": "",
+        "website": "",
+        "email": ""
+      },
+      "location": null,
+      "clinicType": "clinic",
+      "services": [],
+      "tests": [],
+      "qualifications": [],
+      "managerAccounts": [],
+      "staffMemberships": [],
+      "status": "active",
+      "metadata": {
+        "createdAt": "2025-10-29T00:00:00.000Z",
+        "updatedAt": "2025-10-29T00:00:00.000Z"
+      }
     }
   }
   ```
 - 既存データが旧形式（`clinic:{name}`）で保存されている場合は、その場で新形式へ移行して返す。
 
 ### `GET /api/listClinics`
-- **概要**: すべての診療所を配列で返す。内部では KV の cursor を用いてページングし、最大 2000 件まで返却。
+- **概要**: すべての診療所を配列で返す。D1 `facilities` テーブルが利用可能な場合は D1 から、未移行環境では KV から取得する。最大 2000 件まで返却。
 - **Response (200)**
   ```json
   { "ok": true, "clinics": [ { "id": "...", "name": "...", ... } ] }
