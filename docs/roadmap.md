@@ -87,7 +87,36 @@
    - 各サービスは共通ID（`account:<uuid>` / `clinic:<uuid>` / `skillProfile:<uuid>`）で紐付け、公開情報は Event/Queue 経由で同期。  
  - 個人情報は SkilBank/MedicalDraft 側で保持し、NCD/Orchestra は公開用のキャッシュテーブルを参照。  
  - KV（設定・小規模キャッシュ）と D1 / 外部RDB（履歴・大量データ）を役割分担させ、将来的な移行計画を事前に整備する。  
-  - 厚労省公開データなど大容量のオリジナルソースは Git に含めず、取得手順を `data/medical-open-data/README.md` に整理。
+ - 厚労省公開データなど大容量のオリジナルソースは Git に含めず、取得手順を `data/medical-open-data/README.md` に整理。
+
+### 5.1 データ基盤リデザイン計画（D1 移行）
+
+- **目的**: KV/R2 中心の構造から脱却し、Cloudflare D1 を正本 DB として採用。施設・医療者・厚労省データを正規化して保存し、検索・集計・API をサーバーサイドで完結できるようにする。将来の SkilBank / Medical Orchestra / MedicalDraft とも共通基盤で連携する。
+
+- **主要テーブル（初期案）**
+  - `facilities`（施設基本情報：厚労省 ID、名称、所在地、種別、緯度経度、同期ステータス）
+  - `facility_mhlw_snapshot`（最新の厚労省スナップショット JSON と同期日時）
+  - `facility_schedule`（曜日・時間帯・診療科ごとの診療時間）
+  - `accounts` / `practitioners` / `memberships`（アカウント・医療者・所属）
+  - `mhlw_imports`（CSV 取り込み履歴とメタ情報）
+  - `audit_log`（重要操作の追跡）
+
+- **フロー**
+  1. CSV を UI/CLI からアップロード → 整形 JSON を R2 へ保存。
+  2. Workers が JSON を D1 に Upsert（施設／スケジュール／スナップショット／履歴）。
+  3. `GET /api/facilities`、`GET /api/facilities/:id` 等の REST API を D1 ベースで設計。検索パラメータ（略称、都道府県、市区町村、郵便番号）に対応。
+  4. `mhlw-sync.html` や `mhlw-facility-list.html` は全件ロードを廃止し、API でページング表示。Playwright など E2E テストも併せて整備。
+
+- **移行ステップ**
+  1. D1 スキーマ作成（SQL 定義・インデックス設計）。
+  2. 既存 KV データと厚労省 CSV から D1 へ移行するスクリプトを作成。
+  3. Workers API を段階的に D1 参照へリファクタし、フロントを API 検索に切り替える。
+  4. 動作確認後、KV 参照を廃止・R2 はバックアップ用途とする。
+
+- **将来展開**
+  - SkilBank 医療者データや Medical Orchestra のチャットログも D1 を中心に据え、一括検索・集計を可能にする。
+  - データウェアハウス（BigQuery 等）へのエクスポートや AI 活用の基盤を整える。
+
 
 3. **セキュリティ**  
    - Cloudflare Zero Trust で管理ポータルと API へのアクセスを制限。  
