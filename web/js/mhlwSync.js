@@ -5,6 +5,7 @@
   const LOCAL_CACHE_TTL_MS = 1000 * 60 * 60; // 1 hour
   const DEFAULT_CACHE_CONTROL = 'public, max-age=600, stale-while-revalidate=3600';
   const UTF8_DECODER = new TextDecoder('utf-8');
+  const facilityCache = new Map();
 
   function resolveApiBase() {
     if (global.NcdAuth && typeof global.NcdAuth.resolveApiBase === 'function') {
@@ -194,47 +195,68 @@
     return parseJsonResponse(res);
   }
 
-  async function loadMhlwFacilities({ bypassCache = false } = {}) {
-    const cached = bypassCache ? null : loadCachedMhlwData();
-    if (cached) return cached;
+  async function fetchMhlwSearch({
+    keyword = '',
+    facilityId = '',
+    facilityType = '',
+    prefecture = '',
+    city = '',
+    limit = 20,
+  } = {}) {
+    const apiBase = resolveApiBase();
+    const params = new URLSearchParams();
+    if (keyword) params.set('q', keyword);
+    if (facilityId) params.set('facilityId', sanitizeFacilityId(facilityId));
+    if (facilityType) params.set('facilityType', facilityType);
+    if (prefecture) params.set('prefecture', prefecture);
+    if (city) params.set('city', city);
+    params.set('limit', String(Math.max(1, Math.min(Number(limit) || 20, 100))));
 
-    let dataset = null;
-    let lastError = null;
+    const headers = new Headers();
+    const authHeader = await getAuthHeader();
+    if (authHeader) headers.set('Authorization', authHeader);
 
-    try {
-      const apiPayload = await fetchMhlwFacilitiesFromApi({ cacheMode: bypassCache ? 'reload' : 'default' });
-      dataset = normalizeFacilitiesPayload(apiPayload);
-    } catch (err) {
-      lastError = err;
-      console.warn('[mhlwSync] failed to load facilities via API', err);
-    }
-
-    const shouldFallback = shouldUseLocalFallback();
-    if ((!dataset || Object.keys(dataset).length === 0) && shouldFallback) {
-      try {
-        const localPayload = await fetchMhlwFacilitiesFromLocalFile();
-        dataset = normalizeFacilitiesPayload(localPayload);
-      } catch (localErr) {
-        if (!lastError) lastError = localErr;
-        console.warn('[mhlwSync] failed to load facilities from local file', localErr);
-      }
-    }
-
-    if (dataset && Object.keys(dataset).length) {
-      const total = Object.keys(dataset).length;
-      console.info('[mhlwSync] facilities dataset loaded', { total });
-      storeCachedMhlwData(dataset);
-      return dataset;
-    }
-
-    if (lastError) {
-      console.warn('[mhlwSync] no facilities dataset available', lastError);
-      const fallbackNote = shouldFallback ? 'CSV のアップロード状況をご確認のうえ再読込してください。' : 'API から厚労省施設データを取得できませんでした。Workers 側の `/api/mhlw/facilities` 応答を確認してください。';
-      const error = new Error(`厚労省施設データが読み込めませんでした。${fallbackNote}`);
-      error.cause = lastError;
+    const res = await fetch(`${apiBase}/api/mhlw/search?${params.toString()}`, { headers, cache: 'no-cache' });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const error = new Error(payload?.message || `Search failed (${res.status})`);
+      error.status = res.status;
+      error.payload = payload;
       throw error;
     }
-    return {};
+    const results = Array.isArray(payload?.results) ? payload.results : [];
+    results.forEach((facility) => {
+      const id = sanitizeFacilityId(facility?.facilityId);
+      if (id) facilityCache.set(id, facility);
+    });
+    return results;
+  }
+
+  async function loadMhlwFacilities({ bypassCache = false } = {}) {
+    if (bypassCache) {
+      try {
+        localStorage.removeItem(LOCAL_CACHE_KEY);
+        localStorage.removeItem(LOCAL_CACHE_TS_KEY);
+      } catch (_) {}
+      facilityCache.clear();
+    }
+    try {
+      const results = await fetchMhlwSearch({ limit: 25 });
+      const dataset = {};
+      results.forEach((facility) => {
+        const id = sanitizeFacilityId(facility?.facilityId);
+        if (id) {
+          facilityCache.set(id, facility);
+          dataset[id] = facility;
+        }
+      });
+      return dataset;
+    } catch (err) {
+      console.warn('[mhlwSync] failed to load facilities sample', err);
+      const error = new Error('厚労省施設データの取得に失敗しました。');
+      error.cause = err;
+      throw error;
+    }
   }
 
   function renderMhlwPreview(data, element) {
@@ -761,6 +783,25 @@
     return String(value).trim().replace(/[^0-9A-Za-z]/g, '').toUpperCase();
   }
 
+  function getCachedFacility(facilityId) {
+    const id = sanitizeFacilityId(facilityId);
+    if (!id) return null;
+    return facilityCache.get(id) || null;
+  }
+
+  async function ensureFacilityCached(facilityId) {
+    const id = sanitizeFacilityId(facilityId);
+    if (!id) return null;
+    const existing = facilityCache.get(id);
+    if (existing) return existing;
+    const results = await fetchMhlwSearch({ facilityId: id, limit: 1 });
+    const facility = results.find((entry) => sanitizeFacilityId(entry?.facilityId) === id) || null;
+    if (facility) {
+      facilityCache.set(id, facility);
+    }
+    return facility;
+  }
+
   function variantMatchesQuery(variants, querySet) {
     if (!Array.isArray(variants) || !variants.length || !querySet.size) return false;
     for (const variant of variants) {
@@ -899,7 +940,7 @@
 
   function createMhlwCandidateSection({
     clinic,
-    entries,
+    searchFn,
     keywordCandidates = [],
     initialKeyword = '',
     onCandidateSelected,
@@ -998,14 +1039,19 @@
       }
     };
 
-    const renderCandidates = (keyword, { fallback = false } = {}) => {
+    let currentSearchToken = 0;
+
+    const renderCandidates = async (keyword, { fallback = false } = {}) => {
+      const token = ++currentSearchToken;
       list.innerHTML = '';
       const trimmed = (keyword || '').trim();
-      if (!Array.isArray(entries) || !entries.length) {
-        const empty = document.createElement('p');
-        empty.className = 'text-xs text-red-600';
-        empty.textContent = '厚労省データが読み込まれていません。CSVを再読込してください。';
-        list.appendChild(empty);
+      const loading = document.createElement('p');
+      loading.className = 'text-xs text-slate-500';
+      loading.textContent = '候補を検索しています…';
+      list.appendChild(loading);
+
+      if (typeof searchFn !== 'function') {
+        loading.textContent = '厚労省検索関数が利用できません。';
         infoLine.textContent = trimmed ? `検索キーワード: 「${trimmed}」` : '検索キーワード: （未入力）';
         return;
       }
@@ -1018,9 +1064,17 @@
         if (term && !queue.includes(term)) queue.push(term);
       });
 
-      const renderForTerm = (term) => {
-        const results = findMhlwCandidates({ entries, clinic, query: term, limit: 8 });
+      const runSearchForTerm = async (term) => {
+        const remoteEntries = await searchFn(term, { fallback, clinic });
+        if (token !== currentSearchToken) return true; // another request is in-flight, stop rendering
+        const results = findMhlwCandidates({
+          entries: Array.isArray(remoteEntries) ? remoteEntries : [],
+          clinic,
+          query: term,
+          limit: 8,
+        });
         if (!results.length) return false;
+        list.innerHTML = '';
         results.forEach(({ facility, score }) => {
           const item = document.createElement('div');
           item.className = 'rounded border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 transition';
@@ -1102,7 +1156,18 @@
           searchInput.value = normalized;
         }
         attempts.push(normalized);
-        if (renderForTerm(normalized)) {
+        const rendered = await runSearchForTerm(normalized).catch((err) => {
+          if (token !== currentSearchToken) return false;
+          console.warn('[mhlwSync] search error', err);
+          list.innerHTML = '';
+          const errorEl = document.createElement('p');
+          errorEl.className = 'text-xs text-red-600';
+          errorEl.textContent = err?.message || '候補検索に失敗しました。';
+          list.appendChild(errorEl);
+          return true;
+        });
+        if (token !== currentSearchToken) return;
+        if (rendered) {
           infoLine.textContent = attempts.length === 1
             ? `検索キーワード: 「${normalized}」`
             : `検索キーワード: 「${attempts[0]}」では一致なし → 「${normalized}」の候補を表示中`;
@@ -1111,6 +1176,7 @@
         if (!fallback) break;
       }
 
+      list.innerHTML = '';
       const empty = document.createElement('p');
       empty.className = 'text-xs text-slate-500';
       empty.textContent = '候補が見つかりませんでした。キーワードを調整してください。';
@@ -1121,36 +1187,32 @@
     };
 
     searchButton.addEventListener('click', () => {
-      renderCandidates(searchInput.value, { fallback: true });
+      void renderCandidates(searchInput.value, { fallback: true });
     });
 
     resetButton.addEventListener('click', () => {
       searchInput.value = resolvedInitialKeyword;
-      renderCandidates(resolvedInitialKeyword, { fallback: true });
+      void renderCandidates(resolvedInitialKeyword, { fallback: true });
     });
 
     searchInput.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
         event.preventDefault();
-        renderCandidates(searchInput.value, { fallback: true });
+        void renderCandidates(searchInput.value, { fallback: true });
       }
     });
 
-    renderCandidates(searchInput.value, { fallback: true });
+    void renderCandidates(searchInput.value, { fallback: true });
 
     return {
       element: section,
-      render: (keyword, options) => renderCandidates(keyword, options),
+      render: (keyword, options) => { void renderCandidates(keyword, options); },
       focus: () => searchInput.focus(),
       getKeywords: () => combinedKeywords.slice(),
     };
   }
 
-  function buildClinicCard(clinic, mhlwSource, options = {}) {
-    const dict = (mhlwSource && mhlwSource.dict) || mhlwSource || {};
-    const entries = Array.isArray(mhlwSource?.entries)
-      ? mhlwSource.entries
-      : (dict && typeof dict === 'object' ? Object.values(dict) : []);
+  function buildClinicCard(clinic, mhlwService, options = {}) {
     const searchKeyword = typeof options.searchKeyword === 'string' ? options.searchKeyword : '';
     const onLinked = typeof options.onLinked === 'function' ? options.onLinked : null;
 
@@ -1206,31 +1268,48 @@
     }
 
     const lookupFacility = (facilityId) => {
-      if (!facilityId) return null;
-      const normalized = facilityId.toUpperCase();
-      return dict[normalized] || dict[facilityId] || null;
+      if (typeof mhlwService?.lookup === 'function') {
+        return mhlwService.lookup(facilityId);
+      }
+      return getCachedFacility(facilityId);
     };
 
-    const mhlwInfo = lookupFacility(currentFacilityId);
-    if (mhlwInfo) {
-      const mhlwTypeLabel = mhlwInfo.facilityType === 'hospital'
+    const renderFacilitySummary = (facility) => {
+      if (!facility || !facility.facilityId) return null;
+      const mhlwTypeLabel = facility.facilityType === 'hospital'
         ? '病院'
-        : mhlwInfo.facilityType === 'clinic'
+        : facility.facilityType === 'clinic'
           ? '診療所'
-          : mhlwInfo.facilityType || '-';
+          : facility.facilityType || '-';
       const box = document.createElement('div');
       box.className = 'mt-3 rounded border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-600';
       box.innerHTML = `
         <div class="font-semibold text-slate-700">厚労省データ概要</div>
         <dl class="mt-1 grid grid-cols-1 gap-1 sm:grid-cols-2">
-          <div><dt class="font-medium">厚労省ID</dt><dd>${mhlwInfo.facilityId || '-'}</dd></div>
-          <div><dt class="font-medium">名称</dt><dd>${pickFacilityDisplayName(mhlwInfo)}</dd></div>
-          <div><dt class="font-medium">住所</dt><dd>${pickFacilityAddress(mhlwInfo) || '-'}</dd></div>
+          <div><dt class="font-medium">厚労省ID</dt><dd>${facility.facilityId || '-'}</dd></div>
+          <div><dt class="font-medium">名称</dt><dd>${pickFacilityDisplayName(facility)}</dd></div>
+          <div><dt class="font-medium">住所</dt><dd>${pickFacilityAddress(facility) || '-'}</dd></div>
           <div><dt class="font-medium">種別</dt><dd>${mhlwTypeLabel}</dd></div>
-          <div><dt class="font-medium">郵便番号</dt><dd>${mhlwInfo.postalCode || '-'}</dd></div>
+          <div><dt class="font-medium">郵便番号</dt><dd>${facility.postalCode || '-'}</dd></div>
         </dl>
       `;
-      wrapper.appendChild(box);
+      return box;
+    };
+
+    let summaryBox = null;
+    let mhlwInfo = currentFacilityId ? lookupFacility(currentFacilityId) : null;
+    if (mhlwInfo) {
+      summaryBox = renderFacilitySummary(mhlwInfo);
+      if (summaryBox) wrapper.appendChild(summaryBox);
+    } else if (currentFacilityId && typeof mhlwService?.ensure === 'function') {
+      mhlwService.ensure(currentFacilityId).then((facility) => {
+        if (!facility || sanitizeFacilityId(facility.facilityId) !== currentFacilityId) return;
+        if (summaryBox) summaryBox.remove();
+        summaryBox = renderFacilitySummary(facility);
+        if (summaryBox) wrapper.appendChild(summaryBox);
+      }).catch((err) => {
+        console.warn('[mhlwSync] failed to fetch facility summary', err);
+      });
     }
 
     const statusEl = form.querySelector('[data-status]');
@@ -1283,16 +1362,22 @@
     if (syncButton) {
       syncButton.addEventListener('click', async () => {
         setStatus('', 'info');
-      const facilityId = (facilityIdInput.value || '').trim().toUpperCase();
-      const facilityId = sanitizeFacilityId(facilityIdInput.value);
-      facilityIdInput.value = facilityId;
-      if (!facilityId) {
-        setStatus('まず厚労省IDを登録してください。', 'error');
-        return;
-      }
-        const facility = lookupFacility(facilityId);
+        const facilityId = sanitizeFacilityId(facilityIdInput.value);
+        facilityIdInput.value = facilityId;
+        if (!facilityId) {
+          setStatus('まず厚労省IDを登録してください。', 'error');
+          return;
+        }
+        let facility = lookupFacility(facilityId);
+        if (!facility && typeof mhlwService?.ensure === 'function') {
+          try {
+            facility = await mhlwService.ensure(facilityId);
+          } catch (err) {
+            console.warn('[mhlwSync] failed to fetch facility for sync', err);
+          }
+        }
         if (!facility) {
-          setStatus(`厚労省データにID ${facilityId} が見つかりません。CSVが最新か確認してください。`, 'error');
+          setStatus(`厚労省データにID ${facilityId} が見つかりません。`, 'error');
           return;
         }
         const apiBase = resolveApiBase();
@@ -1329,9 +1414,24 @@
       clinic.corporationName,
       clinic.nameKana,
     ].filter((value) => typeof value === 'string' && value.trim());
+
+    const performSearch = async (term, { fallback } = {}) => {
+      const params = {
+        keyword: term,
+        limit: fallback ? 50 : 25,
+      };
+      if (clinic?.facilityType) params.facilityType = clinic.facilityType;
+      if (clinic?.prefecture) params.prefecture = clinic.prefecture;
+      if (clinic?.city) params.city = clinic.city;
+      if (typeof mhlwService?.search === 'function') {
+        return mhlwService.search(params);
+      }
+      return fetchMhlwSearch(params);
+    };
+
     const candidateSectionControl = createMhlwCandidateSection({
       clinic,
-      entries,
+      searchFn: performSearch,
       keywordCandidates: keywordSources,
       initialKeyword: keywordSources[0] || '',
       onSetStatus: (message, variant) => {
@@ -1374,9 +1474,13 @@
     if (!clinicList) return;
 
     let mhlwDict = {};
-    let mhlwEntries = [];
     let clinicsCache = null;
     let clinicsLoading = false;
+    const mhlwService = {
+      lookup: getCachedFacility,
+      ensure: ensureFacilityCached,
+      search: (params) => fetchMhlwSearch(params),
+    };
 
     function setStatus(element, message, variant = 'info') {
       if (!element) return;
@@ -1401,12 +1505,23 @@
         return;
       }
       const parts = [];
-      parts.push(`<span class="font-semibold">${formatTimestamp(meta.updatedAt)}</span>`);
+      const updatedLabel = meta.updatedAt ? formatTimestamp(meta.updatedAt) : '不明';
+      parts.push(`<span class="font-semibold">${updatedLabel}</span>`);
+      if (typeof meta.facilityCount === 'number') {
+        parts.push(`施設件数: ${meta.facilityCount.toLocaleString()} 件`);
+      }
+      if (typeof meta.scheduleCount === 'number') {
+        parts.push(`診療時間レコード: ${meta.scheduleCount.toLocaleString()} 件`);
+      }
       if (typeof meta.size === 'number') {
         parts.push(`サイズ: ${formatBytes(meta.size)}`);
       }
       if (meta.etag) {
         parts.push(`ETag: ${meta.etag}`);
+      }
+      if (meta.sourceType) {
+        const sourceLabel = meta.sourceType === 'd1' ? 'D1' : meta.sourceType;
+        parts.push(`ソース: ${sourceLabel}`);
       }
       if (meta.cacheControl) {
         parts.push(`Cache-Control: ${meta.cacheControl}`);
@@ -1449,7 +1564,7 @@
       pending.forEach((clinic) => {
         clinicList.appendChild(buildClinicCard(
           clinic,
-          { dict: mhlwDict, entries: mhlwEntries },
+          mhlwService,
           {
             searchKeyword: clinic?.name || '',
             onLinked: () => loadClinics(true),
@@ -1472,14 +1587,12 @@
       await loadMeta(force);
       try {
         mhlwDict = await loadMhlwFacilities({ bypassCache: force });
-        mhlwEntries = mhlwDict && typeof mhlwDict === 'object' ? Object.values(mhlwDict) : [];
         if (previewEl) {
           previewEl.classList.remove('text-red-600', 'bg-red-50');
         }
         renderMhlwPreview(mhlwDict, previewEl);
       } catch (err) {
         mhlwDict = {};
-        mhlwEntries = [];
         console.error('[mhlwSync] failed to load MHLW dataset', err);
         if (previewEl) {
           previewEl.classList.add('text-red-600');

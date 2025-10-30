@@ -2014,20 +2014,68 @@ export default {
       return -1;
     }
 
-    async function readMhlwFacilitiesMeta(env) {
-      if (!env?.SETTINGS?.get) return null;
-      try {
-        const raw = await env.SETTINGS.get(MHLW_FACILITIES_META_KEY);
-        if (!raw) return null;
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === 'object') {
-          return parsed;
-        }
-        return null;
-      } catch (err) {
-        console.warn('[mhlw] failed to read metadata', err);
+    async function getMhlwFacilityStats(env) {
+      if (!env?.MASTERS_D1 || typeof env.MASTERS_D1.prepare !== 'function') {
         return null;
       }
+      try {
+        const facilityRow = await env.MASTERS_D1.prepare(
+          'SELECT COUNT(*) AS cnt, MAX(updated_at) AS max_updated FROM mhlw_facilities;'
+        )
+          .first()
+          .catch(() => null);
+        const scheduleRow = await env.MASTERS_D1.prepare(
+          'SELECT COUNT(*) AS cnt FROM mhlw_facility_schedules;'
+        )
+          .first()
+          .catch(() => null);
+        const facilityCount = Number(facilityRow?.cnt ?? 0);
+        const scheduleCount = Number(scheduleRow?.cnt ?? 0);
+        const updatedAtSeconds = Number(facilityRow?.max_updated ?? 0);
+        const updatedAt =
+          Number.isFinite(updatedAtSeconds) && updatedAtSeconds > 0
+            ? new Date(updatedAtSeconds * 1000).toISOString()
+            : new Date().toISOString();
+        return {
+          sourceType: 'd1',
+          facilityCount,
+          scheduleCount,
+          updatedAt,
+        };
+      } catch (err) {
+        console.warn('[mhlw] failed to read D1 stats', err);
+        return null;
+      }
+    }
+
+    async function readMhlwFacilitiesMeta(env) {
+      let meta = null;
+      if (env?.SETTINGS?.get) {
+        try {
+          const raw = await env.SETTINGS.get(MHLW_FACILITIES_META_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object') {
+              meta = parsed;
+            }
+          }
+        } catch (err) {
+          console.warn('[mhlw] failed to read metadata', err);
+        }
+      }
+
+      const stats = await getMhlwFacilityStats(env);
+      if (stats) {
+        meta = {
+          ...(meta || {}),
+          ...stats,
+        };
+        if (!meta.cacheControl) {
+          meta.cacheControl = MHLW_FACILITIES_CACHE_CONTROL;
+        }
+      }
+
+      return meta;
     }
 
     async function writeMhlwFacilitiesMeta(env, meta) {
@@ -2038,6 +2086,196 @@ export default {
       };
       await env.SETTINGS.put(MHLW_FACILITIES_META_KEY, JSON.stringify(payload));
       return payload;
+    }
+
+    async function fetchMhlwFacilitiesFromD1(env, { format = 'json', method = 'GET', meta } = {}) {
+      if (!env?.MASTERS_D1 || typeof env.MASTERS_D1.prepare !== 'function') {
+        return null;
+      }
+
+      let stats = meta && meta.sourceType === 'd1' ? meta : null;
+      if (!stats) {
+        stats = await getMhlwFacilityStats(env);
+      }
+      if (!stats || Number(stats.facilityCount || 0) <= 0) {
+        return null;
+      }
+
+      const formatLower = (format || '').toLowerCase();
+      const useJsonl = formatLower === 'jsonl' || formatLower === 'ndjson';
+
+      const headers = new Headers({ ...corsHeaders });
+      headers.set('Cache-Control', stats.cacheControl || MHLW_FACILITIES_CACHE_CONTROL);
+      if (stats.updatedAt) {
+        headers.set('Last-Modified', new Date(stats.updatedAt).toUTCString());
+        headers.set('ETag', `"mhlw-d1-${stats.updatedAt}"`);
+      }
+      headers.set('Content-Type', useJsonl ? 'application/x-ndjson' : 'application/json');
+
+      if (method === 'HEAD') {
+        return new Response(null, { status: 200, headers });
+      }
+
+      const rowsResult = await env.MASTERS_D1.prepare(
+        'SELECT raw_json FROM mhlw_facilities ORDER BY facility_id;'
+      )
+        .all()
+        .catch((err) => {
+          console.error('[mhlw] failed to read facilities from D1', err);
+          return null;
+        });
+      const rows = Array.isArray(rowsResult?.results) ? rowsResult.results : [];
+      if (!rows.length) {
+        const emptyBody = useJsonl ? '' : JSON.stringify({ count: 0, facilities: [] });
+        const bodyBytes = new TextEncoder().encode(emptyBody);
+        headers.set('Content-Length', String(bodyBytes.length));
+        return new Response(bodyBytes, { status: 200, headers });
+      }
+
+      const jsonEntries = [];
+      for (const row of rows) {
+        if (row && typeof row.raw_json === 'string' && row.raw_json) {
+          jsonEntries.push(row.raw_json);
+        }
+      }
+
+      let bodyString;
+      if (useJsonl) {
+        bodyString = `${jsonEntries.join('\n')}\n`;
+      } else {
+        bodyString = `{"count":${jsonEntries.length},"facilities":[${jsonEntries.join(',')}]}`;
+      }
+
+      const encoder = new TextEncoder();
+      const bodyBytes = encoder.encode(bodyString);
+      headers.set('Content-Length', String(bodyBytes.length));
+
+      return new Response(bodyBytes, { status: 200, headers });
+    }
+
+    function tokenizeSearchQuery(query) {
+      return Array.from(
+        new Set(
+          (query || '')
+            .toString()
+            .split(/[\s、,，・　]+/)
+            .map((part) => part.trim())
+            .filter(Boolean),
+        ),
+      );
+    }
+
+    function normalizeSearchString(value) {
+      return (value || '').toString().trim();
+    }
+
+    async function searchMhlwFacilities(env, {
+      keyword,
+      facilityId,
+      facilityType,
+      prefecture,
+      city,
+      limit = 20,
+    } = {}) {
+      if (!env?.MASTERS_D1 || typeof env.MASTERS_D1.prepare !== 'function') {
+        return null;
+      }
+
+      const normalizedId = facilityId ? normalizeMhlwFacilityId(facilityId) : '';
+      const normalizedKeyword = normalizeSearchString(keyword);
+      const tokens = tokenizeSearchQuery(normalizedKeyword);
+      const params = [];
+      const whereClauses = [];
+
+      if (normalizedId) {
+        whereClauses.push('facility_id = ?');
+        params.push(normalizedId);
+      }
+
+      if (facilityType) {
+        whereClauses.push('LOWER(facility_type) = LOWER(?)');
+        params.push(facilityType);
+      }
+      if (prefecture) {
+        whereClauses.push('prefecture = ?');
+        params.push(prefecture);
+      }
+      if (city) {
+        whereClauses.push('city LIKE ?');
+        params.push(`${city}%`);
+      }
+
+      if (!normalizedId && tokens.length) {
+        for (const token of tokens) {
+          whereClauses.push('search_tokens LIKE ?');
+          params.push(`%${token}%`);
+        }
+      }
+
+      const orderClauses = [];
+      const orderParams = [];
+
+      if (normalizedId) {
+        orderClauses.push('CASE WHEN facility_id = ? THEN 0 ELSE 1 END');
+        orderParams.push(normalizedId);
+      }
+      if (normalizedKeyword) {
+        orderClauses.push('CASE WHEN search_name LIKE ? THEN 0 ELSE 1 END');
+        orderParams.push(`%${normalizedKeyword}%`);
+        orderClauses.push('CASE WHEN name LIKE ? THEN 0 ELSE 1 END');
+        orderParams.push(`%${normalizedKeyword}%`);
+        orderClauses.push('CASE WHEN short_name LIKE ? THEN 0 ELSE 1 END');
+        orderParams.push(`%${normalizedKeyword}%`);
+      }
+      orderClauses.push('facility_id');
+
+      const sql = [
+        'SELECT facility_id, facility_type, name, official_name, short_name, prefecture, city, address, postal_code, latitude, longitude, raw_json',
+        'FROM mhlw_facilities',
+        whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '',
+        `ORDER BY ${orderClauses.join(', ')}`,
+        'LIMIT ?',
+      ].filter(Boolean).join(' ');
+
+      const finalParams = [...params, ...orderParams, Math.max(1, Math.min(Number(limit) || 20, 100))];
+      let stmt = env.MASTERS_D1.prepare(sql);
+      if (finalParams.length) {
+        stmt = stmt.bind(...finalParams);
+      }
+      const result = await stmt.all().catch((err) => {
+        console.error('[mhlw] failed to execute search query', err);
+        return null;
+      });
+      if (!result || !Array.isArray(result.results)) {
+        return [];
+      }
+
+      const matches = [];
+      for (const row of result.results) {
+        if (!row) continue;
+        let facility = null;
+        if (row.raw_json) {
+          try {
+            facility = JSON.parse(row.raw_json);
+          } catch (err) {
+            console.warn('[mhlw] failed to parse raw_json', err);
+          }
+        }
+        facility = facility && typeof facility === 'object' ? facility : {};
+        if (!facility.facilityId) facility.facilityId = row.facility_id;
+        if (!facility.facilityType && row.facility_type) facility.facilityType = row.facility_type;
+        if (!facility.name && row.name) facility.name = row.name;
+        if (!facility.officialName && row.official_name) facility.officialName = row.official_name;
+        if (!facility.shortName && row.short_name) facility.shortName = row.short_name;
+        if (!facility.prefecture && row.prefecture) facility.prefecture = row.prefecture;
+        if (!facility.city && row.city) facility.city = row.city;
+        if (!facility.address && row.address) facility.address = row.address;
+        if (!facility.postalCode && row.postal_code) facility.postalCode = row.postal_code;
+        if (facility.latitude == null && row.latitude != null) facility.latitude = row.latitude;
+        if (facility.longitude == null && row.longitude != null) facility.longitude = row.longitude;
+        matches.push(facility);
+      }
+      return matches;
     }
 
     const uploadSessionKey = (uploadId) => `${MHLW_UPLOAD_META_PREFIX}${uploadId}`;
@@ -6082,7 +6320,50 @@ export default {
       return jsonResponse({ ok: true, meta });
     }
 
+    if (routeMatch(url, 'GET', 'mhlw/search')) {
+      if (!env?.MASTERS_D1 || typeof env.MASTERS_D1.prepare !== 'function') {
+        return jsonResponse({ ok: false, error: 'MHLW_D1_UNCONFIGURED', message: '厚労省データベース (D1) が構成されていません。' }, 503);
+      }
+      const keyword = url.searchParams.get('q') || url.searchParams.get('keyword') || '';
+      const facilityId = url.searchParams.get('facilityId') || url.searchParams.get('id') || '';
+      const facilityType = url.searchParams.get('facilityType') || url.searchParams.get('type') || '';
+      const prefecture = url.searchParams.get('prefecture') || '';
+      const city = url.searchParams.get('city') || '';
+      const limitParam = url.searchParams.get('limit');
+      const limit = limitParam ? Number(limitParam) : 20;
+
+      try {
+        const matches = await searchMhlwFacilities(env, {
+          keyword,
+          facilityId,
+          facilityType,
+          prefecture,
+          city,
+          limit,
+        });
+        return jsonResponse({ ok: true, results: matches || [] });
+      } catch (err) {
+        console.error('[mhlw] search failed', err);
+        return jsonResponse({ ok: false, error: 'MHLW_SEARCH_FAILED', message: '厚労省データの検索に失敗しました。' }, 500);
+      }
+    }
+
     if (routeMatch(url, 'GET', 'mhlw/facilities') || routeMatch(url, 'HEAD', 'mhlw/facilities')) {
+      const formatParam = (url.searchParams.get('format') || '').toLowerCase();
+      const sourceParam = (url.searchParams.get('source') || '').toLowerCase();
+
+      if (sourceParam !== 'r2') {
+        const meta = await readMhlwFacilitiesMeta(env);
+        const d1Response = await fetchMhlwFacilitiesFromD1(env, {
+          format: formatParam,
+          method: request.method,
+          meta,
+        });
+        if (d1Response) {
+          return d1Response;
+        }
+      }
+
       if (!env.MEDIA || typeof env.MEDIA.get !== 'function') {
         return jsonResponse({ error: 'MHLW_STORAGE_UNCONFIGURED', message: 'MEDIA バケットが構成されていません。' }, 500);
       }
