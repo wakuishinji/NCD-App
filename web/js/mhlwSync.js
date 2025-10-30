@@ -301,7 +301,8 @@
     }
     try {
       const previewPrefecture = normalizePrefectureName(PREVIEW_DEFAULT_PREFECTURE) || PREFECTURE_OPTIONS[0]?.name || '';
-      const results = await fetchMhlwSearch({ prefecture: previewPrefecture, limit: 25 });
+      const sampleKeyword = previewPrefecture ? previewPrefecture[0] : 'クリニック';
+      const results = await fetchMhlwSearch({ prefecture: previewPrefecture, keyword: sampleKeyword, limit: 25 });
       const dataset = {};
       results.forEach((facility) => {
         const id = sanitizeFacilityId(facility?.facilityId);
@@ -1568,7 +1569,7 @@
         });
         setStatus('厚労省IDを登録しました。再読み込みしてください。', 'success');
         if (typeof onLinked === 'function') {
-          onLinked();
+          onLinked({ facilityId, clinicId: clinic.id });
         }
       } catch (error) {
         console.error('[mhlwSync] failed to update clinic', error);
@@ -1625,7 +1626,7 @@
           });
           setStatus('厚労省データから同期しました。再読み込みしてください。', 'success');
           if (typeof onLinked === 'function') {
-            onLinked();
+            onLinked({ facility, facilityId, clinicId: clinic.id });
           }
         } catch (error) {
           console.error('[mhlwSync] sync failed', error);
@@ -1659,6 +1660,9 @@
         prefecture,
         city,
       };
+      if (!params.keyword && !facilityType && !clinic?.facilityType) {
+        params.keyword = 'クリ';
+      }
       if (facilityType && facilityType !== 'all') {
         params.facilityType = facilityType;
       } else if (clinic?.facilityType) {
@@ -1745,6 +1749,19 @@
     let mhlwDict = {};
     let clinicsCache = null;
     let clinicsLoading = false;
+
+    function updateClinicCache(clinicId, updater = {}) {
+      if (!Array.isArray(clinicsCache) || !clinicId) return;
+      const index = clinicsCache.findIndex((item) => item && item.id === clinicId);
+      if (index === -1) return;
+      const next = { ...clinicsCache[index], ...updater };
+      clinicsCache.splice(index, 1, next);
+    }
+
+    function moveClinicBetweenLists(clinicId, updater = {}) {
+      updateClinicCache(clinicId, updater);
+      renderClinicLists();
+    }
     const mhlwService = {
       lookup: getCachedFacility,
       ensure: ensureFacilityCached,
@@ -1843,7 +1860,10 @@
               mhlwService,
               {
                 searchKeyword: clinic?.name || '',
-                onLinked: () => loadClinics(true),
+                onLinked: ({ facilityId }) => {
+                  moveClinicBetweenLists(clinic.id, { mhlwFacilityId: facilityId, updated_at: Math.floor(Date.now() / 1000) });
+                  loadClinics(true);
+                },
                 showSyncButton: false,
                 showDetailsLink: false,
               },
@@ -1864,7 +1884,10 @@
               mhlwService,
               {
                 searchKeyword: clinic?.name || '',
-                onLinked: () => loadClinics(true),
+                onLinked: ({ facility }) => {
+                  moveClinicBetweenLists(clinic.id, { ...facility, mhlwFacilityId: facility?.facilityId || clinic.mhlwFacilityId, updated_at: Math.floor(Date.now() / 1000) });
+                  loadClinics(true);
+                },
                 showSyncButton: true,
                 showDetailsLink: true,
               },
