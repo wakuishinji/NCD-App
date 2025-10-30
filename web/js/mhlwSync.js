@@ -1862,7 +1862,6 @@
                 searchKeyword: clinic?.name || '',
                 onLinked: ({ facilityId }) => {
                   moveClinicBetweenLists(clinic.id, { mhlwFacilityId: facilityId, updated_at: Math.floor(Date.now() / 1000) });
-                  loadClinics(true);
                 },
                 showSyncButton: false,
                 showDetailsLink: false,
@@ -1886,7 +1885,6 @@
                 searchKeyword: clinic?.name || '',
                 onLinked: ({ facility }) => {
                   moveClinicBetweenLists(clinic.id, { ...facility, mhlwFacilityId: facility?.facilityId || clinic.mhlwFacilityId, updated_at: Math.floor(Date.now() / 1000) });
-                  loadClinics(true);
                 },
                 showSyncButton: true,
                 showDetailsLink: true,
