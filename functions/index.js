@@ -3826,6 +3826,7 @@ export default {
         ...existing,
         ...clinic,
       });
+      clinic.mhlwFacilityId = newMhlwId || null;
       clinic.updated_at = now;
       if (!clinic.created_at && existing?.created_at) {
         clinic.created_at = existing.created_at;
