@@ -1562,7 +1562,7 @@
         await fetchJson(`${apiBase}/api/updateClinic`, {
           method: 'POST',
           headers: authHeader ? { Authorization: authHeader } : {},
-          body: { name: clinic.name, mhlwFacilityId: facilityId },
+          body: { id: clinic.id, name: clinic.name, mhlwFacilityId: facilityId },
         });
         setStatus('厚労省IDを登録しました。再読み込みしてください。', 'success');
         if (typeof onLinked === 'function') {

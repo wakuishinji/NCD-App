@@ -6892,14 +6892,23 @@ if (routeMatch(url, "GET", "listClinics")) {
     if (routeMatch(url, "POST", "updateClinic")) {
       try {
         const body = await request.json();
+        const clinicIdParam = nk(body?.id || body?.clinicId);
         const name = nk(body?.name);
-        if (!name) {
+        if (!clinicIdParam && !name) {
           return new Response(JSON.stringify({ error: "診療所名が必要です" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        let clinicData = await getClinicByName(env, name) || {};
-        clinicData = { ...clinicData, ...body, name };
+        let clinicData = null;
+        if (clinicIdParam) {
+          clinicData = await getClinicById(env, clinicIdParam);
+        }
+        if (!clinicData && name) {
+          clinicData = await getClinicByName(env, name) || {};
+        }
+        clinicData = { ...clinicData, ...body };
+        if (name) clinicData.name = name;
+        if (clinicIdParam) clinicData.id = clinicIdParam;
         if (body?.mhlwFacilityId || body?.facilityId || body?.mhlwId) {
           clinicData.mhlwFacilityId = normalizeMhlwFacilityId(body.mhlwFacilityId || body.facilityId || body.mhlwId);
         }
