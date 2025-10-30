@@ -48,12 +48,37 @@ node scripts/uploadMhlwToR2.mjs \
 - `--gzip` を付けると JSON を圧縮してからアップロード（`Content-Encoding: gzip`）。
 - スクリプトはアップロード完了後に `POST /api/admin/mhlw/refreshMeta` を実行し、メタ情報を即時更新する。
 
-## 5. 既存施設との照合
+## 5. D1 参照テーブルへの投入
+Cloudflare D1 上で厚労省データを直接検索できるよう、専用テーブル (`mhlw_facilities`, `mhlw_facility_departments`, `mhlw_facility_schedules`, `mhlw_facility_beds`) を整備した。マイグレーション `schema/d1/migrations/006_mhlw_reference_tables.sql` を適用済みであることを確認したうえで、以下のスクリプトを実行する。
+
+```bash
+# プレビュー DB へ投入する例（SQL のみ生成）
+node scripts/importMhlwToD1.mjs \
+  --db MASTERS_D1 \
+  --limit 100 \
+  --output tmp/mhlw-import.sql
+
+# 本番 D1 へ全件投入する例
+node scripts/importMhlwToD1.mjs \
+  --db MASTERS_D1 \
+  --truncate \
+  --execute
+```
+
+- 既定では `data/medical-open-data/0x-*.csv` を自動検出。`--clinic-info` / `--hospital-info` などでパスを上書きできる。
+- `--truncate` を付けると 4 テーブルを一括削除してから upsert（初回・全件同期時に推奨）。
+- `--no-remote` を指定するとプレビュー DB（ローカル D1）向けに `wrangler d1 execute` を実行。
+- 生成される SQL は `/tmp/mhlw-import.sql`（既定値）に保存される。`--output` でパス変更可。
+- スケジュール CSV の祝日行は day_of_week 制約の都合でスキップ済み。必要なら今後テーブル設計を見直す。
+
+Workers 側の `mhlw` 検索 API を D1 に切り替えるまでは、本スクリプトで D1 を最新化 → API 実装 → UI 差し替え、の順で進める。
+
+## 6. 既存施設との照合
 1. 厚労省ID同期画面（`/admin/mhlw-sync.html`、systemRoot 専用）を開き、診療所を検索。
 2. 候補一覧から厚労省データを選び「このIDをセット」を押して登録、必要に応じて「公開データから同期」で住所等を上書き。
    - バッチで処理したい場合は `scripts/syncMhlwFacilities.mjs` を用いて ID 登録＋同期を実行する（`--dry-run` で事前確認可能）。
 
-## 6. 新規登録フロー
+## 7. 新規登録フロー
 - `POST /api/registerClinic` は `mhlwFacilityId` を必須に変更済み。
 - 施設登録画面では厚労省データを検索→選択→登録する導線を用意する（今後実装）。
 - 厚労省ID登録後は「厚労省ID同期」画面の「公開データから同期」ボタンで住所・電話等を上書き更新できる。
@@ -66,18 +91,18 @@ node scripts/uploadMhlwToR2.mjs \
     --outfile tmp/mhlw-sync-report.json
   ```
 
-## 7. 更新サイクル
+## 8. 更新サイクル
 - 公開データは概ね半年ごとに更新。
 - 更新のたびに `importMhlwFacilities.mjs` を再実行し差分を抽出。
 - 新規施設や削除施設をレポート化し、管理者に通知。
 - 将来的にSkilBank/Medical Orchestraと同じ施設IDで連携するため、常に最新データを保つ。
 
-## 8. 未対応事項
+## 9. 未対応事項
 - 住所マッチングの自動化（類似度計算など）は今後の課題。
 - 既存施設との紐付け自動化スクリプト。
 - マスター更新ジョブ（Cron等）での定期取り込み。
 
-## 9. 現状メモ（2025-10-26）
+## 10. 現状メモ（2025-10-26）
 - `scripts/importMhlwFacilities.mjs --jsonl` で診療所・病院の施設票/診療時間票を統合し `tmp/mhlw-facilities.json` を生成済み（R2 へ upload 済み）。
 - `scripts/syncMhlwFacilities.mjs` を `--token` 付きで実行したが、中野区の既存17件はすべて `noMatch`。名称・住所の揺らぎが大きく、自動マッチングが成立していない。
 - 厚労省IDの入力は GUI `/admin/mhlw-sync.html` で実施する想定。ただし本番デプロイ前のためローカル/Preview での確認が必要。

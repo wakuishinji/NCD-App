@@ -725,3 +725,11 @@ async function main() {
 if (import.meta.url === `file://${process.argv[1]}`) {
   main();
 }
+
+export {
+  importFacilitySources,
+  importScheduleSources,
+  mergeFacilitiesAndSchedules,
+  normalizeFacilityId,
+  normalizeFacilityType,
+};
