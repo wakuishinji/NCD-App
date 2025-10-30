@@ -6,6 +6,56 @@
   const DEFAULT_CACHE_CONTROL = 'public, max-age=600, stale-while-revalidate=3600';
   const UTF8_DECODER = new TextDecoder('utf-8');
   const facilityCache = new Map();
+  const PREFECTURE_OPTIONS = [
+    { code: '01', name: '北海道' },
+    { code: '02', name: '青森県' },
+    { code: '03', name: '岩手県' },
+    { code: '04', name: '宮城県' },
+    { code: '05', name: '秋田県' },
+    { code: '06', name: '山形県' },
+    { code: '07', name: '福島県' },
+    { code: '08', name: '茨城県' },
+    { code: '09', name: '栃木県' },
+    { code: '10', name: '群馬県' },
+    { code: '11', name: '埼玉県' },
+    { code: '12', name: '千葉県' },
+    { code: '13', name: '東京都' },
+    { code: '14', name: '神奈川県' },
+    { code: '15', name: '新潟県' },
+    { code: '16', name: '富山県' },
+    { code: '17', name: '石川県' },
+    { code: '18', name: '福井県' },
+    { code: '19', name: '山梨県' },
+    { code: '20', name: '長野県' },
+    { code: '21', name: '岐阜県' },
+    { code: '22', name: '静岡県' },
+    { code: '23', name: '愛知県' },
+    { code: '24', name: '三重県' },
+    { code: '25', name: '滋賀県' },
+    { code: '26', name: '京都府' },
+    { code: '27', name: '大阪府' },
+    { code: '28', name: '兵庫県' },
+    { code: '29', name: '奈良県' },
+    { code: '30', name: '和歌山県' },
+    { code: '31', name: '鳥取県' },
+    { code: '32', name: '島根県' },
+    { code: '33', name: '岡山県' },
+    { code: '34', name: '広島県' },
+    { code: '35', name: '山口県' },
+    { code: '36', name: '徳島県' },
+    { code: '37', name: '香川県' },
+    { code: '38', name: '愛媛県' },
+    { code: '39', name: '高知県' },
+    { code: '40', name: '福岡県' },
+    { code: '41', name: '佐賀県' },
+    { code: '42', name: '長崎県' },
+    { code: '43', name: '熊本県' },
+    { code: '44', name: '大分県' },
+    { code: '45', name: '宮崎県' },
+    { code: '46', name: '鹿児島県' },
+    { code: '47', name: '沖縄県' },
+  ];
+  const PREVIEW_DEFAULT_PREFECTURE = '東京都';
 
   function resolveApiBase() {
     if (global.NcdAuth && typeof global.NcdAuth.resolveApiBase === 'function') {
@@ -117,6 +167,15 @@
     } catch (_) {
       return null;
     }
+  }
+
+  function normalizePrefectureName(value) {
+    const trimmed = (value || '').toString().trim();
+    if (!trimmed) return '';
+    const match = PREFECTURE_OPTIONS.find((item) => {
+      return item.name === trimmed || item.code === trimmed || trimmed.startsWith(item.name);
+    });
+    return match ? match.name : '';
   }
 
   function storeCachedMhlwData(data) {
@@ -241,7 +300,8 @@
       facilityCache.clear();
     }
     try {
-      const results = await fetchMhlwSearch({ limit: 25 });
+      const previewPrefecture = normalizePrefectureName(PREVIEW_DEFAULT_PREFECTURE) || PREFECTURE_OPTIONS[0]?.name || '';
+      const results = await fetchMhlwSearch({ prefecture: previewPrefecture, limit: 25 });
       const dataset = {};
       results.forEach((facility) => {
         const id = sanitizeFacilityId(facility?.facilityId);
@@ -250,6 +310,7 @@
           dataset[id] = facility;
         }
       });
+      storeCachedMhlwData(dataset);
       return dataset;
     } catch (err) {
       console.warn('[mhlwSync] failed to load facilities sample', err);
@@ -959,10 +1020,62 @@
     header.appendChild(title);
 
     const hint = document.createElement('p');
-    hint.textContent = labels.hint || '厚労省公開データの施設名（略称・正式名称）で検索し、候補から選択してください。';
+    hint.textContent = labels.hint || '都道府県を選択してから、厚労省公開データの施設名（略称・正式名称）で検索してください。';
     header.appendChild(hint);
 
     section.appendChild(header);
+
+    const regionControls = document.createElement('div');
+    regionControls.className = 'grid gap-2 md:grid-cols-3';
+
+    const prefectureWrap = document.createElement('div');
+    prefectureWrap.className = 'flex flex-col';
+    const prefectureLabel = document.createElement('label');
+    prefectureLabel.className = 'block text-xs font-medium text-slate-600';
+    prefectureLabel.textContent = '都道府県';
+    prefectureWrap.appendChild(prefectureLabel);
+    const prefectureSelect = document.createElement('select');
+    prefectureSelect.className = 'mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm';
+    prefectureSelect.innerHTML = '<option value="">都道府県を選択</option>';
+    PREFECTURE_OPTIONS.forEach((pref) => {
+      const option = document.createElement('option');
+      option.value = pref.name;
+      option.textContent = pref.name;
+      prefectureSelect.appendChild(option);
+    });
+    prefectureWrap.appendChild(prefectureSelect);
+    regionControls.appendChild(prefectureWrap);
+
+    const cityWrap = document.createElement('div');
+    cityWrap.className = 'flex flex-col';
+    const cityLabel = document.createElement('label');
+    cityLabel.className = 'block text-xs font-medium text-slate-600';
+    cityLabel.textContent = '市区町村（任意）';
+    cityWrap.appendChild(cityLabel);
+    const cityInput = document.createElement('input');
+    cityInput.type = 'text';
+    cityInput.className = 'mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm';
+    cityInput.placeholder = '例: 中野区';
+    cityWrap.appendChild(cityInput);
+    regionControls.appendChild(cityWrap);
+
+    const typeWrap = document.createElement('div');
+    typeWrap.className = 'flex flex-col';
+    const typeLabel = document.createElement('label');
+    typeLabel.className = 'block text-xs font-medium text-slate-600';
+    typeLabel.textContent = '施設種別';
+    typeWrap.appendChild(typeLabel);
+    const facilityTypeSelect = document.createElement('select');
+    facilityTypeSelect.className = 'mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm';
+    facilityTypeSelect.innerHTML = `
+      <option value="">指定なし</option>
+      <option value="clinic">診療所</option>
+      <option value="hospital">病院</option>
+    `;
+    typeWrap.appendChild(facilityTypeSelect);
+    regionControls.appendChild(typeWrap);
+
+    section.appendChild(regionControls);
 
     const controls = document.createElement('div');
     controls.className = 'flex flex-col gap-2 md:flex-row md:items-end';
@@ -1009,6 +1122,36 @@
     list.className = 'space-y-2';
     section.appendChild(list);
 
+    const getSelectedPrefecture = () => normalizePrefectureName(prefectureSelect.value);
+    const getSelectedCity = () => cityInput.value.trim();
+    const getSelectedFacilityType = () => facilityTypeSelect.value;
+    const ensurePrefectureSelected = () => {
+      const selected = getSelectedPrefecture();
+      if (!selected) {
+        list.innerHTML = '';
+        const empty = document.createElement('p');
+        empty.className = 'text-xs text-slate-500';
+        empty.textContent = '都道府県を選択してください。';
+        list.appendChild(empty);
+        infoLine.textContent = '都道府県を選択すると候補を表示できます。';
+        return false;
+      }
+      return true;
+    };
+
+    const defaultPrefecture = normalizePrefectureName(clinic?.prefecture || clinic?.prefectureName);
+    const defaultCity = (clinic?.cityName || clinic?.city || '').trim();
+    const defaultFacilityType = (clinic?.facilityType || '').toLowerCase();
+    if (defaultPrefecture) {
+      prefectureSelect.value = defaultPrefecture;
+    }
+    if (defaultCity) {
+      cityInput.value = defaultCity;
+    }
+    if (['clinic', 'hospital'].includes(defaultFacilityType)) {
+      facilityTypeSelect.value = defaultFacilityType;
+    }
+
     const combinedKeywords = Array.from(new Set([
       initialKeyword,
       ...keywordCandidates,
@@ -1039,6 +1182,14 @@
       }
     };
 
+    const updateSearchButtonState = () => {
+      const hasPrefecture = !!getSelectedPrefecture();
+      searchButton.disabled = !hasPrefecture;
+      if (!hasPrefecture) {
+        infoLine.textContent = '都道府県を選択すると候補を表示できます。';
+      }
+    };
+
     let currentSearchToken = 0;
 
     const renderCandidates = async (keyword, { fallback = false } = {}) => {
@@ -1056,6 +1207,15 @@
         return;
       }
 
+      if (!ensurePrefectureSelected()) {
+        updateSearchButtonState();
+        return;
+      }
+
+      const selectedPrefecture = getSelectedPrefecture();
+      const selectedCity = getSelectedCity();
+      const selectedFacilityType = getSelectedFacilityType();
+
       const tried = new Set();
       const attempts = [];
       const queue = [];
@@ -1065,7 +1225,14 @@
       });
 
       const runSearchForTerm = async (term) => {
-        const remoteEntries = await searchFn(term, { fallback, clinic });
+        const remoteEntries = await searchFn({
+          keyword: term,
+          fallback,
+          clinic,
+          prefecture: selectedPrefecture,
+          city: selectedCity,
+          facilityType: selectedFacilityType || clinic?.facilityType || '',
+        });
         if (token !== currentSearchToken) return true; // another request is in-flight, stop rendering
         const results = findMhlwCandidates({
           entries: Array.isArray(remoteEntries) ? remoteEntries : [],
@@ -1168,9 +1335,9 @@
         });
         if (token !== currentSearchToken) return;
         if (rendered) {
-          infoLine.textContent = attempts.length === 1
-            ? `検索キーワード: 「${normalized}」`
-            : `検索キーワード: 「${attempts[0]}」では一致なし → 「${normalized}」の候補を表示中`;
+          const infoParts = [`検索キーワード: 「${normalized}」`, `都道府県: ${selectedPrefecture}`];
+          if (selectedCity) infoParts.push(`市区町村: ${selectedCity}`);
+          infoLine.textContent = infoParts.join(' / ');
           return;
         }
         if (!fallback) break;
@@ -1182,27 +1349,76 @@
       empty.textContent = '候補が見つかりませんでした。キーワードを調整してください。';
       list.appendChild(empty);
       infoLine.textContent = attempts.length
-        ? `検索キーワード: 「${attempts[0]}」では一致する候補が見つかりませんでした。`
-        : trimmed ? `検索キーワード: 「${trimmed}」` : '検索キーワード: （未入力）';
+        ? `検索キーワード: 「${attempts[0]}」では一致する候補が見つかりませんでした。（都道府県: ${selectedPrefecture}${selectedCity ? ` / 市区町村: ${selectedCity}` : ''}）`
+        : (trimmed
+          ? `検索キーワード: 「${trimmed}」 / 都道府県: ${selectedPrefecture}`
+          : `都道府県: ${selectedPrefecture} / 検索キーワード: （未入力）`);
     };
 
     searchButton.addEventListener('click', () => {
+      if (!ensurePrefectureSelected()) {
+        updateSearchButtonState();
+        return;
+      }
       void renderCandidates(searchInput.value, { fallback: true });
     });
 
     resetButton.addEventListener('click', () => {
       searchInput.value = resolvedInitialKeyword;
-      void renderCandidates(resolvedInitialKeyword, { fallback: true });
+      prefectureSelect.value = defaultPrefecture || '';
+      cityInput.value = defaultCity || '';
+      facilityTypeSelect.value = ['clinic', 'hospital'].includes(defaultFacilityType) ? defaultFacilityType : '';
+      updateSearchButtonState();
+      if (getSelectedPrefecture()) {
+        void renderCandidates(resolvedInitialKeyword, { fallback: true });
+      } else {
+        ensurePrefectureSelected();
+      }
     });
 
     searchInput.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
         event.preventDefault();
+        if (!ensurePrefectureSelected()) {
+          updateSearchButtonState();
+          return;
+        }
         void renderCandidates(searchInput.value, { fallback: true });
       }
     });
 
-    void renderCandidates(searchInput.value, { fallback: true });
+    prefectureSelect.addEventListener('change', () => {
+      updateSearchButtonState();
+      if (getSelectedPrefecture()) {
+        void renderCandidates(searchInput.value, { fallback: true });
+      } else {
+        ensurePrefectureSelected();
+      }
+    });
+
+    facilityTypeSelect.addEventListener('change', () => {
+      if (getSelectedPrefecture()) {
+        void renderCandidates(searchInput.value, { fallback: true });
+      }
+    });
+
+    cityInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        if (!ensurePrefectureSelected()) {
+          updateSearchButtonState();
+          return;
+        }
+        void renderCandidates(searchInput.value, { fallback: true });
+      }
+    });
+
+    updateSearchButtonState();
+    if (getSelectedPrefecture()) {
+      void renderCandidates(searchInput.value, { fallback: true });
+    } else {
+      ensurePrefectureSelected();
+    }
 
     return {
       element: section,
@@ -1415,14 +1631,31 @@
       clinic.nameKana,
     ].filter((value) => typeof value === 'string' && value.trim());
 
-    const performSearch = async (term, { fallback } = {}) => {
+    const performSearch = async ({
+      keyword = '',
+      fallback = false,
+      prefecture = '',
+      city = '',
+      facilityType = '',
+    } = {}) => {
       const params = {
-        keyword: term,
+        keyword,
         limit: fallback ? 50 : 25,
+        prefecture,
+        city,
       };
-      if (clinic?.facilityType) params.facilityType = clinic.facilityType;
-      if (clinic?.prefecture) params.prefecture = clinic.prefecture;
-      if (clinic?.city) params.city = clinic.city;
+      if (facilityType && facilityType !== 'all') {
+        params.facilityType = facilityType;
+      } else if (clinic?.facilityType) {
+        params.facilityType = clinic.facilityType;
+      }
+      if (!params.prefecture) {
+        const fallbackPref = normalizePrefectureName(clinic?.prefecture || clinic?.prefectureName);
+        if (fallbackPref) params.prefecture = fallbackPref;
+      }
+      if (!params.city && clinic?.city) {
+        params.city = clinic.city;
+      }
       if (typeof mhlwService?.search === 'function') {
         return mhlwService.search(params);
       }

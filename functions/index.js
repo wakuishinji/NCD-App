@@ -6332,6 +6332,13 @@ export default {
       const limitParam = url.searchParams.get('limit');
       const limit = limitParam ? Number(limitParam) : 20;
 
+      if (!facilityId && !keyword) {
+        return jsonResponse({ ok: false, error: 'MISSING_QUERY', message: '施設ID または 検索キーワードを指定してください。' }, 400);
+      }
+      if (!facilityId && !prefecture) {
+        return jsonResponse({ ok: false, error: 'PREFECTURE_REQUIRED', message: '都道府県を選択してから検索してください。' }, 400);
+      }
+
       try {
         const matches = await searchMhlwFacilities(env, {
           keyword,

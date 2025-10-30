@@ -31,6 +31,7 @@ const DEFAULT_CLINIC_INFO = path.resolve('data/medical-open-data/02-1_clinic_fac
 const DEFAULT_CLINIC_SCHEDULE = path.resolve('data/medical-open-data/02-2_clinic_speciality_hours_20250601.csv');
 const DEFAULT_HOSPITAL_INFO = path.resolve('data/medical-open-data/01-1_hospital_facility_info_20250601.csv');
 const DEFAULT_HOSPITAL_SCHEDULE = path.resolve('data/medical-open-data/01-2_hospital_speciality_hours_20250601.csv');
+const DEFAULT_BATCH_SIZE = 500;
 
 const DAY_OF_WEEK_MAP = new Map([
   ['0', 0], ['月', 0], ['月曜', 0], ['月曜日', 0], ['mon', 0], ['monday', 0],
@@ -80,6 +81,7 @@ General options:
   --limit <n>                   読み込む施設数の上限（テスト用）
   --output <path>               生成する SQL ファイル（既定: ${DEFAULT_OUTPUT}）
   --chunk-size <n>              1 チャンクに含める SQL 件数（既定: 250）
+  --batch-size <n>              D1 へ投入する施設件数のバッチサイズ（既定: ${DEFAULT_BATCH_SIZE}）
   --truncate                    既存の mhlw_* テーブルを削除してから投入
   --execute                     SQL を wrangler d1 execute で実行
   --no-remote                   プレビュー DB へ実行（既定は --remote）
@@ -102,6 +104,7 @@ function parseArgs(argv) {
     skipHospital: false,
     limit: null,
     chunkSize: 250,
+    batchSize: DEFAULT_BATCH_SIZE,
     help: false,
   };
 
@@ -153,6 +156,13 @@ function parseArgs(argv) {
         const value = Number(argv[++i]);
         if (Number.isFinite(value) && value > 0) {
           options.chunkSize = Math.max(1, Math.floor(value));
+        }
+        break;
+      }
+      case '--batch-size': {
+        const value = Number(argv[++i]);
+        if (Number.isFinite(value) && value > 0) {
+          options.batchSize = Math.max(1, Math.floor(value));
         }
         break;
       }
@@ -318,6 +328,13 @@ function buildFacilityRecord(facility) {
   const facilityId = normalizeFacilityId(facility.facilityId);
   const searchName = buildSearchName(facility);
   const searchTokens = buildSearchTokens(facility);
+  const rawSnapshot = { ...facility };
+  delete rawSnapshot.scheduleEntries;
+  delete rawSnapshot.mhlwDepartments;
+  if (rawSnapshot.bedCounts && typeof rawSnapshot.bedCounts === 'object') {
+    rawSnapshot.bedCounts = { ...rawSnapshot.bedCounts };
+  }
+  const rawJson = JSON.stringify(rawSnapshot);
   const record = {
     facility_id: facilityId,
     facility_type: nullableString(facility.facilityType),
@@ -342,7 +359,7 @@ function buildFacilityRecord(facility) {
     search_name: searchName,
     search_tokens: searchTokens,
     source: 'mhlw',
-    raw_json: JSON.stringify(facility),
+    raw_json: rawJson,
   };
   return record;
 }
@@ -387,26 +404,21 @@ function buildFacilityStatements(facility) {
   return statements;
 }
 
-function buildSqlStatements(facilities, { truncate = false } = {}) {
+function buildSqlStatementsForFacilities(facilities, { includeTruncate = false } = {}) {
   const statements = [];
-  if (truncate) {
+  if (includeTruncate) {
     statements.push('DELETE FROM mhlw_facility_schedules;');
     statements.push('DELETE FROM mhlw_facility_departments;');
     statements.push('DELETE FROM mhlw_facility_beds;');
     statements.push('DELETE FROM mhlw_facilities;');
   }
-  facilities.forEach((facility, index) => {
+  facilities.forEach((facility) => {
     statements.push(...buildFacilityStatements(facility));
-    if ((index + 1) % 500 === 0) {
-      console.log(`[info] Prepared SQL for ${index + 1} facilities...`);
-    }
   });
   return statements;
 }
 
-async function writeSqlFile(targetPath, statements, chunkSize, { useTransactions = true } = {}) {
-  const resolved = path.resolve(targetPath);
-  await fs.promises.mkdir(path.dirname(resolved), { recursive: true });
+function buildSqlText(statements, chunkSize, { useTransactions = false, tailSql = '' } = {}) {
   const chunks = [];
   for (let i = 0; i < statements.length; i += chunkSize) {
     const slice = statements.slice(i, i + chunkSize);
@@ -416,8 +428,19 @@ async function writeSqlFile(targetPath, statements, chunkSize, { useTransactions
       chunks.push(slice.join('\n'));
     }
   }
+  if (tailSql && tailSql.trim()) {
+    chunks.push(tailSql.trim());
+  }
   const content = chunks.join('\n\n');
-  await fs.promises.writeFile(resolved, content ? `${content}\n` : '', 'utf8');
+  const finalText = content ? `${content}\n` : '';
+  return finalText;
+}
+
+async function writeSqlFile(targetPath, statements, chunkSize, options = {}) {
+  const resolved = path.resolve(targetPath);
+  await fs.promises.mkdir(path.dirname(resolved), { recursive: true });
+  const text = buildSqlText(statements, chunkSize, options);
+  await fs.promises.writeFile(resolved, text, 'utf8');
   return resolved;
 }
 
@@ -501,29 +524,72 @@ async function main() {
   const merged = mergeFacilitiesAndSchedules(facilities, schedules);
   console.log(`[info] Merged dataset contains ${merged.length} facilities.`);
 
-  const statements = buildSqlStatements(merged, { truncate: options.truncate });
-  if (!statements.length) {
-    console.warn('[warn] No SQL statements generated.');
+  if (!merged.length) {
+    console.warn('[warn] No facilities to process.');
     return;
   }
 
-  const sqlPath = await writeSqlFile(
-    options.output,
-    statements,
-    options.chunkSize,
-    { useTransactions: !options.useRemote },
-  );
-  console.log(`[info] SQL written to ${sqlPath}`);
+  const batchSize = Math.max(1, options.batchSize);
+  const total = merged.length;
+  const useTransactions = false;
+  const outputPath = options.output ? path.resolve(options.output) : null;
+  if (outputPath) {
+    await fs.promises.mkdir(path.dirname(outputPath), { recursive: true });
+    await fs.promises.writeFile(outputPath, '', 'utf8');
+  }
 
-  if (!options.execute) {
+  let processed = 0;
+  let chunkIndex = 0;
+
+  for (let offset = 0; offset < merged.length; offset += batchSize) {
+    const chunk = merged.slice(offset, offset + batchSize);
+    const start = offset + 1;
+    const end = offset + chunk.length;
+    console.log(`[info] Preparing chunk ${chunkIndex + 1}: facilities ${start}-${end} / ${total}`);
+
+    const statements = buildSqlStatementsForFacilities(chunk, {
+      includeTruncate: options.truncate && offset === 0,
+    });
+    if (!statements.length) {
+      console.log(`[info] Chunk ${chunkIndex + 1} generated no statements (skipping).`);
+      chunkIndex += 1;
+      processed += chunk.length;
+      continue;
+    }
+
+    const sqlText = buildSqlText(statements, options.chunkSize, { useTransactions });
+    if (!sqlText.trim()) {
+      console.log(`[info] Chunk ${chunkIndex + 1} produced empty SQL (skipping).`);
+      chunkIndex += 1;
+      processed += chunk.length;
+      continue;
+    }
+
+    if (outputPath) {
+      await fs.promises.writeFile(outputPath, sqlText, { encoding: 'utf8', flag: 'a' });
+    }
+
+    if (options.execute) {
+      const tempPath = path.join(os.tmpdir(), `mhlw-import-chunk-${Date.now()}-${chunkIndex}.sql`);
+      await fs.promises.writeFile(tempPath, sqlText, 'utf8');
+      console.log(`[info] Executing chunk ${chunkIndex + 1} via wrangler (remote=${options.useRemote})…`);
+      await executeSql(options.db, tempPath, options.useRemote);
+      await fs.promises.unlink(tempPath).catch(() => {});
+    }
+
+    chunkIndex += 1;
+    processed += chunk.length;
+  }
+
+  if (outputPath) {
+    console.log(`[info] SQL written to ${outputPath}`);
+  }
+
+  if (options.execute) {
+    console.log('[info] Import completed.');
+  } else {
     console.log('[info] Dry run finished. Use --execute to run wrangler d1 execute.');
-    return;
   }
-
-  const resolvedSql = sqlPath || path.join(os.tmpdir(), `mhlw-import-${Date.now()}.sql`);
-  console.log(`[info] Executing SQL via wrangler (remote=${options.useRemote})…`);
-  await executeSql(options.db, resolvedSql, options.useRemote);
-  console.log('[info] Import completed.');
 }
 
 main().catch((err) => {

@@ -16,62 +16,48 @@
    cp ~/Downloads/02-2_clinic_speciality_hours_20250601.csv.gz data/medical-open-data/
    ```
 
-## 3. 管理画面からの CSV → JSON → R2 アップロード（推奨）
-1. systemRoot で `/admin/mhlw-sync.html` を開き、「厚労省データアップロード」セクションを表示する。
-2. 病院・診療所それぞれの施設票 / 診療時間票（計4ファイル、`.csv` / `.csv.gz` 可）を指定欄へドラッグ＆ドロップ、またはファイル選択する。
-3. 「CSV４種からJSONを生成してR2へアップロード」をクリックすると、ブラウザ内で CSV を整形し JSON を生成。Shift_JIS 圧縮ファイルは `DecompressionStream` または `fflate` フォールバックで自動解凍する（未対応ブラウザでは「CSV を解凍してください」というエラーを表示）。
-4. 変換された JSON はマルチパートで R2 (`mhlw/facilities.json`) に直接アップロードされ、完了時に Workers 側 `completeUpload` がメタ情報 (`/api/mhlw/facilities/meta`) を更新する。
-5. 完了後はアップロードステータスが成功表示に変わり、プレビューと最新更新日時が自動でリロードされる。必要に応じて「情報更新」ボタンで再取得可能。
-
-- アップロード中は進捗メッセージ（施設票／診療時間票の処理行数、チャンク番号）が表示される。
-- ブラウザが gzip 解凍に対応していない場合はエラーメッセージを表示し、事前解凍または別ブラウザでの操作を案内する。
-
-## 4. CLI フォールバック（手動で JSON を生成する場合）
-グラフィカルなアップロードが難しい場合は、従来通り CLI で JSON を生成 → R2 へ配置する。
+## 3. CSV → D1 取り込み（推奨ルート）
+厚労省データの正本は Cloudflare D1 上の `mhlw_*` テーブルに保管する。`schema/d1/migrations/006_mhlw_reference_tables.sql` を本番・プレビューの両環境に適用済みであることを確認し、以下のスクリプトで取り込む。
 
 ```bash
-node scripts/importMhlwFacilities.mjs \
-  --file clinic:data/medical-open-data/02-1_clinic_facility_info_20250601.csv.gz \
-  --file hospital:data/medical-open-data/01-1_hospital_facility_info_20250601.csv.gz \
-  --schedule clinic:data/medical-open-data/02-2_clinic_speciality_hours_20250601.csv.gz \
-  --schedule hospital:data/medical-open-data/01-2_hospital_speciality_hours_20250601.csv.gz \
-  --outfile tmp/mhlw-facilities.json
-
-export SYSTEM_ROOT_TOKEN="{systemRoot の Bearer トークン}" # または --token で指定
-
-node scripts/uploadMhlwToR2.mjs \
-  --json tmp/mhlw-facilities.json \
-  --api-base https://ncd-app.altry.workers.dev
-```
-- 出力される JSON は `{ count, facilities[] }` 形式（各レコードに `facilityType` / `scheduleEntries` を含む）。
-- `--jsonl` オプションで JSON Lines にも対応。
-- `--gzip` を付けると JSON を圧縮してからアップロード（`Content-Encoding: gzip`）。
-- スクリプトはアップロード完了後に `POST /api/admin/mhlw/refreshMeta` を実行し、メタ情報を即時更新する。
-
-## 5. D1 参照テーブルへの投入
-Cloudflare D1 上で厚労省データを直接検索できるよう、専用テーブル (`mhlw_facilities`, `mhlw_facility_departments`, `mhlw_facility_schedules`, `mhlw_facility_beds`) を整備した。マイグレーション `schema/d1/migrations/006_mhlw_reference_tables.sql` を適用済みであることを確認したうえで、以下のスクリプトを実行する。
-
-```bash
-# プレビュー DB へ投入する例（SQL のみ生成）
-node scripts/importMhlwToD1.mjs \
-  --db MASTERS_D1 \
-  --limit 100 \
-  --output tmp/mhlw-import.sql
-
-# 本番 D1 へ全件投入する例
+# 本番 DB に全件投入する例（おおよそ 10〜15 分）
 node scripts/importMhlwToD1.mjs \
   --db MASTERS_D1 \
   --truncate \
-  --execute
+  --execute \
+  --batch-size 400 \
+  --chunk-size 150
+
+# プレビュー DB で件数を絞り検証する例
+node scripts/importMhlwToD1.mjs \
+  --db MASTERS_D1 \
+  --limit 2000 \
+  --execute \
+  --batch-size 200
 ```
 
-- 既定では `data/medical-open-data/0x-*.csv` を自動検出。`--clinic-info` / `--hospital-info` などでパスを上書きできる。
-- `--truncate` を付けると 4 テーブルを一括削除してから upsert（初回・全件同期時に推奨）。
-- `--no-remote` を指定するとプレビュー DB（ローカル D1）向けに `wrangler d1 execute` を実行。
-- 生成される SQL は `/tmp/mhlw-import.sql`（既定値）に保存される。`--output` でパス変更可。
-- スケジュール CSV の祝日行は day_of_week 制約の都合でスキップ済み。必要なら今後テーブル設計を見直す。
+- 4種類の CSV（診療所/病院の施設票・診療時間票）を `data/medical-open-data/` に配置しておけば自動検出される。個別に指定したい場合は `--clinic-info` などでパスを上書きする。
+- `--batch-size` は1回の `wrangler d1 execute` で扱う施設件数。デフォルト 500。`--chunk-size` は SQL を分割する件数で、バッチ内で 150〜200 程度にしておくと安全。
+- `--truncate` を付けると `mhlw_*` テーブルを先に空にしてから upsert を実行する。CSV 全差し替え時は付与、差分更新だけを狙う場合は省略する。
+- 失敗したバッチは再実行するだけで良い（`INSERT ... ON CONFLICT` を利用）。ログには実行済みチャンク番号が出るため、必要なら `--limit` / `--skip-clinic` などで切り出してリトライできる。
+- 実行後は件数チェックを行う。
+  ```bash
+  wrangler d1 execute MASTERS_D1 --remote \
+    --command "SELECT COUNT(*) AS facilities FROM mhlw_facilities;\n               SELECT COUNT(*) AS schedules FROM mhlw_facility_schedules;"
+  ```
 
-Workers 側の `mhlw` 検索 API を D1 に切り替えるまでは、本スクリプトで D1 を最新化 → API 実装 → UI 差し替え、の順で進める。
+## 4. R2 アップロード（旧方式 / バックアップ用途）
+管理画面には従来の「CSV → JSON → R2」機能が残っており、バックアップや緊急時に利用できる。通常運用では D1 への直接取り込みを優先する。
+
+1. systemRoot で `/admin/mhlw-sync.html` を開き、「厚労省データアップロード（旧方式）」セクションを表示する。
+2. 4種類の CSV を選択してアップロードすると、ブラウザ内で JSON を生成し R2 (`mhlw/facilities.json`) に保存する。完了後はメタ情報が `/api/mhlw/facilities/meta` に反映される。
+3. CLI から実行したい場合は `scripts/importMhlwFacilities.mjs` → `scripts/uploadMhlwToR2.mjs` を使用する（従来手順）。
+
+- アップロードが成功しても D1 は更新されないため、最新データを利用するには別途 `scripts/importMhlwToD1.mjs --execute` を実施すること。
+- UI のボタンラベルは「CSV４種からJSONを生成してR2へアップロード（旧方式）」としている（バックアップ用である旨を表示）。
+
+## 5. D1 参照テーブルの活用
+CLI で取り込んだデータは `mhlw_facilities` および関連テーブルから検索できる。Workers 側の `/api/mhlw/search` エンドポイントは D1 を参照するため、管理画面で候補検索を行うと D1 の値が即時反映される。検索は「都道府県を選択 → 施設名（任意で市区町村）」の順で利用する。
 
 ## 6. 既存施設との照合
 1. 厚労省ID同期画面（`/admin/mhlw-sync.html`、systemRoot 専用）を開き、診療所を検索。
@@ -93,7 +79,7 @@ Workers 側の `mhlw` 検索 API を D1 に切り替えるまでは、本スク�
 
 ## 8. 更新サイクル
 - 公開データは概ね半年ごとに更新。
-- 更新のたびに `importMhlwFacilities.mjs` を再実行し差分を抽出。
+- 更新のたびに `importMhlwToD1.mjs --truncate --execute` を再実行し、D1 のデータを最新化する（完了後に件数チェック）。
 - 新規施設や削除施設をレポート化し、管理者に通知。
 - 将来的にSkilBank/Medical Orchestraと同じ施設IDで連携するため、常に最新データを保つ。
 
@@ -102,12 +88,11 @@ Workers 側の `mhlw` 検索 API を D1 に切り替えるまでは、本スク�
 - 既存施設との紐付け自動化スクリプト。
 - マスター更新ジョブ（Cron等）での定期取り込み。
 
-## 10. 現状メモ（2025-10-26）
-- `scripts/importMhlwFacilities.mjs --jsonl` で診療所・病院の施設票/診療時間票を統合し `tmp/mhlw-facilities.json` を生成済み（R2 へ upload 済み）。
-- `scripts/syncMhlwFacilities.mjs` を `--token` 付きで実行したが、中野区の既存17件はすべて `noMatch`。名称・住所の揺らぎが大きく、自動マッチングが成立していない。
-- 厚労省IDの入力は GUI `/admin/mhlw-sync.html` で実施する想定。ただし本番デプロイ前のためローカル/Preview での確認が必要。
-- 今後は GUI 上で厚労省データの候補を提示できるよう改修し、手動コピペの負担を減らす。
-- 未一致施設は当面手動でID付与（Runbookの「厚労省ID同期」画面を利用）し、公開データ更新時に再同期する運用。
+# 10. 現状メモ（2025-10-31 更新）
+- `scripts/importMhlwToD1.mjs --truncate --execute` で約 8.3 万施設を D1 へ投入済み（`mhlw_facilities` 8.28 万件、`mhlw_facility_schedules` 約 217 万件）。
+- `/api/mhlw/search` は D1 参照に切り替え、管理画面の候補検索は「都道府県必須＋施設名」のフローに更新済み。
+- GUI の旧方式（CSV→R2アップロード）はバックアップとして残しているが、通常運用は D1 直取り込みへ移行。
+- 住所・名称ゆらぎの自動解決は未着手。`scripts/syncMhlwFacilities.mjs` の改修と併せて検討する。
 
 ### 作業ログ（2025-10-26）
 - 厚労省同期画面の「CSV４種からJSONを生成してR2へアップロード」フローが完成。browser-side で CSV を正規化 → JSON 生成 → R2 multipart upload → メタ更新まで通しで確認。

@@ -26,17 +26,18 @@
         <div class="rounded border border-blue-200 bg-blue-50/70 px-4 py-3 text-sm text-blue-900">
           <p class="font-semibold">手順</p>
           <ol class="mt-2 list-decimal space-y-1 pl-5">
-            <li>厚労省CSVを <code>scripts/importMhlwFacilities.mjs</code> で整形し、<code>scripts/publishMhlwFacilities.mjs</code> または下記の「データアップロード」から Workers へアップロード。</li>
-            <li>未紐付けの診療所一覧から対象を選び、施設名で厚労省データを検索してIDをセット（または手入力）し登録。</li>
+            <li><code>scripts/importMhlwToD1.mjs --truncate --execute</code> で最新 CSV を Cloudflare D1 (`mhlw_*` テーブル) に投入する。</li>
+            <li>未紐付けの診療所一覧から対象を選び、都道府県を指定して厚労省データを検索し ID を登録する。</li>
             <li>必要に応じて「公開データから同期」ボタンで住所・電話等を更新。</li>
           </ol>
+          <p class="mt-2 text-xs text-blue-800">※ 下の「旧方式」セクションはバックアップ用途として残しています。通常運用では D1 への直接取り込みを実施してください。</p>
         </div>
 
         <section class="rounded border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
           <header class="flex flex-col gap-1 border-b border-slate-200 pb-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 class="text-base font-semibold text-blue-900">厚労省データアップロード</h2>
-              <p class="mt-1 text-xs text-slate-500">整形済み JSON または厚労省提供の CSV（病院・診療所の施設票／診療時間票）をアップロードできます。</p>
+              <h2 class="text-base font-semibold text-blue-900">厚労省データアップロード（旧方式 / R2 バックアップ）</h2>
+              <p class="mt-1 text-xs text-slate-500">ブラウザ上で CSV を整形し、JSON を R2 (`mhlw/facilities.json`) に保存します。D1 を更新するには別途 CLI で <code>scripts/importMhlwToD1.mjs</code> を実行してください。</p>
             </div>
             <div id="mhlwMetaInfo" class="text-xs text-slate-500 sm:text-right"></div>
           </header>
@@ -62,8 +63,8 @@
                 </div>
               </div>
               <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <button type="submit" class="inline-flex items-center justify-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700">CSV４種からJSONを生成してR2へアップロード</button>
-                <p class="text-xs text-slate-500">※ ブラウザ内で整形し、R2に直接アップロードします。</p>
+                <button type="submit" class="inline-flex items-center justify-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700">CSV４種からJSONを生成してR2へアップロード（旧方式）</button>
+                <p class="text-xs text-slate-500">※ バックアップ用の旧方式です。最新データは <code>scripts/importMhlwToD1.mjs</code> で D1 に取り込んでください。</p>
               </div>
             </form>
             <p id="mhlwUploadCsvStatus" data-base-class="text-xs text-slate-500"></p>
