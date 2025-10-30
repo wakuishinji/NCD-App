@@ -6906,7 +6906,8 @@ if (routeMatch(url, "GET", "listClinics")) {
         if (!clinicData && name) {
           clinicData = await getClinicByName(env, name) || {};
         }
-        clinicData = { ...clinicData, ...body };
+        const baseClinicData = (clinicData && typeof clinicData === 'object') ? clinicData : {};
+        clinicData = { ...baseClinicData, ...body };
         if (name) clinicData.name = name;
         if (clinicIdParam) clinicData.id = clinicIdParam;
         if (body?.mhlwFacilityId || body?.facilityId || body?.mhlwId) {
