@@ -11,6 +11,11 @@
 - **D1 スキーマ**: `facilities` テーブルには `name`, `address`, `postal_code`, `latitude`, `longitude`, `facility_type` など基本属性のみ定義。電話・メール・診療メニュー等の詳細フィールドは未整備。  
 - **整合性**: v2 JSON には `basic.*`（電話・メールを含む）、`services/tests/qualifications` といった配列、`metadata`、`searchFacets` が含まれる。D1 へ保存するにはテーブル拡張または別テーブルが必要。
 
+## 実行中のステップ (2025-Q4)
+1. `schema/d1/migrations/005_facility_extended_tables.sql` で施設拡張テーブル／列を定義し、既存スキーマとの不整合がないことを確認する。  
+2. Workers (`functions/index.js`) の D1 読み書き処理を拡張テーブル向けに実装し、KV との整合を保つ。  
+3. 旧 KV（および厚労省インポート）から新テーブルへデータを移行するスクリプト／Runbook の叩き台を作成する。
+
 ---
 
 ## 2. D1 スキーマ拡張案
@@ -63,16 +68,26 @@
 
 | テーブル | 目的 | 主なカラム | 備考 |
 |----------|------|------------|------|
-| `facility_services` | 施設が提供する診療・サービス | `facility_id`, `service_id`, `name`, `category`, `source`, `notes`, `created_at` | `service_id` は `master_items.id` と連携。名称のみ登録された項目は `service_id` を null で保持。 |
-| `facility_tests` | 実施検査の一覧 | `facility_id`, `test_id`, `name`, `category`, `source`, `notes`, `created_at` | `master_items` の `type = 'test'` を参照。 |
-| `facility_qualifications` | 保有資格 | `facility_id`, `qualification_id`, `name`, `issuer`, `obtained_at`, `notes`, `created_at` | 医師個人の資格ではなく、施設が公開する資格タグとして扱う。 |
-| `facility_staff_lookup` | スタッフと施設の紐付け | `facility_id`, `account_id`, `membership_id`, `roles`, `status`, `created_at` | `memberships` を横断的に参照し、検索／同期用キャッシュとして利用。 |
+| `facility_services` | 施設が提供する診療・サービス | `facility_id`, `master_id`, `name`, `category`, `source`, `organization_id` | `master_id` は `master_items.id`。`source` で `manual` / `mhlw` を判別。 |
+| `facility_tests` | 実施検査 | `facility_id`, `master_id`, `name`, `category`, `source`, `organization_id` | |
+| `facility_qualifications` | 施設として掲示する資格 | `facility_id`, `master_id`, `name`, `issuer`, `obtained_at`, `source`, `organization_id` | |
+| `facility_departments` | 標榜診療科 | `facility_id`, `department_code`, `name`, `is_primary`, `source`, `organization_id` | 厚労省データと手入力の両方を格納。 |
+| `facility_beds` | 病床数 | `facility_id`, `bed_type`, `count`, `source`, `organization_id` | |
+| `facility_schedule` | 診療時間 | 既存テーブルを拡張し `source`, `organization_id`, `department_code` を追加 | |
+| `facility_access_info` | アクセス情報 | `facility_id`, `nearest_station`, `bus`, `parking_*`, `barrier_free`, `notes`, `summary`, `source`, `organization_id` | JSON ではなく列で保持し検索しやすくする。 |
+| `facility_modes` | 診療形態 | `facility_id`, `code`, `label`, `notes`, `source`, `organization_id` | e.g. オンライン診療・往診など。 |
+| `facility_vaccinations` | 予防接種対応 | `facility_id`, `vaccine_code`, `name`, `notes`, `source`, `organization_id` | |
+| `facility_checkups` | 健診／検診対応 | `facility_id`, `checkup_code`, `name`, `notes`, `source`, `organization_id` | |
+| `facility_extra` *(将来設置)* | その他自由項目 | `facility_id`, `payload(JSON)`, `source`, `organization_id` | RAG 用のドキュメント生成にも活用。 |
+| `facility_staff_lookup` | スタッフと施設の紐付け | `facility_id`, `account_id`, `membership_id`, `roles`, `status`, `organization_id` | `memberships` からのキャッシュ。チャット・検索用途。 |
 
 実装ステップ案:
-1. `schema/d1/migrations/003_facility_service_tables.sql` を作成し、上記テーブルを追加。FK 制約は `ON DELETE CASCADE` を採用して施設削除時に連鎖削除。  
-2. `scripts/importClinicsToD1.mjs` で `clinic.services/tests/qualifications` を分割保存するロジックを追加し、`metadata` には従来どおり v2 JSON を格納。  
-3. Workers 側で `clinicFromD1Row` から復元する際、テーブル結合でリストを再構築する（暫定的に `SELECT ... FROM facility_services WHERE facility_id = ?`）。  
-4. `listClinics` では JOIN が増えるため、`LIMIT`/`OFFSET` で施設一覧を取得後に `Promise.all` で個別ロードするか、要約情報のみ返す API を追加してキャッシュを活用する。
+1. `schema/d1/migrations/003` / `005` でテーブル追加・既存テーブルへの列追加（`organization_id` / `source` など）を行う。  
+2. Workers API（`saveClinic` / `clinicDetail` / `clinicSearch` 等）を D1 正規化テーブルへ完全移行させ、旧 KV からは読まない構造にする。  
+3. 旧 KV に残っているアクセス情報や診療形態等は移行スクリプトで D1 へコピーし、`source='legacy'` として記録。  
+4. 厚労省インポートパイプラインを D1 正規化テーブルへ直書きするよう更新。`source='mhlw'` または `import_batch_id` で識別。  
+5. 検索・RAG 用に施設ドキュメントを生成する仕組み（JSON/テキスト）とベクトル化処理を整備する。  
+6. UI は D1 から返った JSON を表示・編集し、保存時は新テーブルへ反映できるようリファクタリングする。
 
 段階的に導入できるよう、`metadata` → 正規化テーブルの二重保存期間を設け、整合性確認後に `metadata` の冗長項目を削除する。
 
@@ -90,3 +105,54 @@
 ---
 
 > このドキュメントはドラフトです。マイグレーション SQL やインポートスクリプトの実装を完了させた後、正式版として更新してください。
+
+---
+
+## 6. 拡張コレクション移行フロー（Draft）
+
+| 手順 | 内容 | 備考 |
+|------|------|------|
+| 6-1 | `tmp/clinics-v2.jsonl` を最新化し、`clinic.departments` や `clinic.access` など v2 スキーマの配列／オブジェクトが含まれていることを確認する。 | `scripts/exportClinicsV1.mjs` → `scripts/migrateClinicsToV2.mjs` |
+| 6-2 | 新規スクリプト `scripts/generateFacilityCollectionsSql.mjs`（作成予定）で JSONL から以下の INSERT を生成する。 | チャンク単位で `BEGIN/COMMIT` を付与し、`tmp/facility-collections.sql` を出力する。 |
+| 6-3 | 生成した SQL を `wrangler d1 execute MASTERS_D1 --remote --file tmp/facility-collections.sql` で実行し、`facility_departments` / `facility_access_info` などを更新する。 | まずプレビュー DB で検証し、結果をレビュー後に本番適用する。 |
+| 6-4 | `SELECT COUNT(*)` や `SELECT * LIMIT 5` で差し込み結果を目視確認し、UI で診療所詳細を開いて反映状況をチェックする。 | 特に `診療形態` / `予防接種` / `健診` の表示を重点確認。 |
+| 6-5 | 厚労省インポートの補完データ（`mhlwDepartments`, `mhlwBedCounts` など）を `source='mhlw'` として同スクリプトで投入する。 | `scripts/importMhlwFacilities.mjs` の出力を再利用する。 |
+| 6-6 | Runbook に基づき、移行後の再実行手順／ロールバック手順を記録しておく。 | `docs/ops-runbook.md` に反映予定。 |
+
+### 6.2 で生成するテーブル別マッピング
+
+| D1 テーブル | JSON フィールド | 変換ルール | `source` 列 |
+|-------------|-----------------|------------|-------------|
+| `facility_departments` | `clinic.departments.master` / `.others` / `clinic.mhlwDepartments` | master: `department_code = department:<slug>`、others: `department_code=NULL`、mhlw: `source='mhlw'` | `manual` / `manual-other` / `mhlw` |
+| `facility_beds` | `clinic.beds[]`, `clinic.facilityAttributes.bedCount`, `clinic.mhlwBedCounts` | `bed_type` は種別または `total`、値は整数化 | `manual` / `mhlw` |
+| `facility_access_info` | `clinic.access` | 配列は改行区切りで保存、`summary` が無ければサーバー側で自動生成 | `clinic.access.source`（未設定時は `manual`） |
+| `facility_modes` | `clinic.modes.selected/meta` | `display_order = meta[slug].order`、`notes = meta[slug].notes` | `clinic.modes.source`（未設定時は `manual`） |
+| `facility_vaccinations` | `clinic.vaccinations.selected/meta` | `description = meta[slug].desc`、`reference_url = meta[slug].referenceUrl` | `clinic.vaccinations.source` |
+| `facility_checkups` | `clinic.checkups.selected/meta` | `description = meta[slug].desc`、`reference_url = meta[slug].referenceUrl` | `clinic.checkups.source` |
+| `facility_extra` | `clinic.extra` | JSON 全体を `payload` に保存し、`extra.source` を `source` 列へ | `extra.source`（未設定時は `manual`） |
+
+> スクリプト実装時は `INSERT ... ON CONFLICT(id) DO UPDATE` を基本とし、移行再実行時にも破壊的にならないようにする。`facility_departments` など ID は `facilityId:collection:uuid` 形式を既存実装と合わせる。
+
+### 関連スクリプト
+
+- [x] `scripts/generateFacilityCollectionsSql.mjs` で v2 JSON → `facility_*` テーブル用 SQL を生成できる。  
+  ```bash
+  node scripts/generateFacilityCollectionsSql.mjs \
+    --input tmp/clinics-v2.jsonl \
+    --output tmp/facility-collections.sql \
+    --chunk-size 100
+
+  # プレビュー DB で即実行する場合
+  node scripts/generateFacilityCollectionsSql.mjs \
+    --input tmp/clinics-v2.jsonl \
+    --execute --db MASTERS_D1 --no-remote
+  ```
+- [x] `scripts/importClinicsToD1.mjs` の `--include-collections` フラグで、基礎テーブルと拡張コレクションを同時に SQL 生成／適用できる。  
+  ```bash
+  node scripts/importClinicsToD1.mjs \
+    --input tmp/clinics-v2.jsonl \
+    --db MASTERS_D1 \
+    --output tmp/clinics-import-all.sql \
+    --include-collections
+  ```
+- [ ] プレビュー DB での検証を自動化するため、主要カラムの件数・NULL 率をチェックするタスク (`npm run verify:collections` など) を整備する。  

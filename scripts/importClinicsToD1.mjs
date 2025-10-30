@@ -16,6 +16,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { mkdir, readFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
+import { generateFacilityCollectionsSql } from './generateFacilityCollectionsSql.mjs';
 
 const DEFAULT_OUTPUT = path.resolve('tmp', 'clinics-import.sql');
 
@@ -33,6 +34,7 @@ Options:
   --no-remote             ローカル D1 (preview) へ実行したい場合に指定
   --chunk-size <n>        1 トランザクション内のレコード数（既定: 100）
   --organization <id>     既定の organizationId（例: organization:nakano-med）
+  --include-collections   facility_* 系テーブルの SQL も同時に生成
   --help                  このメッセージを表示
 `);
 }
@@ -46,6 +48,7 @@ function parseArgs(argv) {
     useRemote: true,
     chunkSize: 100,
     organizationId: null,
+    includeCollections: false,
     help: false,
   };
   for (let i = 2; i < argv.length; i += 1) {
@@ -75,6 +78,9 @@ function parseArgs(argv) {
       }
       case '--organization':
         options.organizationId = argv[++i] || null;
+        break;
+      case '--include-collections':
+        options.includeCollections = true;
         break;
       case '--help':
       case '-h':
@@ -277,7 +283,12 @@ function buildInsertStatements(clinics, defaultOrganizationId = null) {
   return statements;
 }
 
-async function writeSqlFile(targetPath, statements, chunkSize, { useTransactions = true } = {}) {
+async function writeSqlFile(
+  targetPath,
+  statements,
+  chunkSize,
+  { useTransactions = true, tailSql = '' } = {},
+) {
   const resolved = path.resolve(targetPath);
   await mkdir(path.dirname(resolved), { recursive: true });
   const chunks = [];
@@ -289,7 +300,12 @@ async function writeSqlFile(targetPath, statements, chunkSize, { useTransactions
       chunks.push(slice.join('\n'));
     }
   }
-  await fs.promises.writeFile(resolved, `${chunks.join('\n\n')}\n`, 'utf8');
+  const contentParts = chunks.filter(Boolean);
+  if (tailSql && tailSql.trim()) {
+    contentParts.push(tailSql.trim());
+  }
+  const finalContent = contentParts.length ? `${contentParts.join('\n\n')}\n` : '';
+  await fs.promises.writeFile(resolved, finalContent, 'utf8');
   return resolved;
 }
 
@@ -321,7 +337,21 @@ async function main() {
   console.log(`[info] Loaded ${clinics.length} records.`);
 
   const statements = buildInsertStatements(clinics, options.organizationId);
-  if (!statements.length) {
+  let collectionsSql = '';
+  if (options.includeCollections) {
+    collectionsSql = generateFacilityCollectionsSql(clinics, {
+      chunkSize: options.chunkSize,
+      organizationId: options.organizationId,
+      useTransactions: !options.useRemote,
+    });
+    if (!collectionsSql.trim()) {
+      console.log('[warn] No facility_* collection SQL generated.');
+    } else {
+      console.log('[info] facility_* collection SQL appended to output.');
+    }
+  }
+
+  if (!statements.length && !collectionsSql.trim()) {
     console.log('[warn] No statements generated.');
     return;
   }
@@ -330,7 +360,7 @@ async function main() {
     options.output,
     statements,
     options.chunkSize,
-    { useTransactions: !options.useRemote },
+    { useTransactions: !options.useRemote, tailSql: collectionsSql },
   );
   console.log(`[info] SQL written to ${sqlPath}`);
 

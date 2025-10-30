@@ -328,6 +328,175 @@ export default {
       return Number.isFinite(num) ? num : null;
     }
 
+    function normalizeStringArray(input) {
+      const result = [];
+      const seen = new Set();
+      const append = (value) => {
+        if (value === undefined || value === null) return;
+        const text = nk(typeof value === 'string' ? value : String(value));
+        if (!text) return;
+        if (seen.has(text)) return;
+        seen.add(text);
+        result.push(text);
+      };
+      if (Array.isArray(input)) {
+        input.forEach(append);
+      } else if (typeof input === 'string' || typeof input === 'number' || typeof input === 'boolean') {
+        append(input);
+      }
+      return result;
+    }
+
+    function normalizeClinicDepartmentsValue(value) {
+      const normalized = { master: [], others: [] };
+      if (!value) return normalized;
+      if (Array.isArray(value)) {
+        normalized.master = normalizeStringArray(value);
+        return normalized;
+      }
+      if (typeof value === 'object') {
+        normalized.master = normalizeStringArray(value.master || value.standard || []);
+        const others = normalizeStringArray(value.others || value.freeform || []);
+        normalized.others = others.filter((name) => !normalized.master.includes(name));
+        return normalized;
+      }
+      return normalized;
+    }
+
+    function normalizeAccessInfoValue(value) {
+      if (!value || typeof value !== 'object') return null;
+      const nearestStation = normalizeStringArray(value.nearestStation || value.station);
+      const bus = normalizeStringArray(value.bus);
+      const barrierFree = normalizeStringArray(value.barrierFree || value.barrier_free);
+      const parkingRaw = value.parking && typeof value.parking === 'object' ? value.parking : {};
+      const parking = {};
+      if (Object.prototype.hasOwnProperty.call(parkingRaw, 'available')) {
+        parking.available = !!parkingRaw.available;
+      }
+      if (Object.prototype.hasOwnProperty.call(parkingRaw, 'capacity')) {
+        const capacity = Number(parkingRaw.capacity);
+        parking.capacity = Number.isFinite(capacity) ? capacity : null;
+      }
+      const parkingNotes = nk(parkingRaw.notes);
+      if (parkingNotes) parking.notes = parkingNotes;
+      if (!Object.keys(parking).length) delete parking.available;
+      const notes = nk(value.notes);
+      const summary = nk(value.summary);
+      const source = nk(value.source);
+      const access = {};
+      if (nearestStation.length) access.nearestStation = nearestStation;
+      if (bus.length) access.bus = bus;
+      if (barrierFree.length) access.barrierFree = barrierFree;
+      if (Object.keys(parking).length) access.parking = parking;
+      if (notes) access.notes = notes;
+      if (summary) access.summary = summary;
+      if (source) access.source = source;
+      return Object.keys(access).length ? access : null;
+    }
+
+    function normalizeModesPayloadValue(value) {
+      if (!value) return null;
+      const selectedSource = Array.isArray(value.selected)
+        ? value.selected
+        : Array.isArray(value)
+          ? value
+          : [];
+      const selected = normalizeStringArray(selectedSource);
+      const metaSource = value.meta && typeof value.meta === 'object' && !Array.isArray(value.meta)
+        ? value.meta
+        : {};
+      const meta = {};
+      selected.forEach((slug) => {
+        const entry = metaSource[slug] && typeof metaSource[slug] === 'object' ? metaSource[slug] : {};
+        const label = nk(entry.label || entry.name || slug);
+        const icon = nk(entry.icon);
+        const color = nk(entry.color);
+        const orderValue = Number(entry.order);
+        const notes = nk(entry.notes || entry.desc);
+        const metaEntry = {};
+        metaEntry.label = label || slug;
+        if (icon) metaEntry.icon = icon;
+        if (color) metaEntry.color = color;
+        if (Number.isFinite(orderValue)) metaEntry.order = orderValue;
+        if (notes) metaEntry.notes = notes;
+        if (Object.keys(metaEntry).length) {
+          meta[slug] = metaEntry;
+        } else {
+          meta[slug] = { label: metaEntry.label };
+        }
+      });
+      if (!selected.length && !Object.keys(meta).length) return null;
+      const result = {};
+      if (selected.length) result.selected = selected;
+      if (Object.keys(meta).length) result.meta = meta;
+      const source = nk(value.source);
+      if (source) result.source = source;
+      return result;
+    }
+
+    function normalizeSelectionPayloadValue(value) {
+      if (!value || typeof value !== 'object') return null;
+      const selectedSource = Array.isArray(value.selected)
+        ? value.selected
+        : Array.isArray(value)
+          ? value
+          : [];
+      const selected = normalizeStringArray(selectedSource);
+      const metaSource = value.meta && typeof value.meta === 'object' && !Array.isArray(value.meta)
+        ? value.meta
+        : {};
+      const meta = {};
+      selected.forEach((slug) => {
+        const entry = metaSource[slug] && typeof metaSource[slug] === 'object' ? metaSource[slug] : {};
+        const category = nk(entry.category);
+        const name = nk(entry.name || entry.label || slug);
+        const desc = nk(entry.desc || entry.description);
+        const referenceUrl = nk(entry.referenceUrl || entry.reference_url);
+        const notes = nk(entry.notes);
+        const metaEntry = {};
+        if (category) metaEntry.category = category;
+        if (name && name !== slug) metaEntry.name = name;
+        else if (name) metaEntry.name = name;
+        if (desc) metaEntry.desc = desc;
+        if (referenceUrl) metaEntry.referenceUrl = referenceUrl;
+        if (notes) metaEntry.notes = notes;
+        if (Object.keys(metaEntry).length) {
+          meta[slug] = metaEntry;
+        } else if (name) {
+          meta[slug] = { name };
+        }
+      });
+      if (!selected.length && !Object.keys(meta).length) return null;
+      const result = {};
+      if (selected.length) result.selected = selected;
+      if (Object.keys(meta).length) result.meta = meta;
+      const source = nk(value.source);
+      if (source) result.source = source;
+      return result;
+    }
+
+    function normalizeExtraPayload(value) {
+      if (!value || typeof value !== 'object') return null;
+      try {
+        return JSON.parse(JSON.stringify(value));
+      } catch (err) {
+        console.warn('[clinic] failed to clone extra payload', err);
+        return { ...value };
+      }
+    }
+
+    function computeAccessSummary(access) {
+      if (!access || typeof access !== 'object') return '';
+      if (access.summary && nk(access.summary)) return nk(access.summary);
+      const parts = [];
+      const station = Array.isArray(access.nearestStation) ? access.nearestStation[0] : access.nearestStation;
+      const bus = Array.isArray(access.bus) ? access.bus[0] : access.bus;
+      if (station) parts.push(nk(station));
+      if (bus) parts.push(nk(bus));
+      if (access.notes) parts.push(nk(access.notes));
+      return parts.filter(Boolean).join(' / ');
+    }
+
     function normalizeClinicRecord(input) {
       if (!input || typeof input !== 'object') return null;
       const clinic = clonePlain(input);
@@ -391,6 +560,56 @@ export default {
       clinic.pendingInvites = Array.isArray(clinic.pendingInvites) ? clinic.pendingInvites : [];
       clinic.searchFacets = ensureArrayUnique(clinic.searchFacets);
 
+      const normalizedDepartments = normalizeClinicDepartmentsValue(clinic.departments);
+      if (normalizedDepartments.master.length || normalizedDepartments.others.length) {
+        clinic.departments = normalizedDepartments;
+      } else {
+        delete clinic.departments;
+      }
+      if (Array.isArray(clinic.mhlwDepartments)) {
+        clinic.mhlwDepartments = normalizeStringArray(clinic.mhlwDepartments);
+        if (!clinic.mhlwDepartments.length) delete clinic.mhlwDepartments;
+      }
+
+      const normalizedAccess = normalizeAccessInfoValue(clinic.access);
+      if (normalizedAccess) {
+        normalizedAccess.summary = normalizedAccess.summary || computeAccessSummary(normalizedAccess);
+        clinic.access = normalizedAccess;
+        clinic.accessSummary = normalizedAccess.summary || null;
+      } else {
+        delete clinic.access;
+        delete clinic.accessSummary;
+      }
+
+      const normalizedModes = normalizeModesPayloadValue(clinic.modes);
+      if (normalizedModes) {
+        clinic.modes = normalizedModes;
+      } else {
+        delete clinic.modes;
+      }
+
+      const normalizedVaccinations = normalizeSelectionPayloadValue(clinic.vaccinations);
+      if (normalizedVaccinations) {
+        clinic.vaccinations = normalizedVaccinations;
+      } else {
+        delete clinic.vaccinations;
+      }
+
+      const normalizedCheckups = normalizeSelectionPayloadValue(clinic.checkups);
+      if (normalizedCheckups) {
+        clinic.checkups = normalizedCheckups;
+      } else {
+        delete clinic.checkups;
+      }
+
+      const normalizedExtra = normalizeExtraPayload(clinic.extra || clinic.extraPayload);
+      if (normalizedExtra && Object.keys(normalizedExtra).length) {
+        clinic.extra = normalizedExtra;
+      } else {
+        delete clinic.extra;
+      }
+      delete clinic.extraPayload;
+
       if (!clinic.status) clinic.status = 'active';
       return clinic;
     }
@@ -434,10 +653,18 @@ export default {
     async function replaceFacilityCollectionsD1(env, clinic) {
       if (!hasFacilitiesD1(env) || !clinic?.id) return;
       const facilityId = clinic.id;
+      const organizationId = clinic.organizationId || null;
       try {
         await env.MASTERS_D1.prepare('DELETE FROM facility_services WHERE facility_id = ?').bind(facilityId).run();
         await env.MASTERS_D1.prepare('DELETE FROM facility_tests WHERE facility_id = ?').bind(facilityId).run();
         await env.MASTERS_D1.prepare('DELETE FROM facility_qualifications WHERE facility_id = ?').bind(facilityId).run();
+        await env.MASTERS_D1.prepare('DELETE FROM facility_departments WHERE facility_id = ?').bind(facilityId).run();
+        await env.MASTERS_D1.prepare('DELETE FROM facility_beds WHERE facility_id = ?').bind(facilityId).run();
+        await env.MASTERS_D1.prepare('DELETE FROM facility_modes WHERE facility_id = ?').bind(facilityId).run();
+        await env.MASTERS_D1.prepare('DELETE FROM facility_vaccinations WHERE facility_id = ?').bind(facilityId).run();
+        await env.MASTERS_D1.prepare('DELETE FROM facility_checkups WHERE facility_id = ?').bind(facilityId).run();
+        await env.MASTERS_D1.prepare('DELETE FROM facility_access_info WHERE facility_id = ?').bind(facilityId).run();
+        await env.MASTERS_D1.prepare('DELETE FROM facility_extra WHERE facility_id = ?').bind(facilityId).run();
       } catch (err) {
         console.error('[clinic] failed to clear facility collections', err);
         return;
@@ -470,7 +697,7 @@ export default {
             nk(svc.category || svc.type || ''),
             nk(svc.source || ''),
             nk(svc.notes || ''),
-            clinic.organizationId || null,
+            organizationId,
           ).run();
         } catch (err) {
           console.error('[clinic] failed to insert facility_service', err);
@@ -504,7 +731,7 @@ export default {
             nk(test.category || test.type || ''),
             nk(test.source || ''),
             nk(test.notes || ''),
-            clinic.organizationId || null,
+            organizationId,
           ).run();
         } catch (err) {
           console.error('[clinic] failed to insert facility_test', err);
@@ -538,10 +765,368 @@ export default {
             nk(qual.issuer || qual.organization || ''),
             nk(qual.obtainedAt || ''),
             nk(qual.notes || ''),
-            clinic.organizationId || null,
+            organizationId,
           ).run();
         } catch (err) {
           console.error('[clinic] failed to insert facility_qualification', err);
+        }
+      }
+
+      const toDepartmentCode = (name) => {
+        const normalized = sanitizeKeySegment(name || '');
+        return normalized ? `department:${normalized}` : null;
+      };
+
+      const departmentRows = [];
+      const manualDepartments = clinic.departments && typeof clinic.departments === 'object' ? clinic.departments : null;
+      const manualMaster = Array.isArray(manualDepartments?.master) ? manualDepartments.master : [];
+      const manualOthers = Array.isArray(manualDepartments?.others) ? manualDepartments.others : [];
+      const mhlwDepartments = Array.isArray(clinic.mhlwDepartments) ? clinic.mhlwDepartments : [];
+      const seenDept = new Set();
+
+      manualMaster.forEach((name, index) => {
+        const trimmed = nk(name);
+        if (!trimmed) return;
+        const code = toDepartmentCode(trimmed);
+        const key = `manual:${code || trimmed}`;
+        if (seenDept.has(key)) return;
+        seenDept.add(key);
+        departmentRows.push({
+          name: trimmed,
+          code,
+          source: nk(manualDepartments?.source) || 'manual',
+          isPrimary: index === 0 ? 1 : 0,
+        });
+      });
+
+      manualOthers.forEach((name) => {
+        const trimmed = nk(name);
+        if (!trimmed) return;
+        if (manualMaster.some((item) => nk(item) === trimmed)) return;
+        const key = `manual-other:${trimmed}`;
+        if (seenDept.has(key)) return;
+        seenDept.add(key);
+        departmentRows.push({
+          name: trimmed,
+          code: null,
+          source: 'manual-other',
+          isPrimary: 0,
+        });
+      });
+
+      mhlwDepartments.forEach((name) => {
+        const trimmed = nk(name);
+        if (!trimmed) return;
+        const code = toDepartmentCode(trimmed);
+        const key = `mhlw:${code || trimmed}`;
+        if (seenDept.has(key)) return;
+        seenDept.add(key);
+        departmentRows.push({
+          name: trimmed,
+          code,
+          source: 'mhlw',
+          isPrimary: 0,
+        });
+      });
+
+      if (departmentRows.length) {
+        const insertDepartment = env.MASTERS_D1.prepare(`
+          INSERT INTO facility_departments (
+            id, facility_id, organization_id, department_code, name, category, is_primary, source, notes
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            facility_id = excluded.facility_id,
+            organization_id = excluded.organization_id,
+            department_code = excluded.department_code,
+            name = excluded.name,
+            category = excluded.category,
+            is_primary = excluded.is_primary,
+            source = excluded.source,
+            notes = excluded.notes,
+            updated_at = strftime('%s','now')
+        `);
+        for (const row of departmentRows) {
+          try {
+            await insertDepartment.bind(
+              generateCollectionId(facilityId, 'department', row),
+              facilityId,
+              organizationId,
+              row.code || null,
+              row.name || null,
+              null,
+              row.isPrimary ? 1 : 0,
+              row.source || null,
+              null,
+            ).run();
+          } catch (err) {
+            console.error('[clinic] failed to insert facility_department', err);
+          }
+        }
+      }
+
+      const bedRows = [];
+      const bedSeen = new Set();
+      const appendBedRow = (type, count, source, notes) => {
+        const normalizedType = nk(type) || 'general';
+        const numericCount = Number(count);
+        if (!Number.isFinite(numericCount)) return;
+        const key = `${normalizedType}:${source || ''}`;
+        if (bedSeen.has(key)) return;
+        bedSeen.add(key);
+        bedRows.push({
+          type: normalizedType,
+          count: Math.max(0, Math.trunc(numericCount)),
+          source: source || null,
+          notes: nk(notes) || null,
+        });
+      };
+      if (Array.isArray(clinic.beds)) {
+        clinic.beds.forEach((entry) => {
+          if (!entry || typeof entry !== 'object') return;
+          appendBedRow(entry.type || entry.bedType, entry.count, entry.source || 'manual', entry.notes);
+        });
+      }
+      if (clinic.facilityAttributes && typeof clinic.facilityAttributes === 'object') {
+        const bedCount = Number(clinic.facilityAttributes.bedCount);
+        if (Number.isFinite(bedCount)) {
+          appendBedRow('total', bedCount, 'manual', clinic.facilityAttributes.bedNotes);
+        }
+      }
+      if (clinic.mhlwBedCounts && typeof clinic.mhlwBedCounts === 'object') {
+        Object.entries(clinic.mhlwBedCounts).forEach(([type, count]) => {
+          appendBedRow(type, count, 'mhlw');
+        });
+      }
+      if (bedRows.length) {
+        const insertBed = env.MASTERS_D1.prepare(`
+          INSERT INTO facility_beds (id, facility_id, organization_id, bed_type, count, source, notes)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            facility_id = excluded.facility_id,
+            organization_id = excluded.organization_id,
+            bed_type = excluded.bed_type,
+            count = excluded.count,
+            source = excluded.source,
+            notes = excluded.notes,
+            updated_at = strftime('%s','now')
+        `);
+        for (const row of bedRows) {
+          try {
+            await insertBed.bind(
+              generateCollectionId(facilityId, 'bed', row),
+              facilityId,
+              organizationId,
+              row.type || null,
+              row.count ?? 0,
+              row.source || null,
+              row.notes || null,
+            ).run();
+          } catch (err) {
+            console.error('[clinic] failed to insert facility_bed', err);
+          }
+        }
+      }
+
+      const joinValues = (value) => {
+        if (Array.isArray(value)) {
+          return value.map((item) => nk(item)).filter(Boolean).join('\n') || null;
+        }
+        const text = nk(value);
+        return text || null;
+      };
+      if (clinic.access && typeof clinic.access === 'object') {
+        const parking = clinic.access.parking && typeof clinic.access.parking === 'object' ? clinic.access.parking : {};
+        const parkingAvailable = Object.prototype.hasOwnProperty.call(parking, 'available')
+          ? (parking.available ? 1 : 0)
+          : null;
+        const parkingCapacity = Number(parking.capacity);
+        const accessSummary = computeAccessSummary(clinic.access);
+        const insertAccess = env.MASTERS_D1.prepare(`
+          INSERT INTO facility_access_info (
+            facility_id, organization_id, nearest_station, bus, parking_available,
+            parking_capacity, parking_notes, barrier_free, notes, summary, source
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(facility_id) DO UPDATE SET
+            organization_id = excluded.organization_id,
+            nearest_station = excluded.nearest_station,
+            bus = excluded.bus,
+            parking_available = excluded.parking_available,
+            parking_capacity = excluded.parking_capacity,
+            parking_notes = excluded.parking_notes,
+            barrier_free = excluded.barrier_free,
+            notes = excluded.notes,
+            summary = excluded.summary,
+            source = excluded.source,
+            updated_at = strftime('%s','now')
+        `);
+        try {
+          await insertAccess.bind(
+            facilityId,
+            organizationId,
+            joinValues(clinic.access.nearestStation),
+            joinValues(clinic.access.bus),
+            parkingAvailable,
+            Number.isFinite(parkingCapacity) ? Math.trunc(parkingCapacity) : null,
+            nk(parking.notes) || null,
+            joinValues(clinic.access.barrierFree),
+            nk(clinic.access.notes) || null,
+            accessSummary || null,
+            nk(clinic.access.source) || 'manual',
+          ).run();
+        } catch (err) {
+          console.error('[clinic] failed to upsert facility_access_info', err);
+        }
+      }
+
+      if (clinic.modes && Array.isArray(clinic.modes.selected)) {
+        const insertMode = env.MASTERS_D1.prepare(`
+          INSERT INTO facility_modes (id, facility_id, organization_id, code, label, icon, color, display_order, notes, source)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            facility_id = excluded.facility_id,
+            organization_id = excluded.organization_id,
+            code = excluded.code,
+            label = excluded.label,
+            icon = excluded.icon,
+            color = excluded.color,
+            display_order = excluded.display_order,
+            notes = excluded.notes,
+            source = excluded.source,
+            updated_at = strftime('%s','now')
+        `);
+        const metaSource = clinic.modes.meta && typeof clinic.modes.meta === 'object' ? clinic.modes.meta : {};
+        for (const code of clinic.modes.selected) {
+          const slug = nk(code);
+          if (!slug) continue;
+          const metaEntry = metaSource[slug] && typeof metaSource[slug] === 'object' ? metaSource[slug] : {};
+          const orderValue = Number(metaEntry.order);
+          try {
+            await insertMode.bind(
+              generateCollectionId(facilityId, 'mode', { id: slug }),
+              facilityId,
+              organizationId,
+              slug,
+              nk(metaEntry.label) || slug,
+              nk(metaEntry.icon) || null,
+              nk(metaEntry.color) || null,
+              Number.isFinite(orderValue) ? orderValue : null,
+              nk(metaEntry.notes) || null,
+              nk(clinic.modes.source) || 'manual',
+            ).run();
+          } catch (err) {
+            console.error('[clinic] failed to insert facility_mode', err);
+          }
+        }
+      }
+
+      if (clinic.vaccinations && Array.isArray(clinic.vaccinations.selected)) {
+        const insertVaccination = env.MASTERS_D1.prepare(`
+          INSERT INTO facility_vaccinations (
+            id, facility_id, organization_id, vaccine_code, name, category, description, reference_url, notes, source
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            facility_id = excluded.facility_id,
+            organization_id = excluded.organization_id,
+            vaccine_code = excluded.vaccine_code,
+            name = excluded.name,
+            category = excluded.category,
+            description = excluded.description,
+            reference_url = excluded.reference_url,
+            notes = excluded.notes,
+            source = excluded.source,
+            updated_at = strftime('%s','now')
+        `);
+        const metaSource = clinic.vaccinations.meta && typeof clinic.vaccinations.meta === 'object'
+          ? clinic.vaccinations.meta
+          : {};
+        for (const code of clinic.vaccinations.selected) {
+          const slug = nk(code);
+          if (!slug) continue;
+          const metaEntry = metaSource[slug] && typeof metaSource[slug] === 'object' ? metaSource[slug] : {};
+          try {
+            await insertVaccination.bind(
+              generateCollectionId(facilityId, 'vaccination', { id: slug }),
+              facilityId,
+              organizationId,
+              slug,
+              nk(metaEntry.name) || slug,
+              nk(metaEntry.category) || null,
+              nk(metaEntry.desc) || null,
+              nk(metaEntry.referenceUrl) || null,
+              nk(metaEntry.notes) || null,
+              nk(clinic.vaccinations.source) || 'manual',
+            ).run();
+          } catch (err) {
+            console.error('[clinic] failed to insert facility_vaccination', err);
+          }
+        }
+      }
+
+      if (clinic.checkups && Array.isArray(clinic.checkups.selected)) {
+        const insertCheckup = env.MASTERS_D1.prepare(`
+          INSERT INTO facility_checkups (
+            id, facility_id, organization_id, checkup_code, name, category, description, reference_url, notes, source
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            facility_id = excluded.facility_id,
+            organization_id = excluded.organization_id,
+            checkup_code = excluded.checkup_code,
+            name = excluded.name,
+            category = excluded.category,
+            description = excluded.description,
+            reference_url = excluded.reference_url,
+            notes = excluded.notes,
+            source = excluded.source,
+            updated_at = strftime('%s','now')
+        `);
+        const metaSource = clinic.checkups.meta && typeof clinic.checkups.meta === 'object'
+          ? clinic.checkups.meta
+          : {};
+        for (const code of clinic.checkups.selected) {
+          const slug = nk(code);
+          if (!slug) continue;
+          const metaEntry = metaSource[slug] && typeof metaSource[slug] === 'object' ? metaSource[slug] : {};
+          try {
+            await insertCheckup.bind(
+              generateCollectionId(facilityId, 'checkup', { id: slug }),
+              facilityId,
+              organizationId,
+              slug,
+              nk(metaEntry.name) || slug,
+              nk(metaEntry.category) || null,
+              nk(metaEntry.desc) || null,
+              nk(metaEntry.referenceUrl) || null,
+              nk(metaEntry.notes) || null,
+              nk(clinic.checkups.source) || 'manual',
+            ).run();
+          } catch (err) {
+            console.error('[clinic] failed to insert facility_checkup', err);
+          }
+        }
+      }
+
+      const extraPayload = clinic.extra && typeof clinic.extra === 'object' && Object.keys(clinic.extra).length
+        ? clinic.extra
+        : null;
+      if (extraPayload) {
+        try {
+          const insertExtra = env.MASTERS_D1.prepare(`
+            INSERT INTO facility_extra (facility_id, organization_id, payload, source)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(facility_id) DO UPDATE SET
+              organization_id = excluded.organization_id,
+              payload = excluded.payload,
+              source = excluded.source,
+              updated_at = strftime('%s','now')
+          `);
+          await insertExtra.bind(
+            facilityId,
+            organizationId,
+            JSON.stringify(extraPayload),
+            nk(extraPayload.source) || 'manual',
+          ).run();
+        } catch (err) {
+          console.error('[clinic] failed to upsert facility_extra', err);
         }
       }
     }
@@ -598,10 +1183,301 @@ export default {
         notes: row.notes || undefined,
       }));
 
+      let organizationCandidate = clinic.organizationId
+        || serviceRows[0]?.organization_id
+        || testRows[0]?.organization_id
+        || qualRows[0]?.organization_id
+        || null;
+
+      try {
+        const result = await env.MASTERS_D1.prepare(`
+          SELECT department_code, name, category, is_primary, source, organization_id
+          FROM facility_departments
+          WHERE facility_id = ?
+          ORDER BY is_primary DESC, name
+        `).bind(facilityId).all();
+        const rows = result?.results || [];
+        if (rows.length) {
+          const master = [];
+          const others = [];
+          const mhlw = [];
+          const masterSet = new Set();
+          const otherSet = new Set();
+          const mhlwSet = new Set();
+          rows.forEach((row) => {
+            if (!organizationCandidate && row.organization_id) {
+              organizationCandidate = row.organization_id;
+            }
+            const name = nk(row.name);
+            if (!name) return;
+            const source = nk(row.source);
+            if (source === 'mhlw') {
+              if (mhlwSet.has(name)) return;
+              mhlwSet.add(name);
+              mhlw.push(name);
+              return;
+            }
+            if (source === 'manual-other') {
+              if (otherSet.has(name) || masterSet.has(name)) return;
+              otherSet.add(name);
+              others.push(name);
+              return;
+            }
+            if (masterSet.has(name)) return;
+            masterSet.add(name);
+            master.push(name);
+          });
+          clinic.departments = { master, others };
+          if (mhlw.length) {
+            clinic.mhlwDepartments = mhlw;
+          }
+        }
+      } catch (err) {
+        console.error('[clinic] failed to hydrate facility_departments', err);
+      }
+
+      try {
+        const result = await env.MASTERS_D1.prepare(`
+          SELECT bed_type, count, source, notes, organization_id
+          FROM facility_beds
+          WHERE facility_id = ?
+          ORDER BY bed_type
+        `).bind(facilityId).all();
+        const rows = result?.results || [];
+        if (rows.length) {
+          if (!organizationCandidate && rows[0]?.organization_id) {
+            organizationCandidate = rows[0].organization_id;
+          }
+          clinic.beds = rows.map((row) => ({
+            type: row.bed_type || '',
+            count: Number.isFinite(row.count) ? Number(row.count) : null,
+            source: row.source || null,
+            notes: row.notes || null,
+          }));
+          const totalRow = rows.find((row) => (row.bed_type || '').toLowerCase() === 'total');
+          if (totalRow && Number.isFinite(totalRow.count)) {
+            const attrs = clinic.facilityAttributes && typeof clinic.facilityAttributes === 'object'
+              ? { ...clinic.facilityAttributes }
+              : {};
+            attrs.bedCount = Number(totalRow.count);
+            clinic.facilityAttributes = attrs;
+          }
+        }
+      } catch (err) {
+        console.error('[clinic] failed to hydrate facility_beds', err);
+      }
+
+      try {
+        const row = await env.MASTERS_D1.prepare(`
+          SELECT nearest_station, bus, parking_available, parking_capacity, parking_notes,
+                 barrier_free, notes, summary, source, organization_id
+          FROM facility_access_info
+          WHERE facility_id = ?
+        `).bind(facilityId).first();
+        if (row) {
+          if (!organizationCandidate && row.organization_id) {
+            organizationCandidate = row.organization_id;
+          }
+          const splitValues = (value) => {
+            if (!value) return [];
+            return String(value).split(/\r?\n/).map((item) => nk(item)).filter(Boolean);
+          };
+          const access = {};
+          const stations = splitValues(row.nearest_station);
+          if (stations.length) access.nearestStation = stations;
+          const buses = splitValues(row.bus);
+          if (buses.length) access.bus = buses;
+          const barrier = splitValues(row.barrier_free);
+          if (barrier.length) access.barrierFree = barrier;
+          const parking = {};
+          if (row.parking_available !== null && row.parking_available !== undefined) {
+            parking.available = !!row.parking_available;
+          }
+          if (row.parking_capacity !== null && row.parking_capacity !== undefined) {
+            const capacity = Number(row.parking_capacity);
+            if (Number.isFinite(capacity)) parking.capacity = capacity;
+          }
+          if (row.parking_notes && nk(row.parking_notes)) {
+            parking.notes = nk(row.parking_notes);
+          }
+          if (Object.keys(parking).length) {
+            access.parking = parking;
+          }
+          if (row.notes && nk(row.notes)) {
+            access.notes = nk(row.notes);
+          }
+          const summaryText = nk(row.summary);
+          if (summaryText) {
+            access.summary = summaryText;
+          }
+          const accessSource = nk(row.source);
+          if (accessSource) {
+            access.source = accessSource;
+          }
+          if (Object.keys(access).length) {
+            clinic.access = access;
+            clinic.accessSummary = summaryText || computeAccessSummary(access);
+          }
+        }
+      } catch (err) {
+        console.error('[clinic] failed to hydrate facility_access_info', err);
+      }
+
+      try {
+        const result = await env.MASTERS_D1.prepare(`
+          SELECT code, label, icon, color, display_order, notes, source, organization_id
+          FROM facility_modes
+          WHERE facility_id = ?
+          ORDER BY COALESCE(display_order, 2147483647), code
+        `).bind(facilityId).all();
+        const rows = result?.results || [];
+        if (rows.length) {
+          if (!organizationCandidate && rows[0]?.organization_id) {
+            organizationCandidate = rows[0].organization_id;
+          }
+          const selected = [];
+          const meta = {};
+          rows.forEach((row) => {
+            const code = nk(row.code);
+            if (!code) return;
+            selected.push(code);
+            const entry = {};
+            const label = nk(row.label);
+            if (label) entry.label = label;
+            const icon = nk(row.icon);
+            if (icon) entry.icon = icon;
+            const color = nk(row.color);
+            if (color) entry.color = color;
+            const orderValue = Number(row.display_order);
+            if (Number.isFinite(orderValue)) entry.order = orderValue;
+            const notes = nk(row.notes);
+            if (notes) entry.notes = notes;
+            if (Object.keys(entry).length) {
+              meta[code] = entry;
+            }
+          });
+          if (selected.length) {
+            clinic.modes = { selected };
+            if (Object.keys(meta).length) clinic.modes.meta = meta;
+            clinic.modes.source = nk(rows[0]?.source) || clinic.modes.source;
+          }
+        }
+      } catch (err) {
+        console.error('[clinic] failed to hydrate facility_modes', err);
+      }
+
+      try {
+        const result = await env.MASTERS_D1.prepare(`
+          SELECT vaccine_code, name, category, description, reference_url, notes, source, organization_id
+          FROM facility_vaccinations
+          WHERE facility_id = ?
+          ORDER BY name
+        `).bind(facilityId).all();
+        const rows = result?.results || [];
+        if (rows.length) {
+          if (!organizationCandidate && rows[0]?.organization_id) {
+            organizationCandidate = rows[0].organization_id;
+          }
+          const selected = [];
+          const meta = {};
+          rows.forEach((row) => {
+            const code = nk(row.vaccine_code);
+            if (!code) return;
+            selected.push(code);
+            const entry = {};
+            const name = nk(row.name);
+            if (name) entry.name = name;
+            const category = nk(row.category);
+            if (category) entry.category = category;
+            const desc = nk(row.description);
+            if (desc) entry.desc = desc;
+            const url = nk(row.reference_url);
+            if (url) entry.referenceUrl = url;
+            const notes = nk(row.notes);
+            if (notes) entry.notes = notes;
+            if (Object.keys(entry).length) {
+              meta[code] = entry;
+            }
+          });
+          if (selected.length) {
+            clinic.vaccinations = { selected };
+            if (Object.keys(meta).length) clinic.vaccinations.meta = meta;
+            clinic.vaccinations.source = nk(rows[0]?.source) || clinic.vaccinations.source;
+          }
+        }
+      } catch (err) {
+        console.error('[clinic] failed to hydrate facility_vaccinations', err);
+      }
+
+      try {
+        const result = await env.MASTERS_D1.prepare(`
+          SELECT checkup_code, name, category, description, reference_url, notes, source, organization_id
+          FROM facility_checkups
+          WHERE facility_id = ?
+          ORDER BY name
+        `).bind(facilityId).all();
+        const rows = result?.results || [];
+        if (rows.length) {
+          if (!organizationCandidate && rows[0]?.organization_id) {
+            organizationCandidate = rows[0].organization_id;
+          }
+          const selected = [];
+          const meta = {};
+          rows.forEach((row) => {
+            const code = nk(row.checkup_code);
+            if (!code) return;
+            selected.push(code);
+            const entry = {};
+            const name = nk(row.name);
+            if (name) entry.name = name;
+            const category = nk(row.category);
+            if (category) entry.category = category;
+            const desc = nk(row.description);
+            if (desc) entry.desc = desc;
+            const url = nk(row.reference_url);
+            if (url) entry.referenceUrl = url;
+            const notes = nk(row.notes);
+            if (notes) entry.notes = notes;
+            if (Object.keys(entry).length) {
+              meta[code] = entry;
+            }
+          });
+          if (selected.length) {
+            clinic.checkups = { selected };
+            if (Object.keys(meta).length) clinic.checkups.meta = meta;
+            clinic.checkups.source = nk(rows[0]?.source) || clinic.checkups.source;
+          }
+        }
+      } catch (err) {
+        console.error('[clinic] failed to hydrate facility_checkups', err);
+      }
+
+      try {
+        const row = await env.MASTERS_D1.prepare(`
+          SELECT payload, source, organization_id
+          FROM facility_extra
+          WHERE facility_id = ?
+        `).bind(facilityId).first();
+        if (row && row.payload) {
+          if (!organizationCandidate && row.organization_id) {
+            organizationCandidate = row.organization_id;
+          }
+          try {
+            const payload = JSON.parse(row.payload);
+            if (payload && typeof payload === 'object') {
+              clinic.extra = payload;
+              clinic.extra.source = clinic.extra.source || nk(row.source) || 'manual';
+            }
+          } catch (err) {
+            console.warn('[clinic] failed to parse facility_extra payload', err);
+          }
+        }
+      } catch (err) {
+        console.error('[clinic] failed to hydrate facility_extra', err);
+      }
+
       if (!clinic.organizationId) {
-        clinic.organizationId = serviceRows[0]?.organization_id
-          || testRows[0]?.organization_id
-          || qualRows[0]?.organization_id
+        clinic.organizationId = organizationCandidate
           || clinic.organizationId
           || null;
       }
