@@ -713,11 +713,12 @@
 
   function pickFacilityDisplayName(facility) {
     const candidates = [
-      facility?.name,
-      facility?.officialName,
       facility?.shortName,
+      facility?.officialName,
+      facility?.name,
       facility?.prefecture,
       facility?.city,
+      facility?.englishName,
     ];
     for (const value of candidates) {
       if (typeof value === 'string' && value.trim()) {
@@ -753,6 +754,25 @@
     if (score >= 220) return '一致度: 高';
     if (score >= 120) return '一致度: 中';
     return '一致度: 参考';
+  }
+
+  function sanitizeFacilityId(value) {
+    if (!value) return '';
+    return String(value).trim().replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+  }
+
+  function variantMatchesQuery(variants, querySet) {
+    if (!Array.isArray(variants) || !variants.length || !querySet.size) return false;
+    for (const variant of variants) {
+      if (!variant) continue;
+      for (const queryVariant of querySet) {
+        if (!queryVariant) continue;
+        if (variant === queryVariant) return true;
+        if (variant.includes(queryVariant)) return true;
+        if (queryVariant.includes(variant) && variant.length >= 2) return true;
+      }
+    }
+    return false;
   }
 
   function findMhlwCandidates({ entries, clinic, query, limit = 8 }) {
@@ -822,8 +842,8 @@
 
       const shortNameVariants = cache.shortNameVariants || [];
       const nameVariants = cache.nameVariants || [];
-      const shortMatched = shortNameVariants.some((variant) => queryVariantSet.has(variant));
-      const nameMatched = nameVariants.some((variant) => queryVariantSet.has(variant));
+      const shortMatched = variantMatchesQuery(shortNameVariants, queryVariantSet);
+      const nameMatched = variantMatchesQuery(nameVariants, queryVariantSet);
       if (queryVariantSet.size) {
         if (shortMatched) {
           score += 220;
@@ -1052,9 +1072,14 @@
           applyButton.className = 'inline-flex items-center gap-2 rounded bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700';
           applyButton.textContent = labels.applyButton || 'このIDをセット';
           applyButton.addEventListener('click', () => {
-            const facilityId = (facility.facilityId || '').toUpperCase();
+            const rawFacilityId = facility?.facilityId || '';
+            const facilityId = sanitizeFacilityId(rawFacilityId);
+            if (!facilityId) {
+              updateStatus('候補の厚労省IDが取得できませんでした。', 'error');
+              return;
+            }
             if (typeof onCandidateSelected === 'function') {
-              onCandidateSelected({ facility, facilityId, score, query: term });
+              onCandidateSelected({ facility, facilityId, rawFacilityId, score, query: term });
             }
             highlightCandidate(item);
             updateStatus(`候補ID ${facilityId} を入力欄にセットしました。保存ボタンで確定してください。`, 'info');
@@ -1230,13 +1255,12 @@
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       setStatus('', 'info');
-      const rawValue = (facilityIdInput.value || '').trim();
-      if (!rawValue) {
+      const facilityId = sanitizeFacilityId(facilityIdInput.value);
+      facilityIdInput.value = facilityId;
+      if (!facilityId) {
         setStatus('厚労省施設IDを入力してください。', 'error');
         return;
       }
-      const facilityId = rawValue.toUpperCase();
-      facilityIdInput.value = facilityId;
       const apiBase = resolveApiBase();
       const authHeader = await getAuthHeader();
       try {
@@ -1259,11 +1283,13 @@
     if (syncButton) {
       syncButton.addEventListener('click', async () => {
         setStatus('', 'info');
-        const facilityId = (facilityIdInput.value || '').trim().toUpperCase();
-        if (!facilityId) {
-          setStatus('まず厚労省IDを登録してください。', 'error');
-          return;
-        }
+      const facilityId = (facilityIdInput.value || '').trim().toUpperCase();
+      const facilityId = sanitizeFacilityId(facilityIdInput.value);
+      facilityIdInput.value = facilityId;
+      if (!facilityId) {
+        setStatus('まず厚労省IDを登録してください。', 'error');
+        return;
+      }
         const facility = lookupFacility(facilityId);
         if (!facility) {
           setStatus(`厚労省データにID ${facilityId} が見つかりません。CSVが最新か確認してください。`, 'error');
