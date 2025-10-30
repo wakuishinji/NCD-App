@@ -805,11 +805,6 @@
         : (facilityName ? [facilityName] : []);
       if (!facilityVariants.length) continue;
 
-      const shortNameVariants = cache.shortNameVariants || [];
-      if (!shortNameVariants.length) continue;
-      const shortMatched = shortNameVariants.some((variant) => queryVariantSet.has(variant));
-      if (!shortMatched) continue;
-
       const facilityPrefToken = cache.prefectureToken || '';
       const facilityCityToken = cache.cityToken || '';
       if (clinicPrefToken && facilityPrefToken && clinicPrefToken !== facilityPrefToken) {
@@ -825,6 +820,21 @@
         }
       }
 
+      const shortNameVariants = cache.shortNameVariants || [];
+      const nameVariants = cache.nameVariants || [];
+      const shortMatched = shortNameVariants.some((variant) => queryVariantSet.has(variant));
+      const nameMatched = nameVariants.some((variant) => queryVariantSet.has(variant));
+      if (queryVariantSet.size) {
+        if (shortMatched) {
+          score += 220;
+        } else if (nameMatched) {
+          score += 140;
+        } else {
+          // Penalize but still allow if other attributes (住所等) strongly match.
+          score -= 120;
+        }
+      }
+
       if (clinicPrefToken && facilityPrefToken && clinicPrefToken === facilityPrefToken) {
         score += 160;
       }
@@ -832,7 +842,7 @@
         if (clinicCityToken === facilityCityToken) {
           score += 140;
         } else {
-          score -= 60;
+          score -= 40;
         }
       }
 
@@ -841,7 +851,7 @@
       if (postalMatch) {
         score += 400;
       } else if (rawPostal && facilityPostal && facilityPostal.startsWith(rawPostal.slice(0, 3))) {
-        score += 80;
+        score += 120;
       }
 
       if (clinicAddressTokens.size && cache.addressTokens instanceof Set) {
@@ -867,12 +877,257 @@
     return results.slice(0, limit);
   }
 
+  function createMhlwCandidateSection({
+    clinic,
+    entries,
+    keywordCandidates = [],
+    initialKeyword = '',
+    onCandidateSelected,
+    onSetStatus,
+    labels = {},
+  } = {}) {
+    const section = document.createElement('div');
+    section.className = 'mt-4 space-y-3 rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600';
+
+    const header = document.createElement('div');
+    header.className = 'flex flex-col gap-1';
+
+    const title = document.createElement('span');
+    title.className = 'text-sm font-semibold text-slate-700';
+    title.textContent = labels.title || '厚労省データ候補';
+    header.appendChild(title);
+
+    const hint = document.createElement('p');
+    hint.textContent = labels.hint || '厚労省公開データの施設名（略称・正式名称）で検索し、候補から選択してください。';
+    header.appendChild(hint);
+
+    section.appendChild(header);
+
+    const controls = document.createElement('div');
+    controls.className = 'flex flex-col gap-2 md:flex-row md:items-end';
+
+    const inputWrap = document.createElement('div');
+    inputWrap.className = 'flex-1';
+
+    const inputLabel = document.createElement('label');
+    inputLabel.className = 'block text-xs font-medium text-slate-600';
+    inputLabel.textContent = labels.searchLabel || '施設名で検索';
+    inputWrap.appendChild(inputLabel);
+
+    const searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.className = 'mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm';
+    searchInput.placeholder = labels.searchPlaceholder || '厚労省データの施設名・略称などを入力';
+    inputWrap.appendChild(searchInput);
+
+    controls.appendChild(inputWrap);
+
+    const buttonGroup = document.createElement('div');
+    buttonGroup.className = 'flex gap-2';
+
+    const searchButton = document.createElement('button');
+    searchButton.type = 'button';
+    searchButton.className = 'inline-flex items-center gap-2 rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700';
+    searchButton.textContent = labels.searchButton || '候補を検索';
+    buttonGroup.appendChild(searchButton);
+
+    const resetButton = document.createElement('button');
+    resetButton.type = 'button';
+    resetButton.className = 'inline-flex items-center gap-2 rounded border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800 transition hover:border-blue-300 hover:bg-blue-100';
+    resetButton.textContent = labels.resetButton || 'NCD名称で再検索';
+    buttonGroup.appendChild(resetButton);
+
+    controls.appendChild(buttonGroup);
+    section.appendChild(controls);
+
+    const infoLine = document.createElement('p');
+    infoLine.className = 'text-[11px] text-slate-500';
+    section.appendChild(infoLine);
+
+    const list = document.createElement('div');
+    list.className = 'space-y-2';
+    section.appendChild(list);
+
+    const combinedKeywords = Array.from(new Set([
+      initialKeyword,
+      ...keywordCandidates,
+      clinic?.shortName,
+      clinic?.name,
+      clinic?.displayName,
+      clinic?.officialName,
+      clinic?.alias,
+      clinic?.corporationName,
+      clinic?.nameKana,
+    ].filter((value) => typeof value === 'string' && value.trim())));
+
+    const resolvedInitialKeyword = combinedKeywords[0] || '';
+    searchInput.value = resolvedInitialKeyword;
+
+    const updateStatus = (message, variant = 'info') => {
+      if (typeof onSetStatus === 'function') {
+        onSetStatus(message, variant);
+      }
+    };
+
+    const highlightCandidate = (element) => {
+      list.querySelectorAll('[data-candidate]').forEach((node) => {
+        node.classList.remove('ring-2', 'ring-blue-200');
+      });
+      if (element) {
+        element.classList.add('ring-2', 'ring-blue-200');
+      }
+    };
+
+    const renderCandidates = (keyword, { fallback = false } = {}) => {
+      list.innerHTML = '';
+      const trimmed = (keyword || '').trim();
+      if (!Array.isArray(entries) || !entries.length) {
+        const empty = document.createElement('p');
+        empty.className = 'text-xs text-red-600';
+        empty.textContent = '厚労省データが読み込まれていません。CSVを再読込してください。';
+        list.appendChild(empty);
+        infoLine.textContent = trimmed ? `検索キーワード: 「${trimmed}」` : '検索キーワード: （未入力）';
+        return;
+      }
+
+      const tried = new Set();
+      const attempts = [];
+      const queue = [];
+      if (trimmed) queue.push(trimmed);
+      combinedKeywords.forEach((term) => {
+        if (term && !queue.includes(term)) queue.push(term);
+      });
+
+      const renderForTerm = (term) => {
+        const results = findMhlwCandidates({ entries, clinic, query: term, limit: 8 });
+        if (!results.length) return false;
+        results.forEach(({ facility, score }) => {
+          const item = document.createElement('div');
+          item.className = 'rounded border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 transition';
+          item.dataset.candidate = 'true';
+
+          const headerRow = document.createElement('div');
+          headerRow.className = 'flex flex-wrap items-center justify-between gap-2';
+
+          const nameEl = document.createElement('div');
+          nameEl.className = 'text-sm font-semibold text-slate-800';
+          nameEl.textContent = pickFacilityDisplayName(facility);
+          headerRow.appendChild(nameEl);
+
+          const idBadge = document.createElement('span');
+          idBadge.className = 'rounded bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700';
+          idBadge.textContent = facility.facilityId || '-';
+          headerRow.appendChild(idBadge);
+
+          item.appendChild(headerRow);
+
+          const addressText = pickFacilityAddress(facility);
+          if (addressText) {
+            const addressEl = document.createElement('p');
+            addressEl.className = 'mt-1 text-xs text-slate-600';
+            addressEl.textContent = addressText;
+            item.appendChild(addressEl);
+          }
+
+          const metaLine = document.createElement('div');
+          metaLine.className = 'mt-1 text-[11px] text-slate-500';
+          const typeLabel = facility.facilityType === 'hospital'
+            ? '病院'
+            : facility.facilityType === 'clinic'
+              ? '診療所'
+              : facility.facilityType || '-';
+          metaLine.textContent = `種別: ${typeLabel} / 郵便番号: ${facility.postalCode || '-'}`;
+          item.appendChild(metaLine);
+
+          const actions = document.createElement('div');
+          actions.className = 'mt-2 flex flex-wrap items-center gap-3';
+
+          const scoreLabel = document.createElement('span');
+          scoreLabel.className = 'text-[11px] text-slate-500';
+          scoreLabel.textContent = describeMatchLevel(score);
+          actions.appendChild(scoreLabel);
+
+          const applyButton = document.createElement('button');
+          applyButton.type = 'button';
+          applyButton.className = 'inline-flex items-center gap-2 rounded bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700';
+          applyButton.textContent = labels.applyButton || 'このIDをセット';
+          applyButton.addEventListener('click', () => {
+            const facilityId = (facility.facilityId || '').toUpperCase();
+            if (typeof onCandidateSelected === 'function') {
+              onCandidateSelected({ facility, facilityId, score, query: term });
+            }
+            highlightCandidate(item);
+            updateStatus(`候補ID ${facilityId} を入力欄にセットしました。保存ボタンで確定してください。`, 'info');
+          });
+          actions.appendChild(applyButton);
+
+          item.addEventListener('dblclick', () => applyButton.click());
+
+          item.appendChild(actions);
+          list.appendChild(item);
+        });
+        return true;
+      };
+
+      for (const term of queue) {
+        const normalized = (term || '').trim();
+        if (!normalized || tried.has(normalized)) continue;
+        tried.add(normalized);
+        if (searchInput.value !== normalized) {
+          searchInput.value = normalized;
+        }
+        attempts.push(normalized);
+        if (renderForTerm(normalized)) {
+          infoLine.textContent = attempts.length === 1
+            ? `検索キーワード: 「${normalized}」`
+            : `検索キーワード: 「${attempts[0]}」では一致なし → 「${normalized}」の候補を表示中`;
+          return;
+        }
+        if (!fallback) break;
+      }
+
+      const empty = document.createElement('p');
+      empty.className = 'text-xs text-slate-500';
+      empty.textContent = '候補が見つかりませんでした。キーワードを調整してください。';
+      list.appendChild(empty);
+      infoLine.textContent = attempts.length
+        ? `検索キーワード: 「${attempts[0]}」では一致する候補が見つかりませんでした。`
+        : trimmed ? `検索キーワード: 「${trimmed}」` : '検索キーワード: （未入力）';
+    };
+
+    searchButton.addEventListener('click', () => {
+      renderCandidates(searchInput.value, { fallback: true });
+    });
+
+    resetButton.addEventListener('click', () => {
+      searchInput.value = resolvedInitialKeyword;
+      renderCandidates(resolvedInitialKeyword, { fallback: true });
+    });
+
+    searchInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        renderCandidates(searchInput.value, { fallback: true });
+      }
+    });
+
+    renderCandidates(searchInput.value, { fallback: true });
+
+    return {
+      element: section,
+      render: (keyword, options) => renderCandidates(keyword, options),
+      focus: () => searchInput.focus(),
+      getKeywords: () => combinedKeywords.slice(),
+    };
+  }
+
   function buildClinicCard(clinic, mhlwSource, options = {}) {
     const dict = (mhlwSource && mhlwSource.dict) || mhlwSource || {};
     const entries = Array.isArray(mhlwSource?.entries)
       ? mhlwSource.entries
       : (dict && typeof dict === 'object' ? Object.values(dict) : []);
     const searchKeyword = typeof options.searchKeyword === 'string' ? options.searchKeyword : '';
+    const onLinked = typeof options.onLinked === 'function' ? options.onLinked : null;
 
     const wrapper = document.createElement('div');
     wrapper.className = 'rounded border border-slate-200 bg-white p-4 shadow-sm';
@@ -956,14 +1211,28 @@
     const statusEl = form.querySelector('[data-status]');
     const facilityIdInput = form.querySelector('input[name="facilityId"]');
 
+    const setStatus = (message, variant = 'info') => {
+      if (!statusEl) return;
+      statusEl.textContent = message || '';
+      const baseClass = 'md:col-span-2 text-xs';
+      statusEl.className = baseClass;
+      if (variant === 'error') {
+        statusEl.classList.add('text-red-600');
+      } else if (variant === 'success') {
+        statusEl.classList.add('text-emerald-600');
+      } else if (variant === 'info') {
+        statusEl.classList.add('text-slate-500');
+      } else {
+        statusEl.classList.add(variant);
+      }
+    };
+
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
-      statusEl.textContent = '';
-      statusEl.className = 'md:col-span-2 text-xs text-slate-500';
+      setStatus('', 'info');
       const rawValue = (facilityIdInput.value || '').trim();
       if (!rawValue) {
-        statusEl.textContent = '厚労省施設IDを入力してください。';
-        statusEl.classList.add('text-red-600');
+        setStatus('厚労省施設IDを入力してください。', 'error');
         return;
       }
       const facilityId = rawValue.toUpperCase();
@@ -976,33 +1245,28 @@
           headers: authHeader ? { Authorization: authHeader } : {},
           body: { name: clinic.name, mhlwFacilityId: facilityId },
         });
-        statusEl.textContent = '厚労省IDを登録しました。再読み込みしてください。';
-        statusEl.className = 'md:col-span-2 text-xs text-emerald-600';
+        setStatus('厚労省IDを登録しました。再読み込みしてください。', 'success');
         if (typeof onLinked === 'function') {
           onLinked();
         }
       } catch (error) {
         console.error('[mhlwSync] failed to update clinic', error);
-        statusEl.textContent = error?.payload?.message || error.message || '更新に失敗しました。';
-        statusEl.className = 'md:col-span-2 text-xs text-red-600';
+        setStatus(error?.payload?.message || error.message || '更新に失敗しました。', 'error');
       }
     });
 
     const syncButton = form.querySelector('[data-action="sync"]');
     if (syncButton) {
       syncButton.addEventListener('click', async () => {
-        statusEl.textContent = '';
-        statusEl.className = 'md:col-span-2 text-xs text-slate-500';
+        setStatus('', 'info');
         const facilityId = (facilityIdInput.value || '').trim().toUpperCase();
         if (!facilityId) {
-          statusEl.textContent = 'まず厚労省IDを登録してください。';
-          statusEl.classList.add('text-red-600');
+          setStatus('まず厚労省IDを登録してください。', 'error');
           return;
         }
         const facility = lookupFacility(facilityId);
         if (!facility) {
-          statusEl.textContent = `厚労省データにID ${facilityId} が見つかりません。CSVが最新か確認してください。`;
-          statusEl.classList.add('text-red-600');
+          setStatus(`厚労省データにID ${facilityId} が見つかりません。CSVが最新か確認してください。`, 'error');
           return;
         }
         const apiBase = resolveApiBase();
@@ -1017,76 +1281,20 @@
               facilityData: facility,
             },
           });
-          statusEl.textContent = '厚労省データから同期しました。再読み込みしてください。';
-          statusEl.className = 'md:col-span-2 text-xs text-emerald-600';
+          setStatus('厚労省データから同期しました。再読み込みしてください。', 'success');
           if (typeof onLinked === 'function') {
             onLinked();
           }
         } catch (error) {
           console.error('[mhlwSync] sync failed', error);
-          statusEl.textContent = error?.payload?.message || error.message || '同期に失敗しました。';
-          statusEl.className = 'md:col-span-2 text-xs text-red-600';
+          setStatus(error?.payload?.message || error.message || '同期に失敗しました。', 'error');
         }
       });
     }
 
-    const candidateSection = document.createElement('div');
-    candidateSection.className = 'mt-4 space-y-3 rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600';
 
-    const candidateHeader = document.createElement('div');
-    candidateHeader.className = 'flex flex-col gap-1';
-    const candidateTitle = document.createElement('span');
-    candidateTitle.className = 'text-sm font-semibold text-slate-700';
-    candidateTitle.textContent = '厚労省データ候補';
-    candidateHeader.appendChild(candidateTitle);
-    const candidateHint = document.createElement('p');
-    candidateHint.textContent = '厚労省公開データの施設名（略称を含む）で検索し、見つかった候補を入力欄へセットできます。';
-    candidateHeader.appendChild(candidateHint);
-    candidateSection.appendChild(candidateHeader);
-
-    const candidateControls = document.createElement('div');
-    candidateControls.className = 'flex flex-col gap-2 md:flex-row md:items-end';
-
-    const candidateInputWrap = document.createElement('div');
-    candidateInputWrap.className = 'flex-1';
-    const candidateLabel = document.createElement('label');
-    candidateLabel.className = 'block text-xs font-medium text-slate-600';
-    candidateLabel.textContent = '施設名で検索';
-    candidateInputWrap.appendChild(candidateLabel);
-    const candidateInput = document.createElement('input');
-    candidateInput.type = 'text';
-    candidateInput.className = 'mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm';
-    candidateInput.placeholder = '厚労省データの施設名・略称などを入力';
-    candidateInputWrap.appendChild(candidateInput);
-    candidateControls.appendChild(candidateInputWrap);
-
-    const candidateButtons = document.createElement('div');
-    candidateButtons.className = 'flex gap-2';
-
-    const searchButton = document.createElement('button');
-    searchButton.type = 'button';
-    searchButton.className = 'inline-flex items-center gap-2 rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700';
-    searchButton.textContent = '候補を検索';
-    candidateButtons.appendChild(searchButton);
-
-    const resetButton = document.createElement('button');
-    resetButton.type = 'button';
-    resetButton.className = 'inline-flex items-center gap-2 rounded border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800 transition hover:border-blue-300 hover:bg-blue-100';
-    resetButton.textContent = 'NCD名称で再検索';
-    candidateButtons.appendChild(resetButton);
-
-    candidateControls.appendChild(candidateButtons);
-    candidateSection.appendChild(candidateControls);
-
-    const candidateList = document.createElement('div');
-    candidateList.className = 'space-y-2';
-    candidateSection.appendChild(candidateList);
-
-    wrapper.appendChild(candidateSection);
-
-    const searchCandidates = [];
-    if (searchKeyword && searchKeyword.trim()) searchCandidates.push(searchKeyword.trim());
-    const defaultKeywordSources = [
+    const keywordSources = [
+      searchKeyword,
       clinic.shortName,
       clinic.name,
       clinic.displayName,
@@ -1094,161 +1302,32 @@
       clinic.alias,
       clinic.corporationName,
       clinic.nameKana,
-    ]
-      .map((value) => (typeof value === 'string' ? value.trim() : ''))
-      .filter(Boolean);
-    searchCandidates.push(...defaultKeywordSources);
-    const uniqueKeywords = Array.from(new Set(searchCandidates.filter(Boolean)));
-    const initialKeyword = uniqueKeywords[0] || '';
-    candidateInput.value = initialKeyword;
-
-    function highlightCandidate(element) {
-      candidateList.querySelectorAll('[data-candidate]').forEach((node) => {
-        node.classList.remove('ring-2', 'ring-blue-200');
-      });
-      if (element) {
-        element.classList.add('ring-2', 'ring-blue-200');
-      }
-    }
-
-    const candidateInfo = document.createElement('p');
-    candidateInfo.className = 'text-[11px] text-slate-500';
-    candidateSection.insertBefore(candidateInfo, candidateList);
-
-    function renderCandidates(keyword, { fallback = false } = {}) {
-      candidateList.innerHTML = '';
-      const baseKeyword = (keyword || '').trim();
-      if (!Array.isArray(entries) || !entries.length) {
-        const empty = document.createElement('p');
-        empty.className = 'text-xs text-red-600';
-        empty.textContent = '厚労省データが読み込まれていません。CSVを再読込してください。';
-        candidateList.appendChild(empty);
-        candidateInfo.textContent = baseKeyword ? `検索キーワード: 「${baseKeyword}」` : '検索キーワード: （未入力）';
-        return;
-      }
-
-      const tried = new Set();
-      const attempts = [];
-      const queue = [];
-      if (baseKeyword) queue.push(baseKeyword);
-      uniqueKeywords.forEach((term) => {
-        if (term && !queue.includes(term)) queue.push(term);
-      });
-
-      const renderForTerm = (term) => {
-        const results = findMhlwCandidates({ entries, clinic, query: term, limit: 8 });
-        if (!results.length) return false;
-        results.forEach(({ facility, score }) => {
-          const item = document.createElement('div');
-          item.className = 'rounded border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 transition';
-          item.dataset.candidate = 'true';
-
-          const header = document.createElement('div');
-          header.className = 'flex flex-wrap items-center justify-between gap-2';
-
-          const nameEl = document.createElement('div');
-          nameEl.className = 'text-sm font-semibold text-slate-800';
-          nameEl.textContent = pickFacilityDisplayName(facility);
-          header.appendChild(nameEl);
-
-          const idBadge = document.createElement('span');
-          idBadge.className = 'rounded bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700';
-          idBadge.textContent = facility.facilityId || '-';
-          header.appendChild(idBadge);
-
-          item.appendChild(header);
-
-          const addressText = pickFacilityAddress(facility);
-          if (addressText) {
-            const addressEl = document.createElement('p');
-            addressEl.className = 'mt-1 text-xs text-slate-600';
-            addressEl.textContent = addressText;
-            item.appendChild(addressEl);
-          }
-
-          const metaLine = document.createElement('div');
-          metaLine.className = 'mt-1 text-[11px] text-slate-500';
-          const typeLabel = facility.facilityType === 'hospital'
-            ? '病院'
-            : facility.facilityType === 'clinic'
-              ? '診療所'
-              : facility.facilityType || '-';
-          metaLine.textContent = `種別: ${typeLabel} / 郵便番号: ${facility.postalCode || '-'}`;
-          item.appendChild(metaLine);
-
-          const actions = document.createElement('div');
-          actions.className = 'mt-2 flex flex-wrap items-center gap-3';
-
-          const scoreLabel = document.createElement('span');
-          scoreLabel.className = 'text-[11px] text-slate-500';
-          scoreLabel.textContent = describeMatchLevel(score);
-          actions.appendChild(scoreLabel);
-
-          const applyButton = document.createElement('button');
-          applyButton.type = 'button';
-          applyButton.className = 'inline-flex items-center gap-2 rounded bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700';
-          applyButton.textContent = 'このIDをセット';
-          applyButton.addEventListener('click', () => {
-            const facilityId = (facility.facilityId || '').toUpperCase();
-            facilityIdInput.value = facilityId;
-            facilityIdInput.focus();
-            highlightCandidate(item);
-            statusEl.textContent = `候補ID ${facilityId} を入力欄にセットしました。保存ボタンで確定してください。`;
-            statusEl.className = 'md:col-span-2 text-xs text-blue-600';
-          });
-          actions.appendChild(applyButton);
-
-          item.addEventListener('dblclick', () => applyButton.click());
-
-          item.appendChild(actions);
-          candidateList.appendChild(item);
-        });
-        return true;
-      };
-
-      for (const term of queue) {
-        const normalizedTerm = (term || '').trim();
-        if (!normalizedTerm || tried.has(normalizedTerm)) continue;
-        tried.add(normalizedTerm);
-        candidateInput.value = normalizedTerm;
-        attempts.push(normalizedTerm);
-        if (renderForTerm(normalizedTerm)) {
-          candidateInfo.textContent = attempts.length === 1
-            ? `検索キーワード: 「${normalizedTerm}」`
-            : `検索キーワード: 「${attempts[0]}」では一致なし → 「${normalizedTerm}」の候補を表示中`;
-          return;
-        }
-        if (!fallback) break;
-      }
-
-      const empty = document.createElement('p');
-      empty.className = 'text-xs text-slate-500';
-      empty.textContent = '候補が見つかりませんでした。キーワードを調整してください。';
-      candidateList.appendChild(empty);
-      candidateInfo.textContent = attempts.length
-        ? `検索キーワード: 「${attempts[0]}」では一致する候補が見つかりませんでした。`
-        : baseKeyword ? `検索キーワード: 「${baseKeyword}」` : '検索キーワード: （未入力）';
-    }
-    searchButton.addEventListener('click', () => {
-      renderCandidates(candidateInput.value, { fallback: true });
+    ].filter((value) => typeof value === 'string' && value.trim());
+    const candidateSectionControl = createMhlwCandidateSection({
+      clinic,
+      entries,
+      keywordCandidates: keywordSources,
+      initialKeyword: keywordSources[0] || '',
+      onSetStatus: (message, variant) => {
+        setStatus(message || '', variant);
+      },
+      onCandidateSelected: ({ facilityId }) => {
+        if (!facilityId) return;
+        facilityIdInput.value = facilityId;
+        facilityIdInput.focus();
+      },
     });
-
-    resetButton.addEventListener('click', () => {
-      candidateInput.value = initialKeyword;
-      renderCandidates(initialKeyword, { fallback: true });
-    });
-
-    candidateInput.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        renderCandidates(candidateInput.value, { fallback: true });
-      }
-    });
-
-    renderCandidates(candidateInput.value, { fallback: true });
+    wrapper.appendChild(candidateSectionControl.element);
 
     return wrapper;
+
   }
+
+  global.MhlwFacilitySearch = global.MhlwFacilitySearch || {};
+  Object.assign(global.MhlwFacilitySearch, {
+    createCandidateSection: createMhlwCandidateSection,
+    findCandidates: (options) => findMhlwCandidates(options),
+  });
 
   function init() {
     const clinicList = document.getElementById('clinicList');
