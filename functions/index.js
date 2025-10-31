@@ -205,6 +205,7 @@ const SECURITY_QUESTIONS = [
   { id: 'memorable_song', label: 'よく聴いていた歌のタイトルは？' },
 ];
 const SECURITY_ANSWER_FORMATS = new Set(['hiragana', 'katakana']);
+const MHLW_SYNC_STATUSES = new Set(['pending', 'linked', 'manual', 'not_found']);
 
 export default {
   async fetch(request, env) {
@@ -544,6 +545,21 @@ export default {
         ? normalizeMhlwFacilityId(clinic.mhlwFacilityId)
         : normalizeMhlwFacilityId(clinic.mhlwId || clinic.facilityId || '');
       clinic.mhlwFacilityId = resolvedMhlw || null;
+      const hasMhlwId = Boolean(clinic.mhlwFacilityId);
+      const syncStatusRaw = nk(clinic.mhlwSyncStatus || clinic.mhlw_sync_status);
+      let syncStatus = syncStatusRaw ? syncStatusRaw.toLowerCase() : '';
+      if (!MHLW_SYNC_STATUSES.has(syncStatus)) {
+        syncStatus = '';
+      }
+      if (hasMhlwId) {
+        if (!syncStatus || syncStatus === 'not_found') {
+          syncStatus = 'linked';
+        }
+      } else if (syncStatus === 'linked') {
+        syncStatus = '';
+      }
+      clinic.mhlwSyncStatus = syncStatus || 'pending';
+      clinic.mhlwManualNote = nk(clinic.mhlwManualNote || clinic.mhlw_manual_note) || null;
 
       clinic.clinicType = normalizeFacilityType(clinic.clinicType || clinic.facilityType || '');
       clinic.facilityType = clinic.clinicType;
@@ -632,6 +648,7 @@ export default {
         latitude: toNumberOrNull(location.lat),
         longitude: toNumberOrNull(location.lng),
         facilityType: normalized.clinicType || 'clinic',
+        mhlwSyncStatus: normalized.mhlwSyncStatus || 'pending',
         phone: nk(basic.phone),
         fax: nk(basic.fax),
         email: nk(basic.email),
@@ -1493,9 +1510,9 @@ export default {
       const stmt = env.MASTERS_D1.prepare(`
         INSERT INTO facilities (
           id, external_id, name, short_name, official_name, prefecture, city,
-          address, postal_code, latitude, longitude, facility_type, phone, fax,
+          address, postal_code, latitude, longitude, facility_type, mhlw_sync_status, phone, fax,
           email, website, organization_id, metadata
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           external_id = excluded.external_id,
           name = excluded.name,
@@ -1508,6 +1525,7 @@ export default {
           latitude = excluded.latitude,
           longitude = excluded.longitude,
           facility_type = excluded.facility_type,
+          mhlw_sync_status = excluded.mhlw_sync_status,
           phone = excluded.phone,
           fax = excluded.fax,
           email = excluded.email,
@@ -1516,9 +1534,10 @@ export default {
           metadata = excluded.metadata
         RETURNING
           id, external_id, name, short_name, official_name, prefecture, city,
-          address, postal_code, latitude, longitude, facility_type, phone, fax,
+          address, postal_code, latitude, longitude, facility_type, mhlw_sync_status, phone, fax,
           email, website, organization_id, metadata
       `);
+      let d1Upserted = true;
       const result = await stmt
         .bind(
           row.id,
@@ -1533,6 +1552,7 @@ export default {
           row.latitude,
           row.longitude,
           row.facilityType || null,
+          row.mhlwSyncStatus || null,
           row.phone || null,
           row.fax || null,
           row.email || null,
@@ -1543,8 +1563,13 @@ export default {
         .first()
         .catch((err) => {
           console.error('[clinic] failed to upsert D1', err);
+          d1Upserted = false;
           return null;
         });
+      if (!d1Upserted) {
+        console.warn('[clinic] falling back to KV-only store for clinic', { id: normalizedClinic.id });
+        return hydrateClinicCollectionsD1(env, normalizedClinic);
+      }
       await replaceFacilityCollectionsD1(env, normalizedClinic);
       if (result && result.metadata) {
         try {
@@ -1611,6 +1636,9 @@ export default {
       payload.basic.prefecture = payload.basic.prefecture || row.prefecture || '';
       payload.basic.city = payload.basic.city || row.city || '';
       payload.mhlwFacilityId = payload.mhlwFacilityId || row.external_id || null;
+      if (!payload.mhlwSyncStatus) {
+        payload.mhlwSyncStatus = row.mhlw_sync_status || 'pending';
+      }
       payload.organizationId = payload.organizationId || row.organization_id || null;
       if (!payload.location || typeof payload.location !== 'object') {
         payload.location = {};
@@ -1673,13 +1701,17 @@ export default {
         return { results: [] };
       });
       const rows = result?.results || [];
-      const items = rows.map((row) => clinicFromD1Row(row)).filter(Boolean);
-      await Promise.all(items.map(async (clinic, index) => {
+      const items = await Promise.all(rows.map(async (row) => {
+        const clinic = clinicFromD1Row(row);
+        if (!clinic) return null;
         const hydrated = await hydrateClinicCollectionsD1(env, clinic);
-        items[index] = hydrated;
+        const kvClinicRaw = await kvGetJSON(env, `clinic:id:${hydrated.id}`);
+        const kvClinic = normalizeClinicRecord(kvClinicRaw);
+        return pickFresherClinic(hydrated, kvClinic);
       }));
+      const filteredItems = items.filter(Boolean);
       const totalRow = await env.MASTERS_D1.prepare('SELECT COUNT(*) AS cnt FROM facilities;').first().catch(() => ({ cnt: 0 }));
-      return { items, total: totalRow?.cnt || 0 };
+      return { items: filteredItems, total: totalRow?.cnt || 0 };
     }
 
     function isGzipFile(file) {
@@ -3744,37 +3776,57 @@ export default {
     }
 
     // 施設: 取得/保存
+    function pickFresherClinic(candidateA, candidateB) {
+      if (candidateA && candidateB) {
+        const updatedA = candidateA.updated_at || 0;
+        const updatedB = candidateB.updated_at || 0;
+        return updatedA >= updatedB ? candidateA : candidateB;
+      }
+      return candidateA || candidateB || null;
+    }
+
     async function getClinicById(env, id) {
       if (!id) return null;
+      let d1Clinic = null;
       if (hasFacilitiesD1(env)) {
-        const clinic = await getClinicFromD1(env, 'id', id);
-        if (clinic) return clinic;
+        d1Clinic = await getClinicFromD1(env, 'id', id);
       }
-      const fallback = await kvGetJSON(env, `clinic:id:${id}`);
-      return normalizeClinicRecord(fallback);
+      const kvClinicRaw = await kvGetJSON(env, `clinic:id:${id}`);
+      const kvClinic = normalizeClinicRecord(kvClinicRaw);
+      if (!d1Clinic && !kvClinic) return null;
+      return pickFresherClinic(d1Clinic, kvClinic);
     }
     async function getClinicByName(env, name) {
       if (!name) return null;
+      let d1Clinic = null;
       if (hasFacilitiesD1(env)) {
-        const clinic = await getClinicFromD1(env, 'name', name);
-        if (clinic) return clinic;
+        d1Clinic = await getClinicFromD1(env, 'name', name);
       }
+      let kvClinic = null;
       const idx = await env.SETTINGS.get(`clinic:name:${name}`);
-      if (idx) return getClinicById(env, idx);
-      // 互換: 旧キー
-      const fallback = await kvGetJSON(env, `clinic:${name}`);
-      return normalizeClinicRecord(fallback);
+      if (idx) {
+        kvClinic = await getClinicById(env, idx);
+      } else {
+        const fallback = await kvGetJSON(env, `clinic:${name}`);
+        kvClinic = normalizeClinicRecord(fallback);
+      }
+      if (!d1Clinic && !kvClinic) return null;
+      return pickFresherClinic(d1Clinic, kvClinic);
     }
     async function getClinicByMhlwFacilityId(env, facilityId) {
       const normalized = normalizeMhlwFacilityId(facilityId);
       if (!normalized) return null;
+      let d1Clinic = null;
       if (hasFacilitiesD1(env)) {
-        const clinic = await getClinicFromD1(env, 'external_id', normalized);
-        if (clinic) return clinic;
+        d1Clinic = await getClinicFromD1(env, 'external_id', normalized);
       }
+      let kvClinic = null;
       const pointer = await env.SETTINGS.get(`clinic:mhlw:${normalized}`);
-      if (!pointer) return null;
-      return getClinicById(env, pointer);
+      if (pointer) {
+        kvClinic = await getClinicById(env, pointer);
+      }
+      if (!d1Clinic && !kvClinic) return null;
+      return pickFresherClinic(d1Clinic, kvClinic);
     }
     async function saveClinic(env, clinic) {
       const now = Math.floor(Date.now()/1000);
@@ -3814,6 +3866,36 @@ export default {
         clinic.mhlwFacilityId = newMhlwId;
       } else {
         clinic.mhlwFacilityId = null;
+      }
+      const requestedSyncStatusRaw = nk(clinic.mhlwSyncStatus || clinic.mhlw_sync_status);
+      let requestedSyncStatus = requestedSyncStatusRaw ? requestedSyncStatusRaw.toLowerCase() : '';
+      if (!MHLW_SYNC_STATUSES.has(requestedSyncStatus)) {
+        requestedSyncStatus = '';
+      }
+      if (newMhlwId) {
+        if (!requestedSyncStatus || requestedSyncStatus === 'not_found') {
+          if (existing?.mhlwSyncStatus === 'manual') {
+            requestedSyncStatus = 'manual';
+          } else {
+            requestedSyncStatus = 'linked';
+          }
+        }
+      } else {
+        if (!requestedSyncStatus && existing?.mhlwSyncStatus) {
+          requestedSyncStatus = existing.mhlwSyncStatus;
+        }
+        if (!requestedSyncStatus) {
+          requestedSyncStatus = 'pending';
+        }
+      }
+      clinic.mhlwSyncStatus = requestedSyncStatus;
+      const manualNoteInput = clinic.mhlwManualNote ?? clinic.mhlw_manual_note;
+      if (manualNoteInput !== undefined) {
+        clinic.mhlwManualNote = nk(manualNoteInput) || null;
+      } else if (existing?.mhlwManualNote) {
+        clinic.mhlwManualNote = existing.mhlwManualNote;
+      } else {
+        clinic.mhlwManualNote = null;
       }
       if (existing?.name && existing.name !== clinic.name) {
         await env.SETTINGS.delete(`clinic:name:${existing.name}`).catch(() => {});
@@ -6913,6 +6995,20 @@ if (routeMatch(url, "GET", "listClinics")) {
         if (clinicIdParam) clinicData.id = clinicIdParam;
         if (body?.mhlwFacilityId || body?.facilityId || body?.mhlwId) {
           clinicData.mhlwFacilityId = normalizeMhlwFacilityId(body.mhlwFacilityId || body.facilityId || body.mhlwId);
+        }
+        if (Object.prototype.hasOwnProperty.call(body, 'mhlwManualNote')) {
+          if (body.mhlwManualNote === null) {
+            clinicData.mhlwManualNote = null;
+          } else if (typeof body.mhlwManualNote === 'string') {
+            clinicData.mhlwManualNote = body.mhlwManualNote;
+          }
+        }
+        const requestedStatus = nk(body?.mhlwSyncStatus);
+        if (requestedStatus) {
+          const normalizedStatus = requestedStatus.toLowerCase();
+          if (MHLW_SYNC_STATUSES.has(normalizedStatus)) {
+            clinicData.mhlwSyncStatus = normalizedStatus;
+          }
         }
         let saved;
         try {

@@ -56,6 +56,47 @@
     { code: '47', name: '沖縄県' },
   ];
   const PREVIEW_DEFAULT_PREFECTURE = '東京都';
+  const MHLW_STATUS_LABELS = {
+    pending: '未同期',
+    linked: '同期済み',
+    manual: '手動入力',
+    not_found: '未掲載',
+  };
+  const MHLW_STATUS_STYLES = {
+    pending: 'rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700',
+    linked: 'rounded bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700',
+    manual: 'rounded bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-700',
+    not_found: 'rounded bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700',
+  };
+
+  function escapeHtml(value) {
+    return (value ?? '').toString()
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function normalizeSyncStatus(status) {
+    const normalized = (status || '').toString().toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(MHLW_STATUS_LABELS, normalized)) {
+      return normalized;
+    }
+    return 'pending';
+  }
+
+  function renderStatusBadge(status) {
+    const normalized = normalizeSyncStatus(status);
+    const label = MHLW_STATUS_LABELS[normalized] || MHLW_STATUS_LABELS.pending;
+    const style = MHLW_STATUS_STYLES[normalized] || MHLW_STATUS_STYLES.pending;
+    return `<span class="${style}">${label}</span>`;
+  }
+
+  function isManualSyncStatus(status) {
+    const normalized = normalizeSyncStatus(status);
+    return normalized === 'manual' || normalized === 'not_found';
+  }
 
   function resolveApiBase() {
     if (global.NcdAuth && typeof global.NcdAuth.resolveApiBase === 'function') {
@@ -1432,6 +1473,7 @@
   function buildClinicCard(clinic, mhlwService, options = {}) {
     const searchKeyword = typeof options.searchKeyword === 'string' ? options.searchKeyword : '';
     const onLinked = typeof options.onLinked === 'function' ? options.onLinked : null;
+    const syncStatus = normalizeSyncStatus(clinic.mhlwSyncStatus);
     const showSyncButton = options.showSyncButton !== undefined ? options.showSyncButton : Boolean(clinic.mhlwFacilityId);
     const showDetailsLink = options.showDetailsLink !== undefined ? options.showDetailsLink : Boolean(clinic.mhlwFacilityId);
 
@@ -1449,17 +1491,24 @@
 
     const title = document.createElement('div');
     title.className = 'flex items-start justify-between gap-3';
+    const clinicName = escapeHtml(clinic.name || '名称未設定');
+    const clinicIdLabel = escapeHtml(clinic.id || '未設定');
+    const clinicTypeBadge = `<span class="rounded bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">${escapeHtml(clinicTypeLabel)}</span>`;
+    const statusBadge = renderStatusBadge(syncStatus);
+    const facilityIdDisplay = escapeHtml(currentFacilityId || '未設定');
+    const updatedAtDisplay = clinic.updated_at ? new Date(clinic.updated_at * 1000).toISOString().slice(0, 19) : '-';
     title.innerHTML = `
       <div>
-        <h3 class="text-lg font-semibold text-slate-900 flex items-center gap-2">
-          <span>${clinic.name || '名称未設定'}</span>
-          <span class="rounded bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">${clinicTypeLabel}</span>
+        <h3 class="text-lg font-semibold text-slate-900 flex items-center gap-2 flex-wrap">
+          <span>${clinicName}</span>
+          ${clinicTypeBadge}
+          ${statusBadge}
         </h3>
-        <p class="text-xs text-slate-500">ID: ${clinic.id || '未設定'}</p>
+        <p class="text-xs text-slate-500">ID: ${clinicIdLabel}</p>
       </div>
-      <div class="text-xs text-slate-500 text-right">
-        <div>厚労省ID: <span class="font-semibold">${currentFacilityId || '未設定'}</span></div>
-        <div>最終更新: ${clinic.updated_at ? new Date(clinic.updated_at * 1000).toISOString().slice(0, 19) : '-'}</div>
+      <div class="text-xs text-slate-500 text-right space-y-1">
+        <div>厚労省ID: <span class="font-semibold">${facilityIdDisplay}</span></div>
+        <div>最終更新: ${escapeHtml(updatedAtDisplay)}</div>
       </div>
     `;
     wrapper.appendChild(title);
@@ -1467,17 +1516,25 @@
     const form = document.createElement('form');
     form.className = 'mt-4 grid gap-3 md:grid-cols-2';
     form.innerHTML = `
-      <div>
+      <div class="space-y-1">
         <label class="block text-sm font-medium text-slate-700" for="facilityId-${clinic.id}">厚労省施設ID</label>
-        <input id="facilityId-${clinic.id}" name="facilityId" type="text" value="${currentFacilityId}" class="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm" placeholder="例: 1311400001" required />
+        <input id="facilityId-${clinic.id}" name="facilityId" type="text" value="${escapeHtml(currentFacilityId)}" class="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm" placeholder="例: 1311400001" />
       </div>
-      <div class="flex items-end gap-2">
+      <div class="flex flex-wrap items-end gap-2">
         <button type="submit" class="inline-flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700">IDを登録</button>
         <button type="button" class="inline-flex items-center gap-2 rounded border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-800 transition hover:border-blue-300 hover:bg-blue-100" data-action="sync">公開データから同期</button>
+        <button type="button" class="inline-flex items-center gap-2 rounded border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-100" data-action="mark-missing">未掲載として記録</button>
       </div>
       <div class="md:col-span-2 text-xs text-slate-500" data-status></div>
     `;
     wrapper.appendChild(form);
+
+    if (clinic.mhlwManualNote) {
+      const noteEl = document.createElement('p');
+      noteEl.className = 'mt-3 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700';
+      noteEl.innerHTML = `<span class="font-semibold">補足メモ:</span> ${escapeHtml(clinic.mhlwManualNote)}`;
+      wrapper.appendChild(noteEl);
+    }
 
     if (clinic.address) {
       const addr = document.createElement('p');
@@ -1533,6 +1590,7 @@
 
     const statusEl = form.querySelector('[data-status]');
     const facilityIdInput = form.querySelector('input[name="facilityId"]');
+    const markMissingButton = form.querySelector('[data-action="mark-missing"]');
 
     const setStatus = (message, variant = 'info') => {
       if (!statusEl) return;
@@ -1569,7 +1627,7 @@
         });
         setStatus('厚労省IDを登録しました。再読み込みしてください。', 'success');
         if (typeof onLinked === 'function') {
-          onLinked({ facilityId, clinicId: clinic.id });
+          onLinked({ facilityId, clinicId: clinic.id, status: 'linked' });
         }
       } catch (error) {
         console.error('[mhlwSync] failed to update clinic', error);
@@ -1581,12 +1639,21 @@
     const updateSyncVisibility = () => {
       if (!syncButton) return;
       const hasId = !!sanitizeFacilityId(facilityIdInput.value);
-      if (!showSyncButton || !hasId) {
+      if (!showSyncButton || !hasId || syncStatus === 'not_found') {
         syncButton.classList.add('hidden');
         syncButton.disabled = true;
       } else {
         syncButton.classList.remove('hidden');
         syncButton.disabled = false;
+      }
+      if (markMissingButton) {
+        if (hasId) {
+          markMissingButton.classList.add('hidden');
+          markMissingButton.disabled = true;
+        } else {
+          markMissingButton.classList.remove('hidden');
+          markMissingButton.disabled = false;
+        }
       }
     };
     updateSyncVisibility();
@@ -1626,11 +1693,51 @@
           });
           setStatus('厚労省データから同期しました。再読み込みしてください。', 'success');
           if (typeof onLinked === 'function') {
-            onLinked({ facility, facilityId, clinicId: clinic.id });
+            onLinked({ facility, facilityId, clinicId: clinic.id, status: 'linked' });
           }
         } catch (error) {
           console.error('[mhlwSync] sync failed', error);
           setStatus(error?.payload?.message || error.message || '同期に失敗しました。', 'error');
+        }
+      });
+    }
+
+    if (markMissingButton) {
+      markMissingButton.addEventListener('click', async () => {
+        setStatus('', 'info');
+        const apiBase = resolveApiBase();
+        const authHeader = await getAuthHeader();
+        const promptDefault = typeof clinic.mhlwManualNote === 'string' ? clinic.mhlwManualNote : '';
+        const noteInput = window.prompt('厚労省データに未掲載の場合は理由や補足を入力してください。（任意）', promptDefault);
+        if (noteInput === null) {
+          return;
+        }
+        try {
+          const payload = {
+            id: clinic.id,
+            name: clinic.name,
+            mhlwFacilityId: null,
+            mhlwSyncStatus: 'not_found',
+            mhlwManualNote: noteInput,
+          };
+          await fetchJson(`${apiBase}/api/updateClinic`, {
+            method: 'POST',
+            headers: authHeader ? { Authorization: authHeader } : {},
+            body: payload,
+          });
+          facilityIdInput.value = '';
+          if (summaryBox) {
+            summaryBox.remove();
+            summaryBox = null;
+          }
+          updateSyncVisibility();
+          setStatus('厚労省データに未掲載として記録しました。', 'success');
+          if (typeof onLinked === 'function') {
+            onLinked({ facilityId: null, clinicId: clinic.id, status: 'not_found', manualNote: noteInput });
+          }
+        } catch (error) {
+          console.error('[mhlwSync] failed to mark clinic as not found', error);
+          setStatus(error?.payload?.message || error.message || '未掲載登録に失敗しました。', 'error');
         }
       });
     }
@@ -1729,6 +1836,8 @@
   function init() {
     const clinicList = document.getElementById('clinicList');
     const clinicListStatus = document.getElementById('clinicListStatus');
+    const manualClinicList = document.getElementById('manualClinicList');
+    const manualClinicListStatus = document.getElementById('manualClinicListStatus');
     const linkedClinicList = document.getElementById('linkedClinicList');
     const linkedClinicListStatus = document.getElementById('linkedClinicListStatus');
     const refreshClinicsBtn = document.getElementById('refreshClinicList');
@@ -1831,22 +1940,37 @@
 
     function renderClinicLists() {
       if (clinicList) clinicList.innerHTML = '';
+      if (manualClinicList) manualClinicList.innerHTML = '';
       if (linkedClinicList) linkedClinicList.innerHTML = '';
 
       if (clinicsLoading) {
         if (clinicListStatus) clinicListStatus.textContent = '未紐付けの診療所を読み込み中です…';
+        if (manualClinicListStatus) manualClinicListStatus.textContent = '未掲載として登録済みの診療所を読み込み中です…';
         if (linkedClinicListStatus) linkedClinicListStatus.textContent = '厚労省ID設定済みの診療所を読み込み中です…';
         return;
       }
 
       if (!Array.isArray(clinicsCache)) {
         if (clinicListStatus) clinicListStatus.textContent = '診療所一覧を取得できませんでした。再読み込みをお試しください。';
+        if (manualClinicListStatus) manualClinicListStatus.textContent = '診療所一覧を取得できませんでした。';
         if (linkedClinicListStatus) linkedClinicListStatus.textContent = '診療所一覧を取得できませんでした。';
         return;
       }
 
-      const pending = clinicsCache.filter((clinic) => !clinic.mhlwFacilityId);
-      const linked = clinicsCache.filter((clinic) => clinic.mhlwFacilityId);
+      const pending = [];
+      const manualResolved = [];
+      const linked = [];
+      clinicsCache.forEach((clinic) => {
+        const hasId = Boolean(sanitizeFacilityId(clinic.mhlwFacilityId));
+        const status = normalizeSyncStatus(clinic.mhlwSyncStatus);
+        if (hasId) {
+          linked.push(clinic);
+        } else if (isManualSyncStatus(status)) {
+          manualResolved.push(clinic);
+        } else {
+          pending.push(clinic);
+        }
+      });
 
       if (pending.length === 0) {
         if (clinicListStatus) clinicListStatus.textContent = '厚労省ID未登録の診療所はありません。';
@@ -1860,10 +1984,55 @@
               mhlwService,
               {
                 searchKeyword: clinic?.name || '',
-                onLinked: ({ facilityId }) => {
-                  moveClinicBetweenLists(clinic.id, { mhlwFacilityId: facilityId, updated_at: Math.floor(Date.now() / 1000) });
+                onLinked: ({ facilityId, status, manualNote }) => {
+                  const normalizedId = sanitizeFacilityId(facilityId);
+                  const update = {
+                    mhlwFacilityId: normalizedId || null,
+                    mhlwSyncStatus: status ? normalizeSyncStatus(status) : (normalizedId ? 'linked' : normalizeSyncStatus(clinic.mhlwSyncStatus)),
+                    updated_at: Math.floor(Date.now() / 1000),
+                  };
+                  if (manualNote !== undefined) {
+                    update.mhlwManualNote = manualNote;
+                  } else if (normalizedId) {
+                    update.mhlwManualNote = null;
+                  }
+                  moveClinicBetweenLists(clinic.id, update);
                 },
                 showSyncButton: false,
+                showDetailsLink: false,
+              },
+            ));
+          });
+        }
+      }
+
+      if (manualResolved.length === 0) {
+        if (manualClinicListStatus) manualClinicListStatus.textContent = '厚労省データ未掲載として登録済みの診療所はありません。';
+      } else {
+        manualResolved.sort((a, b) => (a?.name || '').localeCompare(b?.name || '', 'ja'));
+        if (manualClinicListStatus) manualClinicListStatus.textContent = `厚労省データ未掲載扱い: ${manualResolved.length} 件`;
+        if (manualClinicList) {
+          manualResolved.forEach((clinic) => {
+            manualClinicList.appendChild(buildClinicCard(
+              clinic,
+              mhlwService,
+              {
+                searchKeyword: clinic?.name || '',
+                onLinked: ({ facilityId, status, manualNote }) => {
+                  const normalizedId = sanitizeFacilityId(facilityId);
+                  const update = {
+                    mhlwFacilityId: normalizedId || null,
+                    mhlwSyncStatus: status ? normalizeSyncStatus(status) : normalizeSyncStatus(clinic.mhlwSyncStatus),
+                    updated_at: Math.floor(Date.now() / 1000),
+                  };
+                  if (manualNote !== undefined) {
+                    update.mhlwManualNote = manualNote;
+                  } else if (normalizedId) {
+                    update.mhlwManualNote = null;
+                  }
+                  moveClinicBetweenLists(clinic.id, update);
+                },
+                showSyncButton: true,
                 showDetailsLink: false,
               },
             ));
@@ -1883,8 +2052,22 @@
               mhlwService,
               {
                 searchKeyword: clinic?.name || '',
-                onLinked: ({ facility }) => {
-                  moveClinicBetweenLists(clinic.id, { ...facility, mhlwFacilityId: facility?.facilityId || clinic.mhlwFacilityId, updated_at: Math.floor(Date.now() / 1000) });
+                onLinked: ({ facility, facilityId, status, manualNote }) => {
+                  const normalizedId = sanitizeFacilityId(facilityId || clinic.mhlwFacilityId);
+                  const update = {
+                    mhlwFacilityId: normalizedId || null,
+                    mhlwSyncStatus: status ? normalizeSyncStatus(status) : normalizeSyncStatus(clinic.mhlwSyncStatus),
+                    updated_at: Math.floor(Date.now() / 1000),
+                  };
+                  if (manualNote !== undefined) {
+                    update.mhlwManualNote = manualNote;
+                  } else if (normalizedId) {
+                    update.mhlwManualNote = null;
+                  }
+                  if (facility?.facilityId) {
+                    update.mhlwFacilityId = sanitizeFacilityId(facility.facilityId);
+                  }
+                  moveClinicBetweenLists(clinic.id, update);
                 },
                 showSyncButton: true,
                 showDetailsLink: true,

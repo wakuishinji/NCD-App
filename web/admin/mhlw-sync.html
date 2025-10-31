@@ -105,6 +105,14 @@ node scripts/uploadMhlwToR2.mjs --json tmp/mhlw-facilities.json
 
         <div class="mt-8 flex flex-col gap-2 border-t border-slate-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
+            <h2 class="text-base font-semibold text-blue-900">厚労省データ未掲載として記録済みの診療所</h2>
+            <p id="manualClinicListStatus" class="text-sm text-slate-500">読み込み中です…</p>
+          </div>
+        </div>
+        <div id="manualClinicList" class="space-y-3"></div>
+
+        <div class="mt-8 flex flex-col gap-2 border-t border-slate-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
             <h2 class="text-base font-semibold text-blue-900">厚労省ID設定済みの診療所</h2>
             <p id="linkedClinicListStatus" class="text-sm text-slate-500">読み込み中です…</p>
           </div>
