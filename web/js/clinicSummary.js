@@ -988,15 +988,149 @@
       }
     }
 
-    if (textEl) {
-      const lines = [];
-      if (clinic.postalCode) lines.push(`〒${clinic.postalCode}`);
-      if (clinic.address) lines.push(clinic.address);
-      textEl.textContent = lines.join(' ') || '住所情報は準備中です。';
-    }
+  if (textEl) {
+    const lines = [];
+    if (clinic.postalCode) lines.push(`〒${clinic.postalCode}`);
+    if (clinic.address) lines.push(clinic.address);
+    textEl.textContent = lines.join(' ') || '住所情報は準備中です。';
+  }
+}
+
+function formatWeeklyClosedDays(days) {
+  if (!days) return '未登録';
+  if (Array.isArray(days)) {
+    return days.length ? days.join(', ') : '休診日なし';
+  }
+  const labels = { sun: '日', mon: '月', tue: '火', wed: '水', thu: '木', fri: '金', sat: '土' };
+  const closed = Object.entries(days)
+    .filter(([, value]) => Boolean(value))
+    .map(([key]) => labels[key] || key);
+  return closed.length ? `${closed.join('・')} 休診` : '休診日なし';
+}
+
+function formatPeriodicClosedDays(data) {
+  if (!data || typeof data !== 'object') return '未登録';
+  const labels = { sun: '日', mon: '月', tue: '火', wed: '水', thu: '木', fri: '金', sat: '土' };
+  const rows = Object.entries(data).flatMap(([weekKey, value]) => {
+    if (!value || typeof value !== 'object') return [];
+    const closed = Object.entries(value)
+      .filter(([, flag]) => Boolean(flag))
+      .map(([day]) => labels[day] || day);
+    if (!closed.length) return [];
+    const prefix = weekKey === 'all' ? '毎週' : `${weekKey.replace('week', '第')}週`;
+    return [`${prefix}: ${closed.join('・')} 休診`];
+  });
+  return rows.length ? rows.join(' / ') : '定期休診なし';
+}
+
+function formatBedCounts(counts) {
+  if (!counts || typeof counts !== 'object') return '未登録';
+  const labels = {
+    total: '合計',
+    general: '一般',
+    psychiatric: '精神',
+    infectious: '感染症',
+    tuberculosis: '結核',
+    longTerm: '長期療養',
+    longTermMedical: '医療療養',
+    longTermCare: '介護療養',
+  };
+  const entries = Object.entries(counts)
+    .filter(([, value]) => Number.isFinite(value) && value > 0)
+    .map(([key, value]) => `${labels[key] || key}: ${value}床`);
+  return entries.length ? entries.join(' / ') : '病床なし';
+}
+
+function renderMhlwFields(clinic) {
+  if (!els.mhlwFields) return;
+  const container = els.mhlwFields;
+  container.replaceChildren();
+
+  const entries = [];
+  entries.push({ label: '厚労省ID', value: clinic.mhlwFacilityId || '未設定' });
+
+  if (clinic.mhlwSyncStatus) {
+    const statusLabels = {
+      linked: '同期済み',
+      pending: '同期待ち',
+      manual: '手動入力',
+      not_found: '未掲載',
+    };
+    entries.push({ label: '同期ステータス', value: statusLabels[clinic.mhlwSyncStatus] || clinic.mhlwSyncStatus });
   }
 
-  function renderClinic(clinic) {
+  if (clinic.mhlwFacilityName) entries.push({ label: '公式名称', value: clinic.mhlwFacilityName });
+  if (clinic.mhlwFacilityShortName) entries.push({ label: '略称', value: clinic.mhlwFacilityShortName });
+
+  const typeLabelMap = { clinic: '診療所', hospital: '病院' };
+  if (clinic.facilityType) {
+    entries.push({ label: '施設種別', value: typeLabelMap[clinic.facilityType] || clinic.facilityType });
+  }
+
+  if (clinic.prefecture || clinic.city) {
+    entries.push({ label: '所在地', value: [clinic.prefecture, clinic.city].filter(Boolean).join(' ') });
+  }
+  if (clinic.address) entries.push({ label: '住所', value: clinic.address });
+  if (clinic.postalCode) entries.push({ label: '郵便番号', value: clinic.postalCode });
+  if (clinic.phone) entries.push({ label: '電話番号', value: clinic.phone });
+
+  if (clinic.mhlwFacilityHomepageUrl) {
+    entries.push({ label: '公式サイト', value: clinic.mhlwFacilityHomepageUrl, type: 'link' });
+  }
+
+  if (Number.isFinite(clinic.latitude) && Number.isFinite(clinic.longitude)) {
+    entries.push({ label: '緯度・経度', value: `${clinic.latitude}, ${clinic.longitude}` });
+  }
+
+  if (clinic.mhlwWeeklyClosedDays) {
+    entries.push({ label: '週間休診日', value: formatWeeklyClosedDays(clinic.mhlwWeeklyClosedDays) });
+  }
+  if (clinic.mhlwPeriodicClosedDays) {
+    entries.push({ label: '定期休診情報', value: formatPeriodicClosedDays(clinic.mhlwPeriodicClosedDays) });
+  }
+  if (clinic.mhlwBedCounts) {
+    entries.push({ label: '病床数', value: formatBedCounts(clinic.mhlwBedCounts) });
+  }
+  if (clinic.mhlwManualNote) {
+    entries.push({ label: '備考', value: clinic.mhlwManualNote });
+  }
+  if (clinic.mhlwSnapshot?.syncedAt) {
+    entries.push({ label: '同期日時', value: new Date(clinic.mhlwSnapshot.syncedAt).toLocaleString('ja-JP') });
+  }
+
+  if (!entries.length) {
+    const empty = document.createElement('p');
+    empty.className = 'text-sm text-slate-400';
+    empty.textContent = '厚労省データは未取得です。';
+    container.appendChild(empty);
+    return;
+  }
+
+  entries.forEach((entry) => {
+    const dt = document.createElement('dt');
+    dt.className = 'font-semibold text-slate-500';
+    dt.textContent = entry.label;
+
+    const dd = document.createElement('dd');
+    dd.className = 'text-slate-700';
+    if (entry.type === 'link' && entry.value) {
+      const a = document.createElement('a');
+      a.href = entry.value;
+      a.textContent = entry.value;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.className = 'text-blue-600 underline';
+      dd.appendChild(a);
+    } else {
+      dd.textContent = entry.value || '未登録';
+    }
+    container.append(dt, dd);
+  });
+}
+
+function renderClinic(clinic) {
+  renderMhlwFields(clinic);
+
     if (els.status) {
       const updatedText = formatTimestamp(clinic.updated_at) || '登録済み';
       els.status.textContent = `最終更新: ${updatedText}`;
@@ -1111,6 +1245,7 @@
     els.accessList = document.getElementById('clinicAccessList');
     els.accessText = document.getElementById('clinicAccessText');
     els.map = document.getElementById('clinicMap');
+    els.mhlwFields = document.getElementById('clinicMhlwFields');
   }
 
   async function init() {
