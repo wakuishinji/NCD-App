@@ -403,6 +403,29 @@
     return null;
   }
 
+  async function fetchClinicDetail(clinicId) {
+    if (!clinicId) return null;
+    const apiBase = resolveApiBase();
+    const headers = new Headers();
+    const authHeader = await getAuthHeader();
+    if (authHeader) headers.set('Authorization', authHeader);
+    const url = `${apiBase}/api/clinicDetail?id=${encodeURIComponent(clinicId)}`;
+    const res = await fetch(url, { headers, cache: 'no-cache' }).catch((err) => {
+      console.warn('[mhlwSync] failed to fetch clinic detail', clinicId, err);
+      return null;
+    });
+    if (!res) return null;
+    if (!res.ok) {
+      console.warn('[mhlwSync] clinic detail request failed', clinicId, res.status);
+      return null;
+    }
+    const payload = await res.json().catch(() => null);
+    if (payload && typeof payload === 'object' && payload.clinic) {
+      return payload.clinic;
+    }
+    return null;
+  }
+
   function formatBytes(bytes) {
     if (typeof bytes !== 'number' || Number.isNaN(bytes)) return '-';
     if (bytes < 1024) return `${bytes} B`;
@@ -1625,9 +1648,15 @@
           headers: authHeader ? { Authorization: authHeader } : {},
           body: { id: clinic.id, name: clinic.name, mhlwFacilityId: facilityId },
         });
-        setStatus('厚労省IDを登録しました。再読み込みしてください。', 'success');
+        setStatus('厚労省IDを登録しました。データを更新します…', 'info');
         if (typeof onLinked === 'function') {
           onLinked({ facilityId, clinicId: clinic.id, status: 'linked' });
+        }
+        const refreshed = await refreshClinicFromServer(clinic.id);
+        if (refreshed) {
+          setStatus('厚労省IDを登録し、最新の情報に更新しました。', 'success');
+        } else {
+          setStatus('厚労省IDを登録しました。必要に応じてページを再読み込みしてください。', 'info');
         }
       } catch (error) {
         console.error('[mhlwSync] failed to update clinic', error);
@@ -1691,9 +1720,15 @@
               facilityData: facility,
             },
           });
-          setStatus('厚労省データから同期しました。再読み込みしてください。', 'success');
+          setStatus('厚労省データから同期しました。データを更新します…', 'info');
           if (typeof onLinked === 'function') {
             onLinked({ facility, facilityId, clinicId: clinic.id, status: 'linked' });
+          }
+          const refreshed = await refreshClinicFromServer(clinic.id);
+          if (refreshed) {
+            setStatus('厚労省データから同期し、最新情報を反映しました。', 'success');
+          } else {
+            setStatus('厚労省データから同期しました。必要に応じてページを再読み込みしてください。', 'info');
           }
         } catch (error) {
           console.error('[mhlwSync] sync failed', error);
@@ -1731,9 +1766,15 @@
             summaryBox = null;
           }
           updateSyncVisibility();
-          setStatus('厚労省データに未掲載として記録しました。', 'success');
+          setStatus('厚労省データに未掲載として記録しました。データを更新します…', 'info');
           if (typeof onLinked === 'function') {
             onLinked({ facilityId: null, clinicId: clinic.id, status: 'not_found', manualNote: noteInput });
+          }
+          const refreshed = await refreshClinicFromServer(clinic.id);
+          if (refreshed) {
+            setStatus('未掲載として記録し、一覧を更新しました。', 'success');
+          } else {
+            setStatus('未掲載として記録しました。必要に応じてページを再読み込みしてください。', 'info');
           }
         } catch (error) {
           console.error('[mhlwSync] failed to mark clinic as not found', error);
@@ -1870,6 +1911,13 @@
     function moveClinicBetweenLists(clinicId, updater = {}) {
       updateClinicCache(clinicId, updater);
       renderClinicLists();
+    }
+    async function refreshClinicFromServer(clinicId) {
+      if (!clinicId) return null;
+      const refreshed = await fetchClinicDetail(clinicId);
+      if (!refreshed) return null;
+      moveClinicBetweenLists(clinicId, refreshed);
+      return refreshed;
     }
     const mhlwService = {
       lookup: getCachedFacility,
