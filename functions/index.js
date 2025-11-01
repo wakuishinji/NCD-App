@@ -4101,7 +4101,21 @@ export default {
         updated.city = facilityData.city;
       }
       if (facilityData.homepageUrl) {
-        updated.mhlwFacilityHomepageUrl = facilityData.homepageUrl;
+        const homepageUrl = facilityData.homepageUrl;
+        updated.mhlwFacilityHomepageUrl = homepageUrl;
+        const homepagePayload =
+          updated.homepage && typeof updated.homepage === 'object' && !Array.isArray(updated.homepage)
+            ? { ...updated.homepage }
+            : {};
+        homepagePayload.available = true;
+        homepagePayload.url = homepageUrl;
+        updated.homepage = homepagePayload;
+        if (updated.basic && typeof updated.basic === 'object') {
+          updated.basic = { ...updated.basic, website: homepageUrl };
+        } else {
+          updated.basic = { website: homepageUrl };
+        }
+        updated.website = homepageUrl;
       }
       if (typeof facilityData.latitude === 'number' && !Number.isNaN(facilityData.latitude) &&
           typeof facilityData.longitude === 'number' && !Number.isNaN(facilityData.longitude)) {

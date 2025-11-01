@@ -57,6 +57,24 @@
 
   <!-- メイン -->
   <main class="flex-1 max-w-6xl mx-auto p-4 md:p-6 space-y-6">
+    <!-- 厚労省データ -->
+    <section class="bg-white rounded shadow p-4 space-y-3" id="mhlwSummaryCard">
+      <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div class="space-y-1">
+          <h2 class="text-sm font-semibold text-blue-900 md:text-base">厚労省データ</h2>
+          <p data-mhlw-summary class="text-xs text-slate-500">厚労省データは未取得です。</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button type="button" data-mhlw-toggle class="inline-flex items-center rounded border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100">
+            表示
+          </button>
+        </div>
+      </div>
+      <div id="mhlwDetailPanel" class="hidden border-t border-slate-200 pt-3">
+        <dl class="grid grid-cols-1 gap-x-4 gap-y-2 text-sm md:grid-cols-2" id="clinicMhlwFields"></dl>
+      </div>
+    </section>
+
     <!-- 基本情報 -->
     <section class="bg-white rounded shadow p-6">
       <h2 class="text-lg font-semibold text-blue-800 mb-4">基本情報</h2>
@@ -320,17 +338,6 @@
     </section>
 
     <!-- 診療形態 -->
-    <!-- 厚労省データ -->
-    <section class="bg-white rounded shadow p-6 space-y-4">
-      <div class="flex items-center justify-between">
-        <div>
-          <h2 class="text-lg font-semibold text-blue-800">厚労省データ</h2>
-          <p class="text-xs text-gray-500">厚生労働省の公開情報を取り込んだ項目です。</p>
-        </div>
-      </div>
-      <dl class="grid grid-cols-1 gap-x-4 gap-y-2 text-sm md:grid-cols-2" id="clinicMhlwFields"></dl>
-    </section>
-
     <section class="bg-white rounded shadow p-6 space-y-4">
       <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -835,6 +842,7 @@ let modeEmptyEl = null;
 
 let currentClinicId = "";
 let currentClinicData = null;
+let isMhlwPanelOpen = false;
 let retainedQualifications = "";
 let departmentMaster = [];
 let departmentSelectionEl = null;
@@ -1043,12 +1051,55 @@ function formatMhlwBedCounts(counts) {
   return entries.length ? entries.join(' / ') : '病床なし';
 }
 
+function setMhlwPanelState(open) {
+  isMhlwPanelOpen = Boolean(open);
+  const panel = document.getElementById('mhlwDetailPanel');
+  if (panel) {
+    panel.classList.toggle('hidden', !isMhlwPanelOpen);
+  }
+  document.querySelectorAll('[data-mhlw-toggle]').forEach((btn) => {
+    if (!(btn instanceof HTMLButtonElement)) return;
+    btn.textContent = isMhlwPanelOpen ? '閉じる' : '表示';
+    btn.setAttribute('aria-expanded', isMhlwPanelOpen ? 'true' : 'false');
+  });
+}
+
+function updateMhlwSummary(clinic) {
+  const summaryEl = document.querySelector('[data-mhlw-summary]');
+  if (!summaryEl) return;
+  if (!clinic) {
+    summaryEl.textContent = '厚労省データは未取得です。';
+    return;
+  }
+  const facilityId = normalizeMhlwFacilityId(clinic.mhlwFacilityId);
+  const statusLabels = {
+    linked: '同期済み',
+    pending: '同期待ち',
+    manual: '手動入力',
+    not_found: '未掲載',
+  };
+  if (!facilityId) {
+    summaryEl.textContent = '厚労省ID未連携です。厚労省IDを登録してください。';
+    return;
+  }
+  const parts = [`ID: ${facilityId}`];
+  if (clinic.mhlwSyncStatus) {
+    parts.push(statusLabels[clinic.mhlwSyncStatus] || clinic.mhlwSyncStatus);
+  }
+  if (clinic.mhlwSnapshot?.syncedAt) {
+    const syncedAt = new Date(clinic.mhlwSnapshot.syncedAt).toLocaleString('ja-JP');
+    parts.push(`${syncedAt} 同期`);
+  }
+  summaryEl.textContent = parts.join(' / ');
+}
+
 function renderMhlwSection(clinic) {
   const container = document.getElementById('clinicMhlwFields');
   if (!container) return;
   container.replaceChildren();
 
   if (!clinic) {
+    setMhlwPanelState(false);
     const empty = document.createElement('p');
     empty.className = 'text-sm text-slate-400 md:col-span-2';
     empty.textContent = '厚労省データは未取得です。';
@@ -1140,6 +1191,7 @@ function renderMhlwSection(clinic) {
     }
     container.append(dt, dd);
   });
+  setMhlwPanelState(isMhlwPanelOpen);
 }
 
 function updateMhlwStatusLabel(clinic) {
@@ -3414,6 +3466,7 @@ async function saveClinic() {
 function populateClinicForm(clinic) {
   currentClinicData = clinic || null;
   updateMhlwStatusLabel(currentClinicData);
+  updateMhlwSummary(clinic);
   renderMhlwSection(clinic);
   const loadedPostal = formatPostalCode(clinic?.postalCode || "");
   withDirtySuppressed(() => {
@@ -3589,7 +3642,17 @@ window.addEventListener("DOMContentLoaded", async () => {
       syncClinicFromMhlw();
     });
   });
+  document.querySelectorAll('[data-mhlw-toggle]').forEach((btn) => {
+    if (!(btn instanceof HTMLButtonElement)) return;
+    btn.setAttribute('aria-expanded', 'false');
+    btn.addEventListener('click', (event) => {
+      event.preventDefault();
+      setMhlwPanelState(!isMhlwPanelOpen);
+    });
+  });
+  setMhlwPanelState(false);
   updateMhlwStatusLabel(currentClinicData);
+  updateMhlwSummary(null);
   toggleLoadingOverlay(true);
   try {
     initDepartmentSelectionUI();
