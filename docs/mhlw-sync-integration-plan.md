@@ -59,6 +59,7 @@ Cloudflare D1 では以下のテーブルに格納されている。
    - `applyMhlwDataToClinic` を拡張し、診療科・診療時間・病床などを変換するユーティリティを追加。
    - 診療科のマッピングでは、`mhlw_facility_departments.name` を既存マスターの `normalized_name` と突合し、未マッチは手動確認用に別リストへ出力。
    - 診療時間は曜日・診療科単位で集約し、`clinic.schedule` の構造（`dayOfWeek`, `startTime`, `endTime`, `department` 等）に合わせる。
+   - 厚労省に由来する更新であることを `clinic.mhlwSyncStatus` や `clinic.sources` といったメタ情報に記録し、後から差分が把握できるようにする。
 
 2. **同期モードの設計**
    - 初回同期：厚労省データを丸ごと取り込み、空欄を自動補完。
@@ -95,6 +96,32 @@ Cloudflare D1 では以下のテーブルに格納されている。
 4. **段階的導入**
    - まずは自動補完のみ実装し、再同期や上書き条件はステップを分けて検証。
    - テスト用施設で同期 → UI 表示 → 差分確認 → 問題無ければ全体へ展開。
+
+### 4.2 同期処理詳細設計（たたき台）
+
+1. **データ取得**
+   - `mhlw_facilities` / `mhlw_facility_departments` / `mhlw_facility_schedules` などを施設ID単位で読み取り、変換用 DTO（`mhlwProfile`）を生成。
+   - 施設 ID が一致しない場合は `not_found` ログを出力し、既存データを保持する。
+
+2. **フィールド変換**
+   - **基本情報**: 公式名称・略称・住所・連絡先を `officialName` / `name` / `address` 等へマッピング。既存値がある場合は、厚労省値と異なる場合に差分を記録。
+   - **診療科**: マスター名称へ正規化する `mapDepartments(mhlwDepartments)` を用意し、結果を `clinic.departments.master` へ格納。未マッチ名称は `clinic.pendingDepartments` に蓄積。
+   - **診療時間**: `combineSchedules(mhlwSchedules)` で曜日×時間帯の配列を生成。診療科別の時間帯を保持できる新フォーマット `clinic.availability` を導入し、既存 `clinic.schedule` からは段階的に移行。
+   - **休診日**: `weeklyClosedDays` / `periodicClosedDays` を `clinic.mhlwWeeklyClosedDays` / `clinic.mhlwPeriodicClosedDays` へ格納し、人間可読のフォーマットも併せて保存。
+   - **病床数**: `facility_beds` の数値を `clinic.mhlwBedCounts`（ラベル付きオブジェクト）へ変換。
+   - **位置情報**: 緯度経度を `clinic.location` に反映し、`source: 'mhlw'` と `syncedAt` を付与。既に手動調整済みの場合は上書き可否ルールを定義。
+
+3. **差分と上書き方針**
+   - 施設ごとに `overridePolicy` を保持（例: `auto`, `manual`, `locked`）。`auto` の場合のみ厚労省値で上書き。それ以外は差分を `clinic.mhlwDiff` として記録。
+   - 差分は UI で確認できるようにし、必要なら個別に「厚労省の値を採用」ボタンを用意。
+
+4. **トランザクション / 保存**
+   - KV / D1 双方へ同一の正規化結果を保存。D1 では `facilities.metadata` を更新し、KV 側は `clinic:id:{uuid}` を上書き。
+   - 同期後に `mhlwSyncStatus = 'linked'` に更新し、同期日時を `clinic.mhlwSnapshot.syncedAt` として記録。
+
+5. **ログとレポート**
+   - 未マッピング診療科、スケジュール変換に失敗したレコード、位置情報差異などを集計し、管理者が確認できるよう `scripts/syncMhlwFacilities.mjs` で JSON / CSV 出力する。
+   - エラー時は `mhlwSyncStatus = 'manual'` に変更し、手動対応が必要であることを表示。
 
 ### 4.1 スキーマ変更案（ドラフト）
 
