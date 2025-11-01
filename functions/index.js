@@ -250,7 +250,7 @@ export default {
     // ============================================================
     // <<< START: UTILS >>>
     // ============================================================
-    const CLINIC_SCHEMA_VERSION = 2; // 施設スキーマのバージョン
+    const CLINIC_SCHEMA_VERSION = 3; // 施設スキーマのバージョン
 
     function nk(s) { return (s || "").trim(); }
 
@@ -515,16 +515,98 @@ export default {
         }
       };
       assignFromBasic('name', 'name');
+      assignFromBasic('displayName', 'displayName');
+      assignFromBasic('officialName', 'officialName');
+      assignFromBasic('shortName', 'shortName');
       assignFromBasic('nameKana', 'nameKana');
+      assignFromBasic('shortNameKana', 'shortNameKana');
+      assignFromBasic('officialNameKana', 'officialNameKana');
       assignFromBasic('postalCode', 'postalCode');
       assignFromBasic('address', 'address');
       assignFromBasic('phone', 'phone');
       assignFromBasic('fax', 'fax');
       assignFromBasic('email', 'email');
       assignFromBasic('website', 'website');
-      assignFromBasic('shortName', 'shortName');
       assignFromBasic('prefecture', 'prefecture');
       assignFromBasic('city', 'city');
+
+      const pickPreferred = (...values) => {
+        for (const value of values) {
+          const trimmed = nk(value);
+          if (trimmed) return trimmed;
+        }
+        return '';
+      };
+      const setOptional = (obj, key, value) => {
+        if (!obj) return;
+        const trimmed = nk(value);
+        if (trimmed) obj[key] = trimmed;
+        else delete obj[key];
+      };
+
+      const resolvedOfficialName = pickPreferred(
+        clinic.officialName,
+        basic.officialName,
+        clinic.mhlwFacilityName,
+        clinic.name,
+      );
+      const resolvedDisplayName = pickPreferred(
+        clinic.displayName,
+        clinic.name,
+        clinic.shortName,
+        basic.displayName,
+        basic.name,
+        basic.shortName,
+        resolvedOfficialName,
+      );
+      const resolvedShortName = pickPreferred(
+        clinic.shortName,
+        basic.shortName,
+        resolvedDisplayName,
+        resolvedOfficialName,
+      );
+      const resolvedName = pickPreferred(
+        clinic.name,
+        resolvedDisplayName,
+        resolvedShortName,
+        resolvedOfficialName,
+      );
+      const resolvedOfficialNameKana = pickPreferred(
+        clinic.officialNameKana,
+        basic.officialNameKana,
+        clinic.mhlwFacilityNameKana,
+      );
+      const resolvedNameKana = pickPreferred(
+        clinic.nameKana,
+        basic.nameKana,
+      );
+      const resolvedShortNameKana = pickPreferred(
+        clinic.shortNameKana,
+        basic.shortNameKana,
+        resolvedNameKana,
+      );
+
+      clinic.name = resolvedName;
+      basic.name = resolvedName;
+
+      setOptional(clinic, 'displayName', resolvedDisplayName || resolvedName);
+      setOptional(basic, 'displayName', resolvedDisplayName || resolvedName);
+
+      setOptional(clinic, 'officialName', resolvedOfficialName || resolvedName);
+      setOptional(basic, 'officialName', resolvedOfficialName || resolvedName);
+
+      setOptional(clinic, 'shortName', resolvedShortName || resolvedDisplayName || resolvedName);
+      setOptional(basic, 'shortName', resolvedShortName || resolvedDisplayName || resolvedName);
+
+      setOptional(clinic, 'officialNameKana', resolvedOfficialNameKana);
+      setOptional(basic, 'officialNameKana', resolvedOfficialNameKana);
+
+      setOptional(clinic, 'nameKana', resolvedNameKana);
+      setOptional(basic, 'nameKana', resolvedNameKana);
+
+      setOptional(clinic, 'shortNameKana', resolvedShortNameKana || resolvedNameKana);
+      setOptional(basic, 'shortNameKana', resolvedShortNameKana || resolvedNameKana);
+
       clinic.basic = basic;
 
       const location = clinic.location && typeof clinic.location === 'object'
@@ -635,12 +717,16 @@ export default {
       if (!normalized) return null;
       const basic = normalized.basic || {};
       const location = normalized.location || {};
+      const displayName = nk(basic.displayName || normalized.displayName || basic.name || normalized.name);
+      const name = nk(basic.name || normalized.name || displayName);
+      const shortName = nk(basic.shortName || normalized.shortName || displayName || name);
+      const officialName = nk(basic.officialName || normalized.officialName || name);
       return {
         id: normalized.id,
         externalId: normalized.mhlwFacilityId || null,
-        name: nk(basic.name),
-        shortName: nk(basic.shortName),
-        officialName: nk(basic.officialName || basic.name),
+        name,
+        shortName,
+        officialName,
         prefecture: nk(basic.prefecture || normalized.prefecture),
         city: nk(basic.city || normalized.city),
         address: nk(basic.address || normalized.address),
@@ -3941,12 +4027,57 @@ export default {
       } else if (!updated.facilityType) {
         updated.facilityType = 'clinic';
       }
-      const facilityName = facilityData.officialName || facilityData.name;
+      const facilityName = nk(facilityData.officialName || facilityData.name);
+      const facilityShortName = nk(facilityData.shortName);
+      const facilityNameKana = nk(facilityData.nameKana);
+      const facilityOfficialKana = nk(facilityData.officialNameKana || facilityNameKana);
+      const facilityShortKana = nk(facilityData.shortNameKana || facilityNameKana);
+      const currentName = nk(updated.name);
+      const currentDisplayName = nk(updated.displayName);
+      const currentShortName = nk(updated.shortName);
+
       if (facilityName) {
         updated.mhlwFacilityName = facilityName;
+        updated.officialName = facilityName;
       }
-      if (facilityData.shortName) {
-        updated.mhlwFacilityShortName = facilityData.shortName;
+
+      if (facilityOfficialKana) {
+        updated.mhlwFacilityNameKana = facilityOfficialKana;
+        updated.officialNameKana = facilityOfficialKana;
+      }
+      if (facilityShortKana) {
+        updated.mhlwFacilityShortNameKana = facilityShortKana;
+        updated.shortNameKana = facilityShortKana;
+      } else if (!nk(updated.shortNameKana) && facilityOfficialKana) {
+        updated.shortNameKana = facilityOfficialKana;
+      }
+      if (facilityNameKana) {
+        updated.nameKana = facilityNameKana;
+      } else if (!nk(updated.nameKana) && facilityShortKana) {
+        updated.nameKana = facilityShortKana;
+      }
+
+      if (facilityShortName) {
+        updated.mhlwFacilityShortName = facilityShortName;
+        updated.shortName = facilityShortName;
+        updated.displayName = facilityShortName;
+        updated.name = facilityShortName;
+      } else {
+        if (!currentShortName && facilityName) {
+          updated.shortName = facilityName;
+        }
+        if (!currentDisplayName && (updated.shortName || facilityName)) {
+          updated.displayName = nk(updated.shortName || facilityName);
+        }
+        if (!currentName && (updated.displayName || facilityName)) {
+          updated.name = nk(updated.displayName || facilityName);
+        }
+      }
+      if (!nk(updated.displayName) && nk(updated.name)) {
+        updated.displayName = nk(updated.name);
+      }
+      if (!nk(updated.shortName) && nk(updated.displayName)) {
+        updated.shortName = nk(updated.displayName);
       }
       if (facilityData.address) {
         updated.address = facilityData.address;

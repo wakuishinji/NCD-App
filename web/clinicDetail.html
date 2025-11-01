@@ -52,8 +52,20 @@
       <h2 class="text-lg font-semibold text-blue-800 mb-4">基本情報</h2>
       <div class="grid md:grid-cols-2 gap-4">
         <div class="md:col-span-2">
-          <label class="block text-sm text-gray-700 mb-1">名称</label>
-          <input id="clinicName" class="w-full border rounded px-3 py-2" />
+          <label class="block text-sm text-gray-700 mb-1">正式名称</label>
+          <input id="clinicOfficialName" class="w-full border rounded px-3 py-2" placeholder="例: 医療法人〇〇 のぐち内科クリニック" />
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-sm text-gray-700 mb-1">正式名称（フリガナ）</label>
+          <input id="clinicOfficialNameKana" class="w-full border rounded px-3 py-2" placeholder="例: イリョウホウジン〇〇 ノグチナイカクリニック" />
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-sm text-gray-700 mb-1">表示名称（略称）</label>
+          <input id="clinicName" class="w-full border rounded px-3 py-2" placeholder="例: のぐち内科クリニック" />
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-sm text-gray-700 mb-1">表示名称（フリガナ）</label>
+          <input id="clinicNameKana" class="w-full border rounded px-3 py-2" placeholder="例: ノグチナイカクリニック" />
         </div>
         <div>
           <label class="block text-sm text-gray-700 mb-1">郵便番号</label>
@@ -2972,16 +2984,19 @@ function getTimeText(sel, patterns){
 }
 
 async function saveClinic() {
-  const name       = document.getElementById("clinicName").value.trim();
-  const postalCode = formatPostalCode(document.getElementById("clinicPostalCode").value);
-  const address    = document.getElementById("clinicAddress").value.trim();
-  const phone      = document.getElementById("clinicPhone").value.trim();
-  const fax        = document.getElementById("clinicFax").value.trim();
-  const fulltime   = document.getElementById("numFulltime").value;
-  const parttime   = document.getElementById("numParttime").value;
+  const displayName       = document.getElementById("clinicName").value.trim();
+  const nameKana          = document.getElementById("clinicNameKana").value.trim();
+  const officialName      = document.getElementById("clinicOfficialName").value.trim();
+  const officialNameKana  = document.getElementById("clinicOfficialNameKana").value.trim();
+  const postalCode        = formatPostalCode(document.getElementById("clinicPostalCode").value);
+  const address           = document.getElementById("clinicAddress").value.trim();
+  const phone             = document.getElementById("clinicPhone").value.trim();
+  const fax               = document.getElementById("clinicFax").value.trim();
+  const fulltime          = document.getElementById("numFulltime").value;
+  const parttime          = document.getElementById("numParttime").value;
 
-  if (!name) {
-    alert("名称を入力してください。");
+  if (!displayName) {
+    alert("表示名称（略称）を入力してください。");
     return;
   }
 
@@ -3027,7 +3042,13 @@ async function saveClinic() {
 
   const clinicData = {
     id: currentClinicId,
-    name,
+    name: displayName,
+    displayName,
+    shortName: displayName,
+    officialName,
+    officialNameKana,
+    nameKana,
+    shortNameKana: nameKana,
     postalCode,
     address,
     phone,
@@ -3104,7 +3125,14 @@ function populateClinicForm(clinic) {
       el.value = value ?? "";
     };
 
-    assignValue("clinicName", clinic?.name || "");
+    const displayName = clinic?.displayName || clinic?.shortName || clinic?.name || "";
+    const displayNameKana = clinic?.nameKana || clinic?.shortNameKana || "";
+    const officialDisplay = clinic?.officialName || clinic?.mhlwFacilityName || "";
+    const officialKana = clinic?.officialNameKana || clinic?.mhlwFacilityNameKana || "";
+    assignValue("clinicOfficialName", officialDisplay);
+    assignValue("clinicOfficialNameKana", officialKana);
+    assignValue("clinicName", displayName);
+    assignValue("clinicNameKana", displayNameKana);
     assignValue("clinicPostalCode", loadedPostal);
     assignValue("clinicAddress", clinic?.address || "");
     assignValue("clinicPhone", clinic?.phone || "");
