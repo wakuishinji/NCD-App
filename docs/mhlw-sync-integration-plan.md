@@ -96,6 +96,27 @@ Cloudflare D1 では以下のテーブルに格納されている。
    - まずは自動補完のみ実装し、再同期や上書き条件はステップを分けて検証。
    - テスト用施設で同期 → UI 表示 → 差分確認 → 問題無ければ全体へ展開。
 
+### 4.1 スキーマ変更案（ドラフト）
+
+| フィールド | KV (`clinic` JSON) | D1 (`facilities` テーブル) | 備考 |
+|------------|--------------------|-----------------------------|------|
+| `officialName` | 追加 (`clinic.officialName`) | `facilities.metadata`（JSON 内） | 厚労省の公式名称を保持。マスター表示では略称と切替可能にする |
+| `displayName` | 追加（任意） | 同上 | UI 表示用の名称。未設定時は `name` を使用 |
+| `name` / `shortName` | 既存 | `facilities.name` / `short_name` | 厚労省略称で初期化し、編集可 |
+| `mhlwFacilityId` | 既存 | `facilities.external_id` | 変わらず |
+| `mhlwWeeklyClosedDays` | 追加 | `facilities.metadata` | `weeklyClosedDays` を人間可読にするためのフィールド |
+| `mhlwPeriodicClosedDays` | 追加 | `facilities.metadata` | 同上 |
+| `mhlwBedCounts` | 追加 | `facilities.metadata` / `facility_beds` | 病床情報。必要に応じて UI 表示 |
+| `mhlwSyncStatus` | 既存（`clinic.mhlwSyncStatus`） | `facilities.metadata` | `linked` / `pending` / `manual` / `not_found` を保持 |
+| `mhlwSnapshot` | 既存 | `facilities.metadata` | 厚労省生データ（履歴・デバッグ用） |
+| `schedule` | `clinic.schedule` | `facility_schedule` | 構造を `{"day": 0, "start": "09:00", "end": "12:00", "department": "内科" ...}` のように正規化 |
+| `departments` | `clinic.departments.master` 等 | `facilities.metadata` | 厚労省標榜科をマスターへマッピング。未マッチは `pendingDepartments` などで保持 |
+| `links.homepage` | 既存 | `facilities.metadata` | 未設定時は厚労省 URL を反映 |
+| `location` | 既存 | `facilities.metadata` | `source: 'mhlw'` を追記し、手動更新との区別を明確にする |
+
+- D1 `facilities` テーブルに直接カラムを増やす案もあるが、既存構造との互換を考慮して JSON (`metadata`) 側へ格納し、必要に応じて正規化テーブル（`facility_beds` など）を利用する。
+- KV 側は `clinic:id:{uuid}` の JSON を更新。既存 15 件のテストデータはマイグレーションスクリプトで `officialName` などを補完する。
+
 ---
 
 ## 6. 参考リンク
