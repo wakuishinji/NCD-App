@@ -1079,7 +1079,7 @@ function updateMhlwSummary(clinic) {
     not_found: '未掲載',
   };
   if (!facilityId) {
-    summaryEl.textContent = '厚労省ID未連携です。厚労省IDを登録してください。';
+    summaryEl.textContent = '厚生省データに登録がありません。必要な情報は手入力で維持してください。';
     return;
   }
   const parts = [`ID: ${facilityId}`];
@@ -1203,7 +1203,7 @@ function updateMhlwStatusLabel(clinic) {
       el.textContent = `厚労省ID: ${facilityId}`;
       el.classList.add('text-emerald-200');
     } else {
-      el.textContent = 'ID連携されていません';
+      el.textContent = '厚生省データに登録がありません';
       el.classList.add('text-red-300');
     }
   });
