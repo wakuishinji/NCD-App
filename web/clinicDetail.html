@@ -52,19 +52,33 @@
       <h2 class="text-lg font-semibold text-blue-800 mb-4">基本情報</h2>
       <div class="grid md:grid-cols-2 gap-4">
         <div class="md:col-span-2">
-          <label class="block text-sm text-gray-700 mb-1">正式名称</label>
-          <input id="clinicOfficialName" class="w-full border rounded px-3 py-2" placeholder="例: 医療法人〇〇 のぐち内科クリニック" />
+          <label class="block text-sm text-gray-700 mb-1">
+            正式名称
+            <span class="ml-1 text-red-500">*</span>
+            <span class="ml-1 text-xs text-slate-500">※厚労省データ同期時に自動反映</span>
+          </label>
+          <input id="clinicOfficialName" class="w-full border rounded px-3 py-2" placeholder="例: 医療法人〇〇 のぐち内科クリニック" required />
         </div>
         <div class="md:col-span-2">
-          <label class="block text-sm text-gray-700 mb-1">正式名称（フリガナ）</label>
+          <label class="block text-sm text-gray-700 mb-1">
+            正式名称（フリガナ）
+            <span class="ml-1 text-xs text-slate-500">※厚労省データ同期時に自動反映</span>
+          </label>
           <input id="clinicOfficialNameKana" class="w-full border rounded px-3 py-2" placeholder="例: イリョウホウジン〇〇 ノグチナイカクリニック" />
         </div>
         <div class="md:col-span-2">
-          <label class="block text-sm text-gray-700 mb-1">表示名称（略称）</label>
-          <input id="clinicName" class="w-full border rounded px-3 py-2" placeholder="例: のぐち内科クリニック" />
+          <label class="block text-sm text-gray-700 mb-1">
+            表示名称（略称）
+            <span class="ml-1 text-red-500">*</span>
+            <span class="ml-1 text-xs text-slate-500">※厚労省データ同期時に自動反映</span>
+          </label>
+          <input id="clinicName" class="w-full border rounded px-3 py-2" placeholder="例: のぐち内科クリニック" required />
         </div>
         <div class="md:col-span-2">
-          <label class="block text-sm text-gray-700 mb-1">表示名称（フリガナ）</label>
+          <label class="block text-sm text-gray-700 mb-1">
+            表示名称（フリガナ）
+            <span class="ml-1 text-xs text-slate-500">※厚労省データ同期時に自動反映</span>
+          </label>
           <input id="clinicNameKana" class="w-full border rounded px-3 py-2" placeholder="例: ノグチナイカクリニック" />
         </div>
         <div>
@@ -2997,6 +3011,10 @@ async function saveClinic() {
 
   if (!displayName) {
     alert("表示名称（略称）を入力してください。");
+    return;
+  }
+  if (!officialName) {
+    alert("正式名称を入力してください。");
     return;
   }
 
