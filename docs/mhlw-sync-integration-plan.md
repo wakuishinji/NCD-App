@@ -36,11 +36,11 @@ Cloudflare D1 では以下のテーブルに格納されている。
 |-------------------|----------------------------|------|
 | 施設ID (`facility_id`) | `clinic.mhlwFacilityId` | 既存通り（必須） |
 | 公式名称 (`officialName`) | `clinic.officialName`（新規） | 厚労省の公式名称をそのまま保持し、表示名と分離する |
-| 略称 (`shortName`) | `clinic.name` / `clinic.shortName` | 既存の `clinic.name` を表示名（略称）として利用し、厚労省の略称で初期化する |
+| 略称 (`shortName`) | `clinic.name`, `clinic.shortName`, `clinic.displayName`（検討） | 表示名を略称で初期化し、UI 表示用に `displayName` を新設する案も検討 |
 | 住所・郵便番号・電話 | `clinic.address` / `clinic.postalCode` / `clinic.phone` | 未入力時は自動補完。手入力値がある場合の上書き方針を決める（例: 初回のみ自動反映、以降は差分確認） |
 | 種別 (`facility_type`) | `clinic.facilityType` | 診療所 / 病院などへ正規化 |
 | 標榜診療科 (`mhlw_facility_departments`) | `clinic.departments`（構造を見直し） | マスター登録済み名称へマッピングし、自動追加（未登録はレビュー待ちリストへ） |
-| 診療時間 (`mhlw_facility_schedules`) | `clinic.schedule` | 曜日ごと＋診療科ごとに集約し、既存 schedule 形式へ変換（構造変更も検討） |
+| 診療時間 (`mhlw_facility_schedules`) | 新 schedule モデル（例: `clinic.availability`） | 曜日・時間帯・診療科を保持できる構造へ更新し、既存 UI/編集機能も対応させる |
 | 休診日 (`weeklyClosedDays` / `periodicClosedDays`) | `clinic.mhlwWeeklyClosedDays` / `clinic.mhlwPeriodicClosedDays`（新設） | UI でも表示・編集できるよう専用フィールドを追加 |
 | 病床数 (`mhlw_facility_beds`) | `clinic.mhlwBedCounts`（新設） | 種別ごとの病床数を保持し、病院向けに表示 |
 | 公式サイト URL | `clinic.links.homepage` | 未設定なら厚労省値で補完 |
