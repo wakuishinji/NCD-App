@@ -3059,9 +3059,14 @@ async function syncClinicFromMhlw() {
     alert("厚労省IDが連携されていません。厚労省ID登録を先に行ってください。");
     return;
   }
+  const authClient = window.NcdAuth;
+  if (!authClient || typeof authClient.getAuthHeader !== 'function') {
+    alert("厚労省データの同期にはログインが必要です。再度ログインしてください。");
+    return;
+  }
   let authHeader;
   try {
-    authHeader = await getAuthHeader();
+    authHeader = await authClient.getAuthHeader();
   } catch (err) {
     console.warn('[clinicDetail] failed to obtain auth header', err);
     alert("厚労省データの同期にはログインが必要です。再度ログインしてください。");
