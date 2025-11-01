@@ -30,7 +30,13 @@
           <a href="clinicHome.html" class="inline-flex items-center rounded bg-white/20 px-3 py-1 text-sm font-semibold text-white transition hover:bg-white/30">施設ホームへ</a>
         </div>
         <h1 class="text-lg md:text-xl font-bold text-center md:text-left md:flex-1">診療所詳細入力</h1>
-        <a href="clinicList.html" class="hidden md:inline-flex items-center rounded bg-white/20 px-3 py-1 text-sm font-semibold text-white transition hover:bg-white/30 whitespace-nowrap">施設選択へ</a>
+        <div class="hidden md:flex items-center gap-2">
+          <a href="clinicList.html" class="inline-flex items-center rounded bg-white/20 px-3 py-1 text-sm font-semibold text-white transition hover:bg-white/30 whitespace-nowrap">施設選択へ</a>
+          <span data-mhlw-status class="text-xs font-semibold text-slate-200 whitespace-nowrap">ID状態確認中…</span>
+          <button type="button" data-mhlw-sync class="inline-flex items-center rounded bg-white/20 px-3 py-1 text-sm font-semibold text-white transition hover:bg-white/30 disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap">
+            厚労省データを読み込み
+          </button>
+        </div>
         <button type="button" class="inline-flex items-center justify-center rounded bg-white/10 px-3 py-2 text-sm font-semibold transition hover:bg-white/20 md:hidden" data-mobile-menu="#clinic-detail-nav" aria-controls="clinic-detail-nav" aria-expanded="false" aria-label="メニューを開く">
           <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M4 7h16M4 12h16M4 17h16" />
@@ -41,6 +47,10 @@
         <a href="/index.html" class="inline-flex items-center rounded bg-white/20 px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/30">Top</a>
         <a href="clinicHome.html" class="inline-flex items-center rounded bg-white/20 px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/30">施設ホームへ</a>
         <a href="clinicList.html" class="inline-flex items-center rounded bg-white/20 px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/30">施設選択へ</a>
+        <span data-mhlw-status class="text-xs font-semibold text-slate-200">ID状態確認中…</span>
+        <button type="button" data-mhlw-sync class="inline-flex items-center justify-center rounded bg-white/20 px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/30 disabled:opacity-60 disabled:cursor-not-allowed">
+          厚労省データを読み込み
+        </button>
       </nav>
     </div>
   </header>
@@ -82,16 +92,28 @@
           <input id="clinicNameKana" class="w-full border rounded px-3 py-2" placeholder="例: ノグチナイカクリニック" />
         </div>
         <div>
-          <label class="block text-sm text-gray-700 mb-1">郵便番号</label>
-          <input id="clinicPostalCode" type="text" inputmode="numeric" pattern="[0-9\\-]*" class="w-full border rounded px-3 py-2" placeholder="123-4567" />
+          <label class="block text-sm text-gray-700 mb-1">
+            郵便番号
+            <span class="ml-1 text-red-500">*</span>
+            <span class="ml-1 text-xs text-slate-500">※厚労省データ同期時に自動反映</span>
+          </label>
+          <input id="clinicPostalCode" type="text" inputmode="numeric" pattern="[0-9\\-]*" class="w-full border rounded px-3 py-2" placeholder="123-4567" required />
         </div>
         <div class="md:col-span-2">
-          <label class="block text-sm text-gray-700 mb-1">住所</label>
-          <input id="clinicAddress" class="w-full border rounded px-3 py-2" />
+          <label class="block text-sm text-gray-700 mb-1">
+            住所
+            <span class="ml-1 text-red-500">*</span>
+            <span class="ml-1 text-xs text-slate-500">※厚労省データ同期時に自動反映</span>
+          </label>
+          <input id="clinicAddress" class="w-full border rounded px-3 py-2" required />
         </div>
         <div>
-          <label class="block text-sm text-gray-700 mb-1">電話番号</label>
-          <input id="clinicPhone" type="tel" class="w-full border rounded px-3 py-2" placeholder="03-1234-5678" />
+          <label class="block text-sm text-gray-700 mb-1">
+            電話番号
+            <span class="ml-1 text-red-500">*</span>
+            <span class="ml-1 text-xs text-slate-500">※厚労省データ同期時に自動反映</span>
+          </label>
+          <input id="clinicPhone" type="tel" class="w-full border rounded px-3 py-2" placeholder="03-1234-5678" required />
         </div>
         <div>
           <label class="block text-sm text-gray-700 mb-1">FAX番号</label>
@@ -812,6 +834,7 @@ let modeContainerEl = null;
 let modeEmptyEl = null;
 
 let currentClinicId = "";
+let currentClinicData = null;
 let retainedQualifications = "";
 let departmentMaster = [];
 let departmentSelectionEl = null;
@@ -967,6 +990,35 @@ function formatPostalCode(value) {
   if (!digits) return '';
   if (digits.length <= 3) return digits;
   return `${digits.slice(0, 3)}-${digits.slice(3, 7)}`;
+}
+
+function normalizeMhlwFacilityId(value) {
+  return (value || '').toString().replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+}
+
+function updateMhlwStatusLabel(clinic) {
+  const facilityId = normalizeMhlwFacilityId(clinic?.mhlwFacilityId || '');
+  document.querySelectorAll('[data-mhlw-status]').forEach((el) => {
+    if (!(el instanceof HTMLElement)) return;
+    el.classList.remove('text-slate-200', 'text-red-300', 'text-emerald-200');
+    if (facilityId) {
+      el.textContent = `厚労省ID: ${facilityId}`;
+      el.classList.add('text-emerald-200');
+    } else {
+      el.textContent = 'ID連携されていません';
+      el.classList.add('text-red-300');
+    }
+  });
+  document.querySelectorAll('[data-mhlw-sync]').forEach((btn) => {
+    if (!(btn instanceof HTMLButtonElement)) return;
+    if (facilityId) {
+      btn.disabled = false;
+      btn.title = '厚労省データを読み込みます';
+    } else {
+      btn.disabled = true;
+      btn.title = '厚労省IDが未連携のため同期できません';
+    }
+  });
 }
 
 function updateSelectedClinicCache(mutator) {
@@ -2997,6 +3049,54 @@ function getTimeText(sel, patterns){
   }
 }
 
+async function syncClinicFromMhlw() {
+  if (!currentClinicId) {
+    alert("診療所が選択されていません。");
+    return;
+  }
+  const facilityId = normalizeMhlwFacilityId(currentClinicData?.mhlwFacilityId || '');
+  if (!facilityId) {
+    alert("厚労省IDが連携されていません。厚労省ID登録を先に行ってください。");
+    return;
+  }
+  const mainElement = document.querySelector('main');
+  try {
+    const syncResult = await wrapWithLoading(async () => {
+      const api = apiBase();
+      const searchResponse = await fetch(`${api}/api/mhlw/search?facilityId=${encodeURIComponent(facilityId)}&limit=1`);
+      if (!searchResponse.ok) {
+        throw new Error("厚労省データの取得に失敗しました。");
+      }
+      const searchJson = await searchResponse.json().catch(() => ({}));
+      if (!searchJson?.ok || !Array.isArray(searchJson.results) || !searchJson.results.length) {
+        throw new Error("厚労省データに該当する施設情報が見つかりませんでした。");
+      }
+      const facility = searchJson.results[0];
+      const syncResponse = await fetch(`${api}/api/admin/clinic/syncFromMhlw`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          facilityId,
+          clinicId: currentClinicId,
+          facilityData: facility,
+        }),
+      });
+      const payload = await syncResponse.json().catch(() => ({}));
+      if (!syncResponse.ok || !payload?.ok) {
+        throw new Error(payload?.message || payload?.error || "厚労省データの同期に失敗しました。");
+      }
+      return payload;
+    }, "厚労省データを読み込み中...", mainElement);
+    if (syncResult?.ok) {
+      await loadClinicDetail();
+      alert("厚労省データを反映しました。");
+    }
+  } catch (err) {
+    console.error("[clinicDetail] syncClinicFromMhlw failed", err);
+    alert(err.message || "厚労省データの同期に失敗しました。");
+  }
+}
+
 async function saveClinic() {
   const displayName       = document.getElementById("clinicName").value.trim();
   const nameKana          = document.getElementById("clinicNameKana").value.trim();
@@ -3015,6 +3115,18 @@ async function saveClinic() {
   }
   if (!officialName) {
     alert("正式名称を入力してください。");
+    return;
+  }
+  if (!postalCode) {
+    alert("郵便番号を入力してください。");
+    return;
+  }
+  if (!address) {
+    alert("住所を入力してください。");
+    return;
+  }
+  if (!phone) {
+    alert("電話番号を入力してください。");
     return;
   }
 
@@ -3132,6 +3244,8 @@ async function saveClinic() {
 }
 
 function populateClinicForm(clinic) {
+  currentClinicData = clinic || null;
+  updateMhlwStatusLabel(currentClinicData);
   const loadedPostal = formatPostalCode(clinic?.postalCode || "");
   withDirtySuppressed(() => {
     currentClinicId = clinic?.id || "";
@@ -3298,6 +3412,15 @@ async function loadClinicDetail() {
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
+  document.querySelectorAll('[data-mhlw-sync]').forEach((btn) => {
+    if (!(btn instanceof HTMLButtonElement)) return;
+    btn.addEventListener('click', (event) => {
+      event.preventDefault();
+      if (btn.disabled) return;
+      syncClinicFromMhlw();
+    });
+  });
+  updateMhlwStatusLabel(currentClinicData);
   toggleLoadingOverlay(true);
   try {
     initDepartmentSelectionUI();
