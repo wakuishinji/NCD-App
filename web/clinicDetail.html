@@ -3059,11 +3059,25 @@ async function syncClinicFromMhlw() {
     alert("厚労省IDが連携されていません。厚労省ID登録を先に行ってください。");
     return;
   }
+  let authHeader;
+  try {
+    authHeader = await getAuthHeader();
+  } catch (err) {
+    console.warn('[clinicDetail] failed to obtain auth header', err);
+    alert("厚労省データの同期にはログインが必要です。再度ログインしてください。");
+    return;
+  }
+  if (!authHeader) {
+    alert("厚労省データの同期にはログインが必要です。再度ログインしてください。");
+    return;
+  }
   const mainElement = document.querySelector('main');
   try {
     const syncResult = await wrapWithLoading(async () => {
       const api = apiBase();
-      const searchResponse = await fetch(`${api}/api/mhlw/search?facilityId=${encodeURIComponent(facilityId)}&limit=1`);
+      const searchResponse = await fetch(`${api}/api/mhlw/search?facilityId=${encodeURIComponent(facilityId)}&limit=1`, {
+        headers: { Authorization: authHeader },
+      });
       if (!searchResponse.ok) {
         throw new Error("厚労省データの取得に失敗しました。");
       }
@@ -3074,7 +3088,10 @@ async function syncClinicFromMhlw() {
       const facility = searchJson.results[0];
       const syncResponse = await fetch(`${api}/api/admin/clinic/syncFromMhlw`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+        },
         body: JSON.stringify({
           facilityId,
           clinicId: currentClinicId,
