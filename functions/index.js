@@ -252,7 +252,13 @@ export default {
     // ============================================================
     const CLINIC_SCHEMA_VERSION = 3; // 施設スキーマのバージョン
 
-    function nk(s) { return (s || "").trim(); }
+    function nk(s) {
+      if (typeof s === 'string') return s.trim();
+      if (s === null || s === undefined) return '';
+      if (typeof s === 'number' || typeof s === 'boolean') return String(s).trim();
+      if (typeof s === 'object') return '';
+      return '';
+    }
 
     function optionalString(value) {
       const trimmed = nk(value);
@@ -7165,6 +7171,7 @@ if (routeMatch(url, "GET", "listClinics")) {
               headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
           }
+          console.error('[updateClinic] saveClinic failed', { clinicIdParam, name, body }, err);
           throw err;
         }
         return new Response(JSON.stringify({ ok: true, clinic: saved }), {
@@ -7177,6 +7184,7 @@ if (routeMatch(url, "GET", "listClinics")) {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
+        console.error('[updateClinic] unexpected error', err);
         return new Response("Error: " + err.message, { status: 500, headers: corsHeaders });
       }
     }
