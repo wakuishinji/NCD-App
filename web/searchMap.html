@@ -8,20 +8,23 @@
   <meta name="ncd-google-maps-key" content="">
   <script src="js/googleMapsLoader.js" defer></script>
   <script src="js/loading.js" defer></script>
-  <script src="js/header.js" defer></script>
+  <script src="js/userMenu.js" defer></script>
   <script src="js/searchMap.js" defer></script>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
   <header class="bg-gradient-to-r from-emerald-900 via-blue-900 to-emerald-900 text-white shadow">
     <div class="max-w-6xl mx-auto px-4 py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-      <div class="flex items-center gap-2">
-        <a href="/index.html" class="inline-flex items-center gap-2 rounded bg-white/10 px-3 py-2 text-sm font-semibold transition hover:bg-white/20">
+      <div class="flex flex-wrap items-center gap-2 text-sm font-semibold">
+        <a href="/index.html" class="inline-flex items-center gap-2 rounded bg-white/10 px-3 py-2 transition hover:bg-white/20">
           <span aria-hidden="true">⌂</span>
           ホーム
         </a>
-        <h1 class="text-lg md:text-xl font-semibold tracking-wide">地図から診療所を探す</h1>
       </div>
-      <span class="text-xs text-white/80">Nakano Clinic Database</span>
+      <h1 class="text-lg md:text-xl font-semibold tracking-wide text-center md:text-left md:flex-1">地図から診療所を探す</h1>
+      <div class="flex items-center gap-2">
+        <span class="text-xs text-white/80">Nakano Clinic Database</span>
+        <div class="relative" data-user-menu data-user-menu-variant="dark"></div>
+      </div>
     </div>
   </header>
 
