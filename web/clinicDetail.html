@@ -832,6 +832,18 @@ let departmentMaster = [];
 let departmentSelectionEl = null;
 let departmentToggleBtnEl = null;
 const DEPARTMENT_CACHE_KEY = 'ncd_department_master_cache_v1';
+const DEPARTMENT_CATEGORY_ORDER = [
+  '内科系',
+  '外科系',
+  '小児・周産期系',
+  '産婦人・婦人系',
+  '感覚器・耳鼻咽喉系',
+  '皮膚・泌尿器系',
+  '神経・精神系',
+  'リハビリ・救急・麻酔系',
+  '画像・検査・放射線系',
+  'その他',
+];
 const DEPARTMENT_CACHE_TTL = 10 * 60 * 1000;
 let pendingDepartmentRender = false;
 const DEFAULT_PATTERN_KEYS = ['amA','amB','pmA','pmB'];
@@ -2690,13 +2702,18 @@ async function fetchDepartmentMaster({ silent = false, skipRenderWhenOpen = fals
     const data = await res.json();
     const collator = new Intl.Collator('ja');
     const items = ((data.ok ? data.items : []) || []).sort((a, b) => {
-      const ao = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER;
-      const bo = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER;
-      if (ao !== bo) return ao - bo;
-      const ag = a.sortGroup || '';
-      const bg = b.sortGroup || '';
-      const gcmp = collator.compare(ag, bg);
-      if (gcmp !== 0) return gcmp;
+      const aCategory = a.category || 'その他';
+      const bCategory = b.category || 'その他';
+      const ao = DEPARTMENT_CATEGORY_ORDER.indexOf(aCategory);
+      const bo = DEPARTMENT_CATEGORY_ORDER.indexOf(bCategory);
+      if (ao !== bo) {
+        if (ao === -1) return 1;
+        if (bo === -1) return -1;
+        return ao - bo;
+      }
+      const aoSort = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER;
+      const boSort = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER;
+      if (aoSort !== boSort) return aoSort - boSort;
       return collator.compare(a.name || '', b.name || '');
     });
     writeDepartmentMasterCache(items);
@@ -3028,6 +3045,7 @@ function renderDepartmentChecklist(selectedNames) {
     namesToUse = existingChecked;
   }
   container.innerHTML = "";
+  container.classList.add("space-y-6");
 
   if (!departmentMaster.length) {
     container.innerHTML = '<p class="text-sm text-gray-500">承認済みの標榜診療科がまだ登録されていません。</p>';
@@ -3043,7 +3061,7 @@ function renderDepartmentChecklist(selectedNames) {
   departmentMaster.forEach(item => {
     const value = item.name || "";
     const display = item.canonical_name || item.name || "";
-    const group = item.sortGroup || 'その他';
+    const group = item.category || 'その他';
     const isChecked = selectedSet.has(normalizeText(item.name)) || selectedSet.has(normalizeText(item.canonical_name));
 
     if (group !== currentGroup) {
