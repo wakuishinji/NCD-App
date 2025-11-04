@@ -143,12 +143,17 @@
       this.showClassification = Boolean(config.showClassification);
       this.showNotes = Boolean(config.showNotes);
       this.manualAdd = Boolean(config.enableManualAdd);
-      this.allowFreeCategory = Boolean(config.allowFreeCategory);
+      this.allowFreeCategory = config.allowFreeCategory !== undefined ? Boolean(config.allowFreeCategory) : true;
       this.notesProp = config.notesProp || 'notes';
       this.notesLabel = config.notesLabel || '備考';
       this.notesPlaceholder = config.notesPlaceholder || '備考を入力';
       this.notesDatalistId = config.notesDatalistId || null;
-      this.categoryOptions = [];
+      this.enableNotesFilter = Boolean(config.enableNotesFilter);
+      this.useStaticCategoryOptions = Array.isArray(config.categoryOptions) && config.categoryOptions.length > 0;
+      this.categoryOptions = this.useStaticCategoryOptions ? Array.from(new Set(config.categoryOptions)) : [];
+      this.notesOptions = Array.isArray(config.notesOptions) ? Array.from(new Set(config.notesOptions.filter(Boolean))) : [];
+      this.allowFreeNotes = config.allowFreeNotes !== undefined ? Boolean(config.allowFreeNotes) : true;
+      this.autoCollectNotesOptions = config.autoCollectNotesOptions !== false;
       this.cache = null;
       this.inFlight = null;
       this.currentItems = [];
@@ -156,11 +161,26 @@
     }
 
     bindHandlers() {
-      const { reloadButton, statusSelect, searchInput, categorySelect, csvButton, csvInput, addForm, addCategory, addCategoryManual, addStatus } = this.elements;
+      const {
+        reloadButton,
+        statusSelect,
+        searchInput,
+        categorySelect,
+        notesFilter,
+        csvButton,
+        csvInput,
+        addForm,
+        addCategory,
+        addCategoryManual,
+        addStatus,
+        addNotes,
+        addNotesManual
+      } = this.elements;
       if (reloadButton) reloadButton.addEventListener('click', () => this.reload({ force: true }));
       if (statusSelect) statusSelect.addEventListener('change', () => this.reload());
       bindStatusAppearance(statusSelect);
       if (categorySelect) categorySelect.addEventListener('change', () => this.reload({ skipFetch: true }));
+      if (notesFilter) notesFilter.addEventListener('change', () => this.reload({ skipFetch: true }));
       if (searchInput) searchInput.addEventListener('input', debounce(() => this.reload({ skipFetch: true }), 300));
       if (csvButton && csvInput && this.enableCsvImport) {
         csvButton.addEventListener('click', () => csvInput.click());
@@ -188,19 +208,31 @@
         }
         bindStatusAppearance(addStatus);
       }
-      if (this.elements.addNotes) {
-        if (this.notesDatalistId) {
-          this.elements.addNotes.setAttribute('list', this.notesDatalistId);
-        }
-        if (this.notesPlaceholder) {
-          this.elements.addNotes.setAttribute('placeholder', this.notesPlaceholder);
-        }
+      if (addNotes && addNotes.tagName === 'SELECT') {
+        addNotes.addEventListener('change', () => {
+          if (addNotes.value === '__direct') {
+            addNotesManual?.classList.remove('hidden');
+          } else {
+            if (addNotesManual) {
+              addNotesManual.classList.add('hidden');
+              addNotesManual.value = '';
+            }
+          }
+        });
+      } else if (addNotes) {
+        if (this.notesPlaceholder) addNotes.setAttribute('placeholder', this.notesPlaceholder);
+        if (this.notesDatalistId) addNotes.setAttribute('list', this.notesDatalistId);
       }
     }
 
     async init() {
-      if (this.enableCategoryFilter || this.manualAdd) {
+      if ((this.enableCategoryFilter || this.manualAdd) && !this.useStaticCategoryOptions) {
         await this.loadCategories();
+      } else {
+        this.syncCategoryControls();
+      }
+      if (this.enableNotesFilter || this.manualAdd) {
+        this.syncNotesControls();
       }
       await this.reload();
     }
@@ -214,6 +246,10 @@
     }
 
     async loadCategories() {
+      if (this.useStaticCategoryOptions) {
+        this.syncCategoryControls();
+        return;
+      }
       try {
         const categoryType = this.categoryType || this.type;
         const res = await fetch(apiUrl(`/api/listCategories?type=${categoryType}`));
@@ -244,11 +280,36 @@
       }
     }
 
+    syncNotesControls() {
+      const { addNotes, addNotesManual, notesFilter } = this.elements;
+      const options = this.notesOptions.slice().sort((a, b) => a.localeCompare(b, 'ja'));
+      if (addNotes && addNotes.tagName === 'SELECT') {
+        const placeholder = '<option value="">医療分野を選択</option>';
+        const manualOption = this.allowFreeNotes ? '<option value="__direct">直接入力</option>' : '';
+        addNotes.innerHTML = placeholder + options.map(opt => `<option value="${escapeHtml(opt)}">${escapeHtml(opt)}</option>`).join('') + manualOption;
+        if (addNotesManual) {
+          addNotesManual.classList.add('hidden');
+          addNotesManual.value = '';
+        }
+      } else if (addNotes) {
+        if (this.notesPlaceholder) addNotes.setAttribute('placeholder', this.notesPlaceholder);
+        if (this.notesDatalistId) addNotes.setAttribute('list', this.notesDatalistId);
+      }
+      if (notesFilter) {
+        const current = notesFilter.value;
+        notesFilter.innerHTML = '<option value="">全ての医療分野</option>' + options.map(opt => `<option value="${escapeHtml(opt)}">${escapeHtml(opt)}</option>`).join('');
+        if (options.includes(current)) {
+          notesFilter.value = current;
+        }
+      }
+    }
+
     async reload({ force = false, skipFetch = false } = {}) {
       const status = this.elements.statusSelect?.value || '';
       const keywordRaw = this.elements.searchInput?.value || '';
       const keyword = keywordRaw.trim().toLowerCase();
       const categoryFilter = this.elements.categorySelect?.value || '';
+      let notesFilterValue = this.elements.notesFilter?.value || '';
 
       if (!skipFetch || force || !this.cache) {
         await this.withLoading(this.config.loadingMessage || 'マスターを読み込み中...', async () => {
@@ -274,9 +335,26 @@
         });
       }
 
+      if ((this.showNotes || this.notesProp !== 'notes') && this.autoCollectNotesOptions) {
+        const uniqueNotes = new Set(this.notesOptions);
+        const sourceItems = Array.isArray(this.cache) ? this.cache : [];
+        sourceItems.forEach(item => {
+          const value = this.getItemNoteValue(item);
+          if (value) uniqueNotes.add(value);
+        });
+        this.notesOptions = Array.from(uniqueNotes).filter(Boolean).sort((a, b) => a.localeCompare(b, 'ja'));
+        if (this.enableNotesFilter || this.manualAdd) {
+          this.syncNotesControls();
+        }
+        notesFilterValue = this.elements.notesFilter?.value || '';
+      }
+
       let items = Array.isArray(this.cache) ? [...this.cache] : [];
       if (categoryFilter) {
         items = items.filter(item => (item.category || '') === categoryFilter);
+      }
+      if (notesFilterValue) {
+        items = items.filter(item => (this.getItemNoteValue(item) || '') === notesFilterValue);
       }
       if (keyword) {
         items = items.filter(item => {
@@ -310,6 +388,37 @@
       return `<select class="w-full border rounded px-2 py-1" data-field="category">
         <option value="">分類を選択</option>
         ${options}
+      </select>`;
+    }
+
+    buildNotesInput(value) {
+      const noteValue = value || '';
+      const placeholder = escapeHtml(this.notesPlaceholder || '医療分野を入力');
+      if (!this.notesOptions.length || this.allowFreeNotes) {
+        if (!this.notesOptions.length) {
+          return `<input class="w-full border rounded px-2 py-1" data-field="notes" value="${escapeHtml(noteValue)}" placeholder="${placeholder}">`;
+        }
+        const options = this.notesOptions.map(opt => `<option value="${escapeHtml(opt)}" ${opt === noteValue ? 'selected' : ''}>${escapeHtml(opt)}</option>`).join('');
+        const directSelected = noteValue && !this.notesOptions.includes(noteValue) ? ' selected' : '';
+        const select = `<select class="w-full border rounded px-2 py-1" data-field="notes">
+          <option value="">医療分野を選択</option>
+          ${options}
+          <option value="__direct"${directSelected}>直接入力</option>
+        </select>`;
+        const needsManual = !!noteValue && !this.notesOptions.includes(noteValue);
+        const manualClasses = ['w-full border rounded px-2 py-1 mt-2', needsManual ? '' : 'hidden'].filter(Boolean).join(' ');
+        const manualValue = needsManual ? noteValue : '';
+        const manualInput = `<input class="${manualClasses}" data-field="notes-manual" placeholder="${placeholder}" value="${escapeHtml(manualValue)}">`;
+        return select + manualInput;
+      }
+
+      const options = this.notesOptions.map(opt => `<option value="${escapeHtml(opt)}" ${opt === noteValue ? 'selected' : ''}>${escapeHtml(opt)}</option>`).join('');
+      const extra = noteValue && !this.notesOptions.includes(noteValue)
+        ? `<option value="${escapeHtml(noteValue)}" selected>${escapeHtml(noteValue)}</option>`
+        : '';
+      return `<select class="w-full border rounded px-2 py-1" data-field="notes">
+        <option value="">医療分野を選択</option>
+        ${options}${extra}
       </select>`;
     }
 
@@ -373,8 +482,6 @@
             : (showDesc ? 'md:col-span-2' : 'md:col-span-4');
 
           const notesLabel = escapeHtml(this.notesLabel);
-          const notesPlaceholder = escapeHtml(this.notesPlaceholder);
-          const notesListAttr = this.notesDatalistId ? ` list="${escapeHtml(this.notesDatalistId)}"` : '';
 
           card.innerHTML = `
             <div class="grid gap-2 ${gridCols} items-start text-sm">
@@ -409,7 +516,7 @@
               ${showNotes ? `
               <div class="${notesCols}">
                 <label class="block text-xs text-slate-500">${notesLabel}</label>
-                <input class="w-full border rounded px-2 py-1" data-field="notes"${notesListAttr} value="${escapeHtml(noteValue || '')}" placeholder="${notesPlaceholder}">
+                ${this.buildNotesInput(noteValue)}
               </div>` : ''}
             </div>
             <div class="mt-3 space-y-3" data-explanation-section></div>
@@ -586,6 +693,7 @@
       bindStatusAppearance(statusSelect);
       const categorySelect = card.querySelector('[data-field="category"]');
       const categoryManual = card.querySelector('[data-field="category-manual"]');
+      const notesManual = card.querySelector('[data-field="notes-manual"]');
       if (categorySelect && categorySelect.tagName === 'SELECT' && categoryManual) {
         if (categorySelect.value === '__direct') {
           categoryManual.classList.remove('hidden');
@@ -629,24 +737,54 @@
       };
 
       inputs.forEach(input => {
-        if (input.dataset.field === 'category') {
+        const field = input.dataset.field;
+        if (field === 'category') {
           input.addEventListener('change', () => {
             if (input.tagName === 'SELECT' && categoryManual) {
               if (input.value === '__direct') {
                 categoryManual.classList.remove('hidden');
               } else if (this.categoryOptions.includes(input.value)) {
                 categoryManual.classList.add('hidden');
+                categoryManual.value = '';
+              } else if (!input.value) {
+                categoryManual.classList.add('hidden');
+                categoryManual.value = '';
+              } else {
+                categoryManual.classList.remove('hidden');
               }
             }
             evaluateChanges();
           });
-        } else if (input.dataset.field === 'status') {
+        } else if (field === 'notes') {
+          const handler = () => {
+            if (input.tagName === 'SELECT' && notesManual) {
+              if (input.value === '__direct') {
+                notesManual.classList.remove('hidden');
+              } else if (this.notesOptions.includes(input.value)) {
+                notesManual.classList.add('hidden');
+                notesManual.value = '';
+              } else if (!input.value) {
+                notesManual.classList.add('hidden');
+                notesManual.value = '';
+              } else {
+                notesManual.classList.remove('hidden');
+              }
+            }
+            evaluateChanges();
+          };
+          if (input.tagName === 'SELECT') {
+            input.addEventListener('change', handler);
+          } else {
+            input.addEventListener('input', handler);
+          }
+        } else if (field === 'status') {
           input.addEventListener('change', () => {
             applyStatusAppearance(input);
             evaluateChanges();
           });
         } else {
-          input.addEventListener('input', () => evaluateChanges());
+          const eventName = input.tagName === 'SELECT' ? 'change' : 'input';
+          input.addEventListener(eventName, () => evaluateChanges());
         }
       });
 
@@ -713,8 +851,23 @@
       const status = card.querySelector('[data-field="status"]').value;
       const classificationEl = card.querySelector('[data-field="classification"]');
       const desc = descField ? descField.value : '';
-      const rawNotes = notesField ? notesField.value : (this.notesProp === 'notes' ? desc : '');
-      const notes = normalizeString(rawNotes);
+      let notes = '';
+      if (notesField) {
+        if (notesField.tagName === 'SELECT') {
+          const manual = card.querySelector('[data-field="notes-manual"]');
+          if (notesField.value === '__direct') {
+            notes = normalizeString(manual?.value || '');
+          } else if (notesField.value) {
+            notes = normalizeString(notesField.value);
+          } else {
+            notes = '';
+          }
+        } else {
+          notes = normalizeString(notesField.value);
+        }
+      } else if (this.notesProp === 'notes') {
+        notes = normalizeString(desc);
+      }
       const classification = classificationEl ? classificationEl.value : item.classification || '';
 
       const explanationRows = Array.from(card.querySelectorAll('[data-explanation-item]'));
@@ -970,8 +1123,22 @@
       const name = normalizeString(this.elements.addName.value);
       const desc = this.elements.addDesc ? this.elements.addDesc.value : '';
       const classification = this.elements.addClassification ? this.elements.addClassification.value : PERSONAL_CLASSIFICATIONS[0];
-      const rawNotes = this.elements.addNotes ? this.elements.addNotes.value : (this.notesProp === 'notes' ? desc : '');
-      const notes = normalizeString(rawNotes);
+      const notesControl = this.elements.addNotes;
+      const manualNotesInput = this.elements.addNotesManual;
+      let notes = '';
+      if (notesControl) {
+        if (notesControl.tagName === 'SELECT') {
+          if (notesControl.value === '__direct') {
+            notes = normalizeString(manualNotesInput?.value);
+          } else {
+            notes = normalizeString(notesControl.value);
+          }
+        } else {
+          notes = normalizeString(notesControl.value);
+        }
+      } else if (this.notesProp === 'notes') {
+        notes = normalizeString(desc);
+      }
       const status = this.elements.addStatus ? this.elements.addStatus.value : 'approved';
       if (!resolvedCategory || !name) {
         alert('分類と名称を入力してください');
@@ -1016,7 +1183,17 @@
       }
       this.elements.addName.value = '';
       if (this.elements.addDesc) this.elements.addDesc.value = '';
-      if (this.elements.addNotes) this.elements.addNotes.value = '';
+      if (notesControl) {
+        if (notesControl.tagName === 'SELECT') {
+          notesControl.value = '';
+        } else {
+          notesControl.value = '';
+        }
+      }
+      if (manualNotesInput) {
+        manualNotesInput.value = '';
+        manualNotesInput.classList.add('hidden');
+      }
       await this.reload({ force: true });
     }
   }

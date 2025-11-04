@@ -89,8 +89,10 @@
               </div>
               <div>
                 <label class="block text-xs text-slate-600">医療分野</label>
-                <input id="addSocietyMedicalField" class="w-full rounded border px-2 py-1" placeholder="例: 循環器" list="societyMedicalFieldOptions" />
-                <datalist id="societyMedicalFieldOptions"></datalist>
+                <select id="addSocietyMedicalField" class="w-full rounded border px-2 py-1">
+                  <option value="">医療分野を選択</option>
+                </select>
+                <input id="addSocietyMedicalFieldManual" class="mt-2 hidden w-full rounded border px-2 py-1" placeholder="医療分野を入力" />
               </div>
               <div>
                 <label class="block text-xs text-slate-600">ステータス</label>
@@ -115,6 +117,9 @@
               </select>
               <select id="societyCategoryFilter" class="rounded border px-2 py-1">
                 <option value="">全ての分類</option>
+              </select>
+              <select id="societyMedicalFieldFilter" class="rounded border px-2 py-1">
+                <option value="">全ての医療分野</option>
               </select>
             </div>
             <div class="flex flex-wrap gap-2 text-sm">
@@ -148,9 +153,40 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+      const SOCIETY_CATEGORY_PRESETS = ['医師', '看護', 'コメディカル', '薬剤師', '事務', 'その他'];
+      const SOCIETY_MEDICAL_FIELD_PRESETS = [
+        'アレルギー・膠原病領域',
+        '救急・集中治療領域',
+        '感染症領域',
+        '外科領域',
+        '眼科領域',
+        '血液領域',
+        '呼吸器領域',
+        '産婦人科領域',
+        '耳鼻咽喉科領域',
+        '循環器領域',
+        '小児科領域',
+        '消化器領域',
+        '心臓血管外科領域',
+        '整形外科領域',
+        '精神科領域',
+        '総合診療領域',
+        '内科基盤',
+        '内分泌・代謝領域',
+        '脳神経外科領域',
+        '泌尿器領域',
+        '皮膚科領域',
+        '病理領域',
+        '放射線科領域',
+        '麻酔科領域',
+        '臨床検査領域',
+        'リハビリテーション領域'
+      ];
+
       const page = initMasterPage({
         type: 'society',
         enableCategoryFilter: true,
+        enableNotesFilter: true,
         enableCsvImport: false,
         showDescription: false,
         showNotes: true,
@@ -160,6 +196,9 @@
         showClassification: false,
         enableManualAdd: true,
         allowFreeCategory: true,
+        allowFreeNotes: true,
+        categoryOptions: SOCIETY_CATEGORY_PRESETS,
+        notesOptions: SOCIETY_MEDICAL_FIELD_PRESETS,
         loadingMessage: '学会マスターを読み込み中...',
         elements: {
           panel: document.getElementById('societyPanel'),
@@ -167,13 +206,15 @@
           reloadButton: document.getElementById('societyReload'),
           statusSelect: document.getElementById('societyStatusFilter'),
           categorySelect: document.getElementById('societyCategoryFilter'),
+          notesFilter: document.getElementById('societyMedicalFieldFilter'),
           searchInput: document.getElementById('societySearch'),
           addForm: document.getElementById('societyAddForm'),
           addCategory: document.getElementById('addSocietyCategory'),
           addCategoryManual: document.getElementById('addSocietyCategoryManual'),
           addName: document.getElementById('addSocietyName'),
           addStatus: document.getElementById('addSocietyStatus'),
-          addNotes: document.getElementById('addSocietyMedicalField')
+          addNotes: document.getElementById('addSocietyMedicalField'),
+          addNotesManual: document.getElementById('addSocietyMedicalFieldManual')
         }
       });
 
@@ -199,37 +240,17 @@
         });
       }
 
-      const medicalFieldInput = document.getElementById('addSocietyMedicalField');
-      const medicalFieldDatalist = document.getElementById('societyMedicalFieldOptions');
-      const medicalFieldCollator = new Intl.Collator('ja');
-
-      async function loadMedicalFieldOptions() {
-        const values = new Set();
-        try {
-          const res = await fetch(`${getApiBase()}/api/listCategories?type=qual`);
-          if (res.ok) {
-            const data = await res.json();
-            const categories = Array.isArray(data?.categories) ? data.categories : [];
-            categories.forEach(value => {
-              const trimmed = (value || '').trim();
-              if (trimmed) values.add(trimmed);
-            });
+      const medicalFieldSelect = document.getElementById('addSocietyMedicalField');
+      const medicalFieldManual = document.getElementById('addSocietyMedicalFieldManual');
+      if (medicalFieldSelect) {
+        medicalFieldSelect.addEventListener('change', () => {
+          if (medicalFieldSelect.value === '__direct') {
+            medicalFieldManual.classList.remove('hidden');
+          } else {
+            medicalFieldManual.classList.add('hidden');
+            medicalFieldManual.value = '';
           }
-        } catch (err) {
-          console.warn('failed to load medical field categories', err);
-        }
-        if (!medicalFieldDatalist) return;
-        medicalFieldDatalist.innerHTML = '';
-        Array.from(values).sort((a, b) => medicalFieldCollator.compare(a, b)).forEach(value => {
-          const option = document.createElement('option');
-          option.value = value;
-          medicalFieldDatalist.appendChild(option);
         });
-      }
-
-      loadMedicalFieldOptions();
-      if (medicalFieldInput) {
-        medicalFieldInput.setAttribute('list', 'societyMedicalFieldOptions');
       }
     });
   </script>
