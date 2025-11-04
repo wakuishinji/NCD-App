@@ -677,14 +677,38 @@ ON CONFLICT(id) DO UPDATE SET
   return { statements, count };
 }
 
-function buildTruncateStatements(organizationId) {
+function uniqueTypes(list) {
+  return Array.from(new Set((list || []).filter((value) => typeof value === 'string' && value.trim())));
+}
+
+function buildTruncateStatements(organizationId, {
+  itemTypes = [],
+  categoryTypes = [],
+  explanationTypes = [],
+} = {}) {
+  const statements = [];
   const condition = organizationId === null ? 'IS NULL' : `= ${sqlLiteral(organizationId)}`;
-  return [
-    `DELETE FROM master_item_aliases WHERE item_id IN (SELECT id FROM master_items WHERE organization_id ${condition});`,
-    `DELETE FROM master_items WHERE organization_id ${condition};`,
-    `DELETE FROM master_categories WHERE organization_id ${condition};`,
-    `DELETE FROM master_explanations WHERE organization_id ${condition};`,
-  ];
+  const itemTypeList = uniqueTypes(itemTypes);
+  const categoryTypeList = uniqueTypes(categoryTypes);
+  const explanationTypeList = uniqueTypes(explanationTypes);
+
+  itemTypeList.forEach((type) => {
+    const typeLiteral = sqlLiteral(type);
+    statements.push(`DELETE FROM master_item_aliases WHERE item_id IN (SELECT id FROM master_items WHERE organization_id ${condition} AND type = ${typeLiteral});`);
+    statements.push(`DELETE FROM master_items WHERE organization_id ${condition} AND type = ${typeLiteral};`);
+  });
+
+  categoryTypeList.forEach((type) => {
+    const typeLiteral = sqlLiteral(type);
+    statements.push(`DELETE FROM master_categories WHERE organization_id ${condition} AND type = ${typeLiteral};`);
+  });
+
+  explanationTypeList.forEach((type) => {
+    const typeLiteral = sqlLiteral(type);
+    statements.push(`DELETE FROM master_explanations WHERE organization_id ${condition} AND type = ${typeLiteral};`);
+  });
+
+  return statements;
 }
 
 async function main() {
@@ -715,7 +739,19 @@ async function main() {
   let explanationsCount = 0;
 
   if (options.truncate) {
-    statements.push(...buildTruncateStatements(options.organizationId));
+    const itemTypes = options.skipItems ? [] : Array.from(dataset.masterItems.keys());
+    const categoryTypes = options.skipCategories ? [] : Array.from(dataset.categories.keys());
+    const explanationTypes = options.skipExplanations ? [] : Array.from(dataset.explanations.keys());
+    if (!itemTypes.length && !categoryTypes.length && !explanationTypes.length) {
+      console.error('[masters] --truncate を使用するには、削除対象となる master type のデータを指定してください。');
+      process.exitCode = 1;
+      return;
+    }
+    statements.push(...buildTruncateStatements(options.organizationId, {
+      itemTypes,
+      categoryTypes,
+      explanationTypes,
+    }));
   }
 
   if (!options.skipCategories) {
