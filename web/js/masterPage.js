@@ -137,23 +137,26 @@
       this.type = config.type;
       this.categoryType = config.categoryType || this.type;
       this.elements = config.elements;
-      this.enableCategoryFilter = Boolean(config.enableCategoryFilter);
+      this.showCategory = config.showCategory !== false;
+      this.defaultCategory = typeof config.defaultCategory === 'string' ? config.defaultCategory : '';
+      this.enableCategoryFilter = this.showCategory && Boolean(config.enableCategoryFilter);
       this.enableCsvImport = Boolean(config.enableCsvImport);
       this.showDescription = config.showDescription !== false;
       this.showClassification = Boolean(config.showClassification);
       this.showNotes = Boolean(config.showNotes);
       this.manualAdd = Boolean(config.enableManualAdd);
-      this.allowFreeCategory = config.allowFreeCategory !== undefined ? Boolean(config.allowFreeCategory) : true;
+      this.allowFreeCategory = this.showCategory && (config.allowFreeCategory !== undefined ? Boolean(config.allowFreeCategory) : true);
       this.notesProp = config.notesProp || 'notes';
       this.notesLabel = config.notesLabel || '備考';
       this.notesPlaceholder = config.notesPlaceholder || '備考を入力';
       this.notesDatalistId = config.notesDatalistId || null;
       this.enableNotesFilter = Boolean(config.enableNotesFilter);
-      this.useStaticCategoryOptions = Array.isArray(config.categoryOptions) && config.categoryOptions.length > 0;
+      this.useStaticCategoryOptions = this.showCategory && Array.isArray(config.categoryOptions) && config.categoryOptions.length > 0;
       this.categoryOptions = this.useStaticCategoryOptions ? Array.from(new Set(config.categoryOptions)) : [];
       this.notesOptions = Array.isArray(config.notesOptions) ? Array.from(new Set(config.notesOptions.filter(Boolean))) : [];
       this.allowFreeNotes = config.allowFreeNotes !== undefined ? Boolean(config.allowFreeNotes) : true;
       this.autoCollectNotesOptions = config.autoCollectNotesOptions !== false;
+      this.groupBy = config.groupBy || (this.enableCategoryFilter ? 'category' : 'none');
       this.cache = null;
       this.inFlight = null;
       this.currentItems = [];
@@ -179,7 +182,7 @@
       if (reloadButton) reloadButton.addEventListener('click', () => this.reload({ force: true }));
       if (statusSelect) statusSelect.addEventListener('change', () => this.reload());
       bindStatusAppearance(statusSelect);
-      if (categorySelect) categorySelect.addEventListener('change', () => this.reload({ skipFetch: true }));
+      if (this.showCategory && categorySelect) categorySelect.addEventListener('change', () => this.reload({ skipFetch: true }));
       if (notesFilter) notesFilter.addEventListener('change', () => this.reload({ skipFetch: true }));
       if (searchInput) searchInput.addEventListener('input', debounce(() => this.reload({ skipFetch: true }), 300));
       if (csvButton && csvInput && this.enableCsvImport) {
@@ -197,7 +200,7 @@
           event.preventDefault();
           this.handleAdd();
         });
-        if (addCategory && addCategory.tagName === 'SELECT' && addCategoryManual) {
+        if (this.showCategory && addCategory && addCategory.tagName === 'SELECT' && addCategoryManual) {
           addCategory.addEventListener('change', () => {
             if (addCategory.value === '__direct') {
               addCategoryManual.classList.remove('hidden');
@@ -226,10 +229,12 @@
     }
 
     async init() {
-      if ((this.enableCategoryFilter || this.manualAdd) && !this.useStaticCategoryOptions) {
-        await this.loadCategories();
-      } else {
-        this.syncCategoryControls();
+      if (this.showCategory) {
+        if ((this.enableCategoryFilter || this.manualAdd) && !this.useStaticCategoryOptions) {
+          await this.loadCategories();
+        } else {
+          this.syncCategoryControls();
+        }
       }
       if (this.enableNotesFilter || this.manualAdd) {
         this.syncNotesControls();
@@ -246,6 +251,10 @@
     }
 
     async loadCategories() {
+      if (!this.showCategory) {
+        this.categoryOptions = [];
+        return;
+      }
       if (this.useStaticCategoryOptions) {
         this.syncCategoryControls();
         return;
@@ -265,6 +274,7 @@
     }
 
     syncCategoryControls() {
+      if (!this.showCategory) return;
       const { categorySelect } = this.elements;
       if (categorySelect) {
         const current = categorySelect.value;
@@ -308,7 +318,7 @@
       const status = this.elements.statusSelect?.value || '';
       const keywordRaw = this.elements.searchInput?.value || '';
       const keyword = keywordRaw.trim().toLowerCase();
-      const categoryFilter = this.elements.categorySelect?.value || '';
+      const categoryFilter = this.showCategory ? (this.elements.categorySelect?.value || '') : '';
       let notesFilterValue = this.elements.notesFilter?.value || '';
 
       if (!skipFetch || force || !this.cache) {
@@ -350,7 +360,7 @@
       }
 
       let items = Array.isArray(this.cache) ? [...this.cache] : [];
-      if (categoryFilter) {
+      if (this.showCategory && categoryFilter) {
         items = items.filter(item => (item.category || '') === categoryFilter);
       }
       if (notesFilterValue) {
@@ -368,6 +378,7 @@
     }
 
     buildCategoryInput(item) {
+      if (!this.showCategory) return '';
       const category = item.category || '';
       if (!this.categoryOptions.length || this.allowFreeCategory) {
         const selectOptions = this.categoryOptions.map(opt => `<option value="${escapeHtml(opt)}" ${opt === category ? 'selected' : ''}>${escapeHtml(opt)}</option>`).join('');
@@ -445,12 +456,29 @@
       const fragment = document.createDocumentFragment();
       const groups = new Map();
       this.currentItems.forEach(item => {
-        const key = this.enableCategoryFilter ? (item.category || 'その他') : (item.sortGroup || '');
+        let key = '';
+        switch (this.groupBy) {
+          case 'category':
+            key = item.category || 'その他';
+            break;
+          case 'notes':
+          case 'medicalField':
+            key = this.getItemNoteValue(item) || '未分類';
+            break;
+          default:
+            key = '';
+        }
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(item);
       });
 
-      for (const [group, items] of groups.entries()) {
+      const sortedGroups = Array.from(groups.entries()).sort((a, b) => {
+        const ga = a[0] || '';
+        const gb = b[0] || '';
+        return ga.localeCompare(gb, 'ja');
+      });
+
+      for (const [group, items] of sortedGroups) {
         const wrapper = document.createElement('section');
         wrapper.className = 'mb-6';
         if (group && group !== 'undefined') {
@@ -459,6 +487,8 @@
           heading.textContent = group;
           wrapper.appendChild(heading);
         }
+
+        items.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ja'));
 
         items.forEach(item => {
           const card = document.createElement('article');
@@ -473,23 +503,27 @@
 
           const gridCols = this.type === 'department'
             ? 'md:grid-cols-[2fr,1fr,1fr]'
-            : (showDesc || showNotes ? 'md:grid-cols-4' : 'md:grid-cols-3');
+            : 'md:grid-cols-4';
           const descCols = this.type === 'department'
             ? 'md:col-span-3'
-            : (showClassification ? 'md:col-span-4 lg:col-span-2' : 'md:col-span-4');
+            : 'md:col-span-4';
           const notesCols = this.type === 'department'
             ? 'md:col-span-3'
             : (showDesc ? 'md:col-span-2' : 'md:col-span-4');
+          const nameColClass = this.type === 'department'
+            ? 'md:col-span-1'
+            : (this.showCategory ? 'md:col-span-2 lg:col-span-3' : 'md:col-span-2 lg:col-span-2');
 
           const notesLabel = escapeHtml(this.notesLabel);
 
           card.innerHTML = `
             <div class="grid gap-2 ${gridCols} items-start text-sm">
+              ${this.showCategory ? `
               <div class="${this.type === 'department' ? 'md:col-span-1' : 'md:col-span-1'}">
                 <label class="block text-xs text-slate-500">分類</label>
                 ${this.buildCategoryInput(item)}
-              </div>
-              <div class="${this.type === 'department' ? 'md:col-span-1' : 'md:col-span-2 lg:col-span-3'}">
+              </div>` : ''}
+              <div class="${nameColClass}">
                 <label class="block text-xs text-slate-500">名称</label>
                 <input class="w-full border rounded px-2 py-1" data-field="name" value="${escapeHtml(item.name || '')}" placeholder="名称を入力">
               </div>
@@ -843,7 +877,7 @@
     }
 
     collectCardValues(card, item) {
-      const category = this.getCardCategory(card);
+      const category = this.showCategory ? this.getCardCategory(card) : (item.category || this.defaultCategory || '');
       const name = normalizeString(card.querySelector('[data-field="name"]').value);
       const descField = card.querySelector('[data-field="desc"]');
       const notesField = card.querySelector('[data-field="notes"]');
@@ -912,6 +946,9 @@
     }
 
     getCardCategory(card) {
+      if (!this.showCategory) {
+        return this.defaultCategory;
+      }
       const select = card.querySelector('[data-field="category"]');
       const manual = card.querySelector('[data-field="category-manual"]');
       if (!select) {
@@ -1118,7 +1155,7 @@
         }
       }
       if (!resolvedCategory) {
-        resolvedCategory = normalizeString(manualCategoryInput?.value);
+        resolvedCategory = this.showCategory ? normalizeString(manualCategoryInput?.value) : this.defaultCategory;
       }
       const name = normalizeString(this.elements.addName.value);
       const desc = this.elements.addDesc ? this.elements.addDesc.value : '';
@@ -1140,8 +1177,8 @@
         notes = normalizeString(desc);
       }
       const status = this.elements.addStatus ? this.elements.addStatus.value : 'approved';
-      if (!resolvedCategory || !name) {
-        alert('分類と名称を入力してください');
+      if (!name) {
+        alert('名称を入力してください');
         return;
       }
       const payload = {

@@ -1,9 +1,9 @@
 # マスターデータ消失に関する現状整理 (2025-11-04)
 
-## 0. 更新メモ（2025-11-04 09:35 JST）
+## 0. 更新メモ（2025-11-04）
 
-- `tmp/masters-export.json` に残っていたバックアップを利用し、`master_items` / `master_categories` / `master_item_aliases` を Cloudflare D1 へ再投入した。手順は [5. 復旧結果](#5-復旧結果-2025-11-04) を参照。
-- 現在は全マスター種別が復旧済み。管理画面の一覧表示や API レスポンスでも項目が戻っていることを確認した。
+- 09:35 JST — `tmp/masters-export.json` に残っていたバックアップを利用し、`master_items` / `master_categories` / `master_item_aliases` を Cloudflare D1 へ再投入した。手順は [5. 復旧結果](#5-復旧結果-2025-11-04) を参照。
+- 15:20 JST — 学会マスター（`type='society'`）から分類フィールドを廃止し、医療分野単位で重複整理。`master_items` の society 件数は 85 → 44 件へ統合済み。
 
 ## 1. 症状
 
@@ -71,7 +71,7 @@
      --yes \
      --file tmp/master-restore.sql
    ```
-3. D1 件数確認（2025-11-04 09:35 JST）
+3. D1 件数確認（2025-11-04 15:20 JST）
    ```text
    SELECT type, COUNT(*) FROM master_items GROUP BY type ORDER BY type;
    ```
@@ -83,7 +83,7 @@
    | facility     | 6     |
    | qual         | 44    |
    | service      | 33    |
-   | society      | 85    |
+   | society      | 44    |
    | symptom      | 25    |
    | test         | 96    |
    | vaccination  | 40    |
