@@ -104,3 +104,20 @@
    | vaccinationType  | 25    |
 
 4. `tmp/master-restore.sql` を残しているため、再投入が必要になった場合は同ファイルを `wrangler d1 execute --file` で実行すれば再現できる。
+
+## 6. 再発防止チェックリスト
+
+- **操作前確認**
+  - `wrangler d1 backup` もしくは `scripts/exportMastersFromApi.mjs --types all` で必ず最新バックアップを取得する。
+  - `tmp/masters-export.json` 等投入予定のデータセットに全種別が含まれているか確認し、足りない場合は追加入力する。
+  - `scripts/migrateMastersToD1.mjs` を使用する際は、`--dry-run --output tmp/<name>.sql` を先に実行し、生成される SQL の冒頭に想定外の `DELETE` が含まれていないか目視でチェックする。
+- **投入時の安全策**
+  - サブセットのみ更新したい場合は `--type` や `--master type:path` を使い、`--truncate` を付けるときは対象タイプを限定したデータセットを用意する。
+  - SQL を直接発行する場合は、`WHERE type='<対象>'` を必ず付け、全件削除にならないようにする。
+  - 長時間の処理や複数チャンクになる場合は、途中経過で `SELECT type, COUNT(*) ...` を実行し、異常が発生していないか逐次確認する。
+- **投入後の検証**
+  - `SELECT type, COUNT(*) FROM master_items GROUP BY type` などで件数を取得し、バックアップ時点と差分がないか比較する。
+  - Workers キャッシュ更新 (`/api/listMaster?type=<type>&force=1`) を行い、管理画面で実際の表示を確認する。
+  - 作業内容と検証結果を `docs/master-data-status.md` に追記し、将来のトレーサビリティを確保する。
+
+このチェックリストを遵守することで、`--truncate` と不完全データセットの組み合わせによる全マスター消失を防止する。
