@@ -372,7 +372,6 @@ ON CONFLICT(id) DO UPDATE SET
     createdAt,
     updatedAt
   ).run();
-
   await d1.prepare(`DELETE FROM master_item_aliases WHERE item_id = ?`).bind(id).run();
   for (const alias of legacyAliases) {
     const normalizedAlias = normalizeForComparable(alias);
@@ -385,7 +384,6 @@ ON CONFLICT(alias) DO UPDATE SET
   source = excluded.source
 `).bind(alias, id, normalizedAlias || null, alias === legacyKey ? 'legacy' : 'alias').run();
   }
-
   return true;
 }
 

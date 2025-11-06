@@ -208,7 +208,7 @@ const SECURITY_ANSWER_FORMATS = new Set(['hiragana', 'katakana']);
 const MHLW_SYNC_STATUSES = new Set(['pending', 'linked', 'manual', 'not_found']);
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
     // 共通CORSヘッダー
@@ -5602,7 +5602,7 @@ export default {
       await migrateLegacyPointer(env, alias, JSON.stringify(pointer));
     }
 
-    async function writeMasterRecord(env, type, record) {
+    async function writeMasterRecord(env, type, record, { skipLegacyPointers = false, ctx } = {}) {
       if (!record || typeof record !== 'object' || !record.id) {
         throw new Error('record id is required');
       }
@@ -5623,8 +5623,21 @@ export default {
         console.warn('[masterStore] failed to upsert into D1', err);
       }
       await env.SETTINGS.put(key, JSON.stringify(payload));
-      for (const alias of aliases) {
-        await writeLegacyPointer(env, type, alias, payload);
+      if (!skipLegacyPointers) {
+        const pointerWrites = aliases.map((alias) => writeLegacyPointer(env, type, alias, payload));
+        if (pointerWrites.length) {
+          if (ctx?.waitUntil) {
+            ctx.waitUntil((async () => {
+              try {
+                await Promise.all(pointerWrites);
+              } catch (err) {
+                console.warn('[masterStore] legacy pointer update failed', err);
+              }
+            })());
+          } else {
+            await Promise.all(pointerWrites);
+          }
+        }
       }
     }
 
@@ -5707,7 +5720,7 @@ export default {
       return promoteLegacyMasterRecord(env, type, legacyKey, parsed);
     }
 
-    async function getOrCreateMasterRecord(env, { type, category, name }) {
+    async function getOrCreateMasterRecord(env, { type, category, name }, options = {}) {
       const legacyKeyCurrent = normalizeKey(type, category, name);
       let record = await getMasterRecordByLegacy(env, type, legacyKeyCurrent);
       let created = false;
@@ -5737,7 +5750,7 @@ export default {
           created_at: now,
           updated_at: now,
         };
-        await writeMasterRecord(env, type, record);
+        await writeMasterRecord(env, type, record, options);
         created = true;
       }
       ensureLegacyAlias(record, legacyKeyCurrent);
@@ -7337,7 +7350,7 @@ if (routeMatch(url, "GET", "listClinics")) {
 
         const normalizedCategory = nk(category);
         const normalizedName = nk(name);
-        const { record } = await getOrCreateMasterRecord(env, { type, category: normalizedCategory, name: normalizedName });
+        const { record } = await getOrCreateMasterRecord(env, { type, category: normalizedCategory, name: normalizedName }, { ctx });
         const now = Math.floor(Date.now() / 1000);
 
         record.category = normalizedCategory;
@@ -7466,8 +7479,9 @@ if (routeMatch(url, "GET", "listClinics")) {
 
         syncExplanationDerivedFields(record);
 
-        await writeMasterRecord(env, type, record);
-        await invalidateMasterCache(env, type);
+        await writeMasterRecord(env, type, record, { ctx });
+        if (ctx?.waitUntil) ctx.waitUntil(invalidateMasterCache(env, type));
+        else await invalidateMasterCache(env, type);
         return new Response(JSON.stringify({ ok: true, item: record }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -7757,8 +7771,13 @@ if (routeMatch(url, "GET", "listClinics")) {
           record.created_at = now;
         }
 
-        await writeMasterRecord(env, type, record);
-        await invalidateMasterCache(env, type);
+        const skipLegacyPointers = record.legacyKey === legacyKeyCurrent;
+        await writeMasterRecord(env, type, record, { skipLegacyPointers, ctx });
+        if (ctx?.waitUntil) {
+          ctx.waitUntil(invalidateMasterCache(env, type));
+        } else {
+          await invalidateMasterCache(env, type);
+        }
         return new Response(JSON.stringify({ ok: true, item: record }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -7810,8 +7829,9 @@ if (routeMatch(url, "GET", "listClinics")) {
         record.updated_at = Math.floor(Date.now() / 1000);
         syncExplanationDerivedFields(record);
 
-        await writeMasterRecord(env, type, record);
-        await invalidateMasterCache(env, type);
+        await writeMasterRecord(env, type, record, { ctx });
+        if (ctx?.waitUntil) ctx.waitUntil(invalidateMasterCache(env, type));
+        else await invalidateMasterCache(env, type);
 
         const sanitizedEntry = sanitizeExistingExplanation(entry, defaultStatus);
         return new Response(JSON.stringify({ ok: true, explanation: sanitizedEntry, item: record }), {
@@ -7858,7 +7878,8 @@ if (routeMatch(url, "GET", "listClinics")) {
         } else {
           await env.SETTINGS.delete(legacyKeyCurrent).catch(() => {});
         }
-        await invalidateMasterCache(env, type);
+        if (ctx?.waitUntil) ctx.waitUntil(invalidateMasterCache(env, type));
+        else await invalidateMasterCache(env, type);
         return new Response(JSON.stringify({ ok: true }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -8856,7 +8877,7 @@ if (url.pathname === "/api/_seedQualifications" && request.method === "POST") {
     let createdCount = 0;
     const now = Math.floor(Date.now() / 1000);
     for (const it of masterItems) {
-      const { record, created } = await getOrCreateMasterRecord(env, { type: "qual", category: it.category, name: it.name });
+      const { record, created } = await getOrCreateMasterRecord(env, { type: "qual", category: it.category, name: it.name }, { ctx });
       record.status = it.status || record.status || "candidate";
       record.issuer = it.issuer || record.issuer || "";
       if (typeof it.canonical_name === "string") {
@@ -8866,13 +8887,14 @@ if (url.pathname === "/api/_seedQualifications" && request.method === "POST") {
         record.sources = it.sources;
       }
       record.updated_at = now;
-      await writeMasterRecord(env, "qual", record);
+      await writeMasterRecord(env, "qual", record, { ctx });
       if (created) {
         createdCount += 1;
       }
     }
 
-    await invalidateMasterCache(env, "qual");
+    if (ctx?.waitUntil) ctx.waitUntil(invalidateMasterCache(env, "qual"));
+    else await invalidateMasterCache(env, "qual");
 
     return new Response(JSON.stringify({
       ok: true,
