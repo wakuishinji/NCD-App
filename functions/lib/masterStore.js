@@ -310,9 +310,7 @@ export async function upsertMasterItemD1(env, record) {
   const createdAt = Number.isFinite(record.created_at) ? record.created_at : now;
   const updatedAt = now;
 
-  const statements = [];
-
-  const insertStmt = d1.prepare(`
+  await d1.prepare(`
 INSERT INTO master_items (
   id, organization_id, type, category, name, canonical_name, status, classification,
   medical_field, sort_group, sort_order, description, notes, reference_url, count,
@@ -346,9 +344,7 @@ ON CONFLICT(id) DO UPDATE SET
   normalized_name = excluded.normalized_name,
   normalized_category = excluded.normalized_category,
   updated_at = excluded.updated_at
-`);
-
-  insertStmt.bind(
+`).bind(
     id,
     organizationId,
     type,
@@ -375,25 +371,21 @@ ON CONFLICT(id) DO UPDATE SET
     normalizedCategory,
     createdAt,
     updatedAt
-  );
-  statements.push(insertStmt);
+  ).run();
 
-  const deleteAliasStmt = d1.prepare(`DELETE FROM master_item_aliases WHERE item_id = ?`).bind(id);
-  statements.push(deleteAliasStmt);
+  await d1.prepare(`DELETE FROM master_item_aliases WHERE item_id = ?`).bind(id).run();
   for (const alias of legacyAliases) {
     const normalizedAlias = normalizeForComparable(alias);
-    const aliasStmt = d1.prepare(`
+    await d1.prepare(`
 INSERT INTO master_item_aliases (alias, item_id, normalized_alias, source)
 VALUES (?, ?, ?, ?)
 ON CONFLICT(alias) DO UPDATE SET
   item_id = excluded.item_id,
   normalized_alias = excluded.normalized_alias,
   source = excluded.source
-`).bind(alias, id, normalizedAlias || null, alias === legacyKey ? 'legacy' : 'alias');
-    statements.push(aliasStmt);
+`).bind(alias, id, normalizedAlias || null, alias === legacyKey ? 'legacy' : 'alias').run();
   }
 
-  await d1.batch(statements);
   return true;
 }
 
