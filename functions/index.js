@@ -5712,11 +5712,17 @@ export default {
       return record;
     }
 
-    async function getMasterRecordByLegacy(env, type, legacyKey) {
+    async function getMasterRecordByLegacy(env, type, legacyKey, context = {}) {
       if (!legacyKey) return null;
       let record = await getMasterItemByLegacyKeyD1(env, legacyKey);
       if (!record) {
         record = await getMasterItemByAliasD1(env, legacyKey);
+      }
+      if (!record) {
+        const { category, name } = context;
+        if (category && name) {
+          record = await getMasterItemByComparableD1(env, { type, category, name });
+        }
       }
       if (record) return record;
       const pointerNew = await getLegacyPointer(env, legacyKey);
@@ -5740,7 +5746,7 @@ export default {
 
     async function getOrCreateMasterRecord(env, { type, category, name }, options = {}) {
       const legacyKeyCurrent = normalizeKey(type, category, name);
-      let record = await getMasterRecordByLegacy(env, type, legacyKeyCurrent);
+      let record = await getMasterRecordByLegacy(env, type, legacyKeyCurrent, { category, name });
       let created = false;
       if (!record) {
         const candidate = masterIdCandidate(category, name);
@@ -7623,7 +7629,7 @@ if (routeMatch(url, "GET", "listClinics")) {
         }
 
         const legacyKeyCurrent = normalizeKey(type, category, name);
-        let record = await getMasterRecordByLegacy(env, type, legacyKeyCurrent);
+        let record = await getMasterRecordByLegacy(env, type, legacyKeyCurrent, { category, name });
         if (!record) {
           return new Response(JSON.stringify({ error: "対象が見つかりません" }), {
             status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -7827,7 +7833,7 @@ if (routeMatch(url, "GET", "listClinics")) {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        const record = await getMasterRecordByLegacy(env, type, normalizeKey(type, category, name));
+        const record = await getMasterRecordByLegacy(env, type, normalizeKey(type, category, name), { category, name });
         if (!record) {
           return new Response(JSON.stringify({ ok: false, error: "対象が見つかりません" }), {
             status: 404,
@@ -7885,7 +7891,7 @@ if (routeMatch(url, "GET", "listClinics")) {
           });
         }
         const legacyKeyCurrent = normalizeKey(type, category, name);
-        const record = await getMasterRecordByLegacy(env, type, legacyKeyCurrent);
+        const record = await getMasterRecordByLegacy(env, type, legacyKeyCurrent, { category, name });
         if (!record) {
           return new Response(JSON.stringify({ error: "対象が見つかりません" }), {
             status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
