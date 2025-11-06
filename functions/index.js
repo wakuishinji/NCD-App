@@ -3,7 +3,18 @@ import { createToken, verifyToken, invalidateSession } from './lib/auth/jwt.js';
 import { hashPassword, verifyPassword } from './lib/auth/password.js';
 import { generateInviteToken, generateTokenString } from './lib/auth/token.js';
 import { createMailClient } from './lib/mail/index.js';
-import { hasD1MasterStore, listMasterItemsD1, listMasterCategoriesD1, upsertMasterItemD1, replaceMasterCategoriesD1, deleteMasterItemD1 } from './lib/masterStore.js';
+import {
+  hasD1MasterStore,
+  listMasterItemsD1,
+  listMasterCategoriesD1,
+  upsertMasterItemD1,
+  replaceMasterCategoriesD1,
+  deleteMasterItemD1,
+  getMasterItemByIdD1,
+  getMasterItemByLegacyKeyD1,
+  getMasterItemByAliasD1,
+  getMasterItemByComparableD1,
+} from './lib/masterStore.js';
 
 const MASTER_TYPE_LIST = [
   'test',
@@ -5643,6 +5654,8 @@ export default {
 
     async function loadMasterById(env, type, id) {
       if (!id) return null;
+      const d1Record = await getMasterItemByIdD1(env, id);
+      if (d1Record) return d1Record;
       const raw = await env.SETTINGS.get(masterIdKey(type, id));
       if (!raw) return null;
       try {
@@ -5701,6 +5714,11 @@ export default {
 
     async function getMasterRecordByLegacy(env, type, legacyKey) {
       if (!legacyKey) return null;
+      let record = await getMasterItemByLegacyKeyD1(env, legacyKey);
+      if (!record) {
+        record = await getMasterItemByAliasD1(env, legacyKey);
+      }
+      if (record) return record;
       const pointerNew = await getLegacyPointer(env, legacyKey);
       if (pointerNew) {
         return loadMasterById(env, type, pointerNew.id);
@@ -5758,6 +5776,12 @@ export default {
     }
 
     async function loadMastersByType(env, type) {
+      if (hasD1MasterStore(env)) {
+        const d1Items = await listMasterItemsD1(env, { type });
+        if (Array.isArray(d1Items)) {
+          return d1Items;
+        }
+      }
       const prefix = masterPrefix(type);
       const keys = await env.SETTINGS.list({ prefix });
       const map = new Map();

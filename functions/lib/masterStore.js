@@ -206,6 +206,54 @@ ORDER BY
   return categories;
 }
 
+async function fetchSingleMasterRow(statement, fallbackType) {
+  try {
+    const row = await statement.first();
+    if (!row) return null;
+    const inferredType = row.type || fallbackType || null;
+    return mapMasterRow(row, inferredType);
+  } catch (error) {
+    console.warn('[masterStore] failed to fetch master item from D1', error);
+    return null;
+  }
+}
+
+export async function getMasterItemByIdD1(env, id) {
+  const d1 = resolveD1Binding(env);
+  if (!d1 || !id) return null;
+  const statement = d1.prepare('SELECT * FROM master_items WHERE id = ?1 LIMIT 1').bind(id);
+  return fetchSingleMasterRow(statement);
+}
+
+export async function getMasterItemByLegacyKeyD1(env, legacyKey) {
+  const d1 = resolveD1Binding(env);
+  if (!d1 || !legacyKey) return null;
+  const statement = d1.prepare('SELECT * FROM master_items WHERE legacy_key = ?1 LIMIT 1').bind(legacyKey);
+  return fetchSingleMasterRow(statement);
+}
+
+export async function getMasterItemByAliasD1(env, alias) {
+  const d1 = resolveD1Binding(env);
+  if (!d1 || !alias) return null;
+  try {
+    const row = await d1.prepare('SELECT item_id FROM master_item_aliases WHERE alias = ?1 LIMIT 1').bind(alias).first();
+    if (!row?.item_id) return null;
+    return getMasterItemByIdD1(env, row.item_id);
+  } catch (error) {
+    console.warn('[masterStore] failed to resolve alias in D1', error);
+    return null;
+  }
+}
+
+export async function getMasterItemByComparableD1(env, { type, category, name }) {
+  const d1 = resolveD1Binding(env);
+  if (!d1 || !type) return null;
+  const comparable = comparableKey(type, category, name);
+  if (!comparable) return null;
+  const statement = d1.prepare('SELECT * FROM master_items WHERE comparable_key = ?1 LIMIT 1').bind(comparable);
+  return fetchSingleMasterRow(statement, type);
+}
+
 function normalizeSegment(value) {
   const normalized = normalizeNfkc(value).trim().toLowerCase();
   if (!normalized) return '';

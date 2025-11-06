@@ -250,6 +250,84 @@
       return result;
     }
 
+    setButtonBusy(button, message = '処理中...') {
+      if (!button) return () => {};
+      const originalHtml = button.dataset.originalHtml ?? button.innerHTML;
+      button.dataset.originalHtml = originalHtml;
+      button.disabled = true;
+      button.classList.add('cursor-wait', 'opacity-70');
+      button.innerHTML = '';
+      const wrapper = document.createElement('span');
+      wrapper.className = 'inline-flex items-center gap-2';
+      const spinner = document.createElement('span');
+      spinner.className = 'inline-flex h-3 w-3 animate-spin rounded-full border-2 border-current border-r-transparent';
+      wrapper.appendChild(spinner);
+      const label = document.createElement('span');
+      label.textContent = message;
+      wrapper.appendChild(label);
+      button.appendChild(wrapper);
+      return () => {
+        button.disabled = false;
+        button.classList.remove('cursor-wait', 'opacity-70');
+        if (button.dataset.originalHtml !== undefined) {
+          button.innerHTML = button.dataset.originalHtml;
+        }
+        delete button.dataset.originalHtml;
+      };
+    }
+
+    showCardMessage(card, message, tone = 'info') {
+      if (!card) return;
+      let area = card.querySelector('[data-master-feedback]');
+      if (!area) {
+        area = document.createElement('div');
+        area.dataset.masterFeedback = '1';
+        area.className = 'mt-2 text-xs';
+        card.appendChild(area);
+      }
+      const toneClass = tone === 'success'
+        ? 'text-emerald-600'
+        : tone === 'error'
+          ? 'text-rose-600'
+          : 'text-slate-500';
+      area.textContent = message;
+      area.className = `mt-2 text-xs ${toneClass}`;
+      area.classList.remove('hidden');
+      if (area._hideTimer) {
+        window.clearTimeout(area._hideTimer);
+      }
+      area._hideTimer = window.setTimeout(() => {
+        area.textContent = '';
+        area.classList.add('hidden');
+      }, 4000);
+    }
+
+    showPanelMessage(message, tone = 'info') {
+      const panel = this.elements.panel;
+      if (!panel) return;
+      let banner = panel.querySelector('[data-master-banner]');
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.dataset.masterBanner = '1';
+        banner.className = 'hidden';
+        panel.prepend(banner);
+      }
+      const toneClass = tone === 'success'
+        ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+        : tone === 'error'
+          ? 'border-rose-300 bg-rose-50 text-rose-700'
+          : 'border-sky-300 bg-sky-50 text-sky-700';
+      banner.textContent = message;
+      banner.className = `mb-3 rounded border px-3 py-2 text-sm ${toneClass}`;
+      banner.classList.remove('hidden');
+      if (banner._hideTimer) {
+        window.clearTimeout(banner._hideTimer);
+      }
+      banner._hideTimer = window.setTimeout(() => {
+        banner.classList.add('hidden');
+      }, 4000);
+    }
+
     async loadCategories() {
       if (!this.showCategory) {
         this.categoryOptions = [];
@@ -1042,7 +1120,8 @@
         }
       }
 
-      button.disabled = true;
+      const restoreButton = this.setButtonBusy(button, '保存中...');
+      this.showCardMessage(card, '保存中...', 'info');
       try {
         await this.withLoading('項目を更新しています...', async () => {
           const res = await fetch(apiUrl('/api/updateMasterItem'), {
@@ -1068,16 +1147,21 @@
             await this.reload({ force: true });
           }
         });
+        this.showCardMessage(card, '保存しました', 'success');
+        this.showPanelMessage('保存しました', 'success');
       } catch (err) {
         console.error(err);
+        this.showCardMessage(card, err.message, 'error');
+        this.showPanelMessage(err.message, 'error');
         alert(err.message);
       } finally {
-        button.disabled = false;
+        restoreButton();
       }
     }
 
     async handleDelete(item) {
       if (!confirm(`「${item.name}」を削除しますか？`)) return;
+      this.showPanelMessage('削除しています...', 'info');
       await this.withLoading('項目を削除しています...', async () => {
         const res = await fetch(apiUrl('/api/deleteMasterItem'), {
           method: 'POST',
@@ -1089,8 +1173,10 @@
           throw new Error(`削除に失敗しました: ${res.status} ${text}`);
         }
         await this.reload({ force: true });
+        this.showPanelMessage('削除しました', 'success');
       }).catch(err => {
         console.error(err);
+        this.showPanelMessage(err.message, 'error');
         alert(err.message);
       });
     }
@@ -1197,6 +1283,9 @@
       } else if (!this.showDescription) {
         payload[this.notesProp] = notes;
       }
+      const addButton = this.elements.addForm?.querySelector('button[type="submit"]');
+      const restoreAddButton = this.setButtonBusy(addButton, '追加中...');
+      this.showPanelMessage('追加中...', 'info');
       await this.withLoading('項目を追加しています...', async () => {
       const res = await fetch(apiUrl('/api/addMasterItem'), {
           method: 'POST',
@@ -1209,7 +1298,10 @@
         }
       }).catch(err => {
         console.error(err);
+        this.showPanelMessage(err.message, 'error');
         alert(err.message);
+      }).finally(() => {
+        restoreAddButton();
       });
       if (this.elements.addCategory && this.elements.addCategory.tagName === 'SELECT') {
         this.elements.addCategory.value = '';
@@ -1232,6 +1324,7 @@
         manualNotesInput.classList.add('hidden');
       }
       await this.reload({ force: true });
+      this.showPanelMessage('追加しました', 'success');
     }
   }
 
