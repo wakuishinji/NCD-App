@@ -400,7 +400,7 @@ function templateMetaFromItem(item) {
   return {
     label: item.targetSlug || item.slug || '',
     targetSlug: item.targetSlug || item.slug || '',
-    baseText: item.baseText || '',
+    baseText: item.baseText || item.base_text || item.text || item.desc || '',
     audience: item.audience || '',
     context: item.context || '',
     status: item.status || '',
@@ -492,6 +492,15 @@ function buildExplanationsPayload(selectedIds) {
     }
   });
   return payload;
+}
+
+function resolveTemplateText(templateId) {
+  if (!templateId) return '';
+  const tpl = templateCache.find((item) => item.id === templateId)
+    || selectedTemplateMeta[templateId]
+    || (serviceBySlug.get(templateSlug)?.explanations || []).find((item) => (item.id || item.templateId) === templateId);
+  if (!tpl) return '';
+  return nk(tpl.baseText || tpl.base_text || tpl.text || tpl.desc || tpl.description || '');
 }
 
 function getCurrentSlugFromSelection() {
@@ -603,7 +612,8 @@ function updateFormState() {
   const isManual = selected === "__direct";
   const manualValue = els.manualInput.value.trim();
   const descValue = els.desc.value.trim();
-  els.submit.disabled = !category || !selected || (isManual && !manualValue) || !descValue;
+  const hasTemplate = selectedTemplateIds.size > 0;
+  els.submit.disabled = !category || !selected || (isManual && !manualValue) || (!hasTemplate && !descValue);
 }
 
 function renderServiceList() {
@@ -726,11 +736,12 @@ async function startEditing(index) {
     slug = getServiceSlug(target.category, target.name);
   }
 
-  els.desc.value = target.desc || "";
   const selectedTemplates = Array.isArray(target?.explanations?.selected) ? target.explanations.selected : [];
   const meta = target?.explanations?.meta || {};
   setSelectedTemplates(selectedTemplates, meta);
   await loadServiceTemplates(slug, { preserveSelection: true });
+  const fallbackTemplateText = selectedTemplates.length ? resolveTemplateText(selectedTemplates[0]) : '';
+  els.desc.value = target.desc || fallbackTemplateText || "";
   renderSelectedTemplates();
   updateFormState();
 }
@@ -745,15 +756,16 @@ async function registerServiceCandidate(category, name, desc) {
     if (res.ok) {
       const data = await res.json().catch(() => null);
       if (data?.item) {
-        upsertServiceMasterItem(data.item);
+        return upsertServiceMasterItem(data.item);
       }
     }
   } catch (err) {
     console.warn("failed to register service candidate", err);
   }
+  return null;
 }
 
-async function registerServiceExplanation(category, name, desc) {
+async function registerServiceExplanation(category, name, desc, { status = 'candidate' } = {}) {
   try {
     if (!desc) return;
     const slug = getServiceSlug(category, name);
@@ -766,6 +778,7 @@ async function registerServiceExplanation(category, name, desc) {
         name,
         text: desc,
         source: "clinicServices",
+        status
       })
     });
     if (!res.ok) {
@@ -779,10 +792,21 @@ async function registerServiceExplanation(category, name, desc) {
       if (refreshedSlug && refreshedSlug === templateSlug) {
         await loadServiceTemplates(refreshedSlug, { preserveSelection: true });
       }
+      const explanation = Array.isArray(normalized?.explanations)
+        ? normalized.explanations.find((tpl) => nk(tpl.baseText || tpl.base_text || tpl.text || tpl.desc) === nk(desc))
+        : null;
+      if (explanation && explanation.id) {
+        selectedTemplateMeta[explanation.id] = {
+          ...templateMetaFromItem(explanation),
+          baseText: explanation.baseText || explanation.base_text || desc
+        };
+        return explanation.id;
+      }
     }
   } catch (err) {
     console.warn("failed to append service explanation", err);
   }
+  return null;
 }
 
 async function persistServices() {
@@ -837,12 +861,8 @@ async function handleSubmit() {
     return;
   }
 
-  const desc = els.desc.value.trim();
-  if (!desc) {
-    alert("診療の説明を入力してください");
-    return;
-  }
-
+  let desc = els.desc.value.trim();
+  const selectedTemplates = Array.from(selectedTemplateIds);
   let entry = null;
   if (selected === "__direct") {
     const manualName = els.manualInput.value.trim();
@@ -850,14 +870,13 @@ async function handleSubmit() {
       alert("診療名を入力してください");
       return;
     }
-    entry = { category, name: manualName, desc, source: "manual" };
+    entry = { category, name: manualName, source: "manual" };
   } else {
     try {
       const parsed = JSON.parse(selected);
       entry = {
         category: parsed.category || category,
         name: parsed.name || "",
-        desc,
         source: "master",
         slug: parsed.slug || getServiceSlug(parsed.category || category, parsed.name || '')
       };
@@ -869,7 +888,26 @@ async function handleSubmit() {
   }
   entry.slug = entry.slug || getServiceSlug(entry.category, entry.name);
 
-  const selectedTemplates = Array.from(selectedTemplateIds);
+  if (!desc && selectedTemplates.length) {
+    desc = resolveTemplateText(selectedTemplates[0]) || '';
+  }
+  if (!desc && !selectedTemplates.length) {
+    alert("説明候補を選択するか、説明を入力してください。");
+    return;
+  }
+
+  if (!selectedTemplates.length && desc) {
+    if (entry.source === "manual") {
+      await registerServiceCandidate(entry.category, entry.name, desc);
+    }
+    const newTemplateId = await registerServiceExplanation(entry.category, entry.name, desc, { status: 'draft' });
+    if (newTemplateId) {
+      selectedTemplateIds.add(newTemplateId);
+      selectedTemplates.push(newTemplateId);
+    }
+  }
+
+  entry.desc = desc;
   entry.explanations = buildExplanationsPayload(selectedTemplates);
   entry.originTemplates = selectedTemplates;
 
@@ -889,10 +927,6 @@ async function handleSubmit() {
   try {
     setLoading(true);
     await persistServices();
-    if (entry.source === "manual") {
-      await registerServiceCandidate(entry.category, entry.name, entry.desc);
-    }
-    await registerServiceExplanation(entry.category, entry.name, entry.desc);
     renderServiceList();
     clearForm();
     alert(wasEditing ? "診療を更新しました" : "診療を登録しました");

@@ -574,7 +574,8 @@
           card.dataset.category = item.category || '';
           card.dataset.name = item.name || '';
 
-          const showDesc = this.showDescription || (typeof item.desc === 'string' && item.desc);
+          const explanationOnly = ['service', 'test'].includes(this.type);
+          const showDesc = this.showDescription || (!explanationOnly && typeof item.desc === 'string' && item.desc);
           const noteValue = this.getItemNoteValue(item);
           const showNotes = this.showNotes || (typeof noteValue === 'string' && noteValue && noteValue !== item.desc);
           const showClassification = this.showClassification;
@@ -788,13 +789,15 @@
 
     canonicalizeExplanations(list) {
       const normalized = Array.isArray(list) ? list : [];
-      return JSON.stringify(normalized.map(entry => ({
-        id: entry.id || '',
-        text: typeof entry.text === 'string' ? entry.text.trim() : '',
-        status: entry.status || 'draft',
-        audience: entry.audience || '',
-        context: entry.context || ''
-      })));
+      return JSON.stringify(normalized
+        .map(entry => ({
+          id: entry.id || '',
+          text: typeof entry.text === 'string' ? entry.text.trim() : '',
+          status: entry.status || 'draft',
+          audience: entry.audience || '',
+          context: entry.context || ''
+        }))
+        .filter(entry => entry.text));
     }
 
     attachCardHandlers(card, item) {
@@ -962,7 +965,9 @@
       const canonical = normalizeString(card.querySelector('[data-field="canonical"]').value);
       const status = card.querySelector('[data-field="status"]').value;
       const classificationEl = card.querySelector('[data-field="classification"]');
-      const desc = descField ? descField.value : '';
+      const desc = descField
+        ? descField.value
+        : (this.showDescription ? '' : (item.desc || ''));
       let notes = '';
       if (notesField) {
         if (notesField.tagName === 'SELECT') {
@@ -1114,9 +1119,13 @@
       }
 
       if (['service', 'test'].includes(this.type)) {
-        payload.explanations = values.explanations;
-        if (!payload.desc && Array.isArray(values.explanations) && values.explanations.length) {
-          payload.desc = values.explanations[0].text;
+        const explanations = values.explanations;
+        payload.explanations = explanations;
+        const firstExplanation = Array.isArray(explanations) && explanations.length ? explanations[0].text : '';
+        if (!this.showDescription) {
+          payload.desc = firstExplanation || item.desc || '';
+        } else if (!payload.desc && firstExplanation) {
+          payload.desc = firstExplanation;
         }
       }
 

@@ -59,8 +59,8 @@
         <div class="flex flex-col gap-4">
           <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 class="text-base font-semibold text-blue-900">検査の分類・名称・説明を整備</h2>
-              <p class="text-xs text-slate-500">CSVは「分類,名称,説明」形式に対応しています。ステータスは承認済みを既定として登録します。</p>
+              <h2 class="text-base font-semibold text-blue-900">検査の分類・名称・説明候補を整備</h2>
+              <p class="text-xs text-slate-500">CSVは「分類,名称,説明候補」形式に対応しています。ステータスは承認済みを既定として登録します。</p>
             </div>
             <div class="flex flex-wrap gap-2 text-sm">
               <button id="exportCsv" class="rounded bg-slate-700 px-3 py-2 font-semibold text-white transition hover:bg-slate-800">CSV出力</button>
@@ -85,15 +85,9 @@
                 </select>
               </div>
             </div>
-            <div class="grid gap-3 md:grid-cols-2">
-              <div>
-                <label class="block text-xs text-slate-600">検査名称</label>
-                <input id="addName" class="w-full rounded border px-2 py-1" placeholder="例: HbA1c" required />
-              </div>
-              <div>
-                <label class="block text-xs text-slate-600">説明</label>
-                <input id="addDesc" class="w-full rounded border px-2 py-1" placeholder="例: 糖代謝指標" />
-              </div>
+            <div>
+              <label class="block text-xs text-slate-600">検査名称</label>
+              <input id="addName" class="w-full rounded border px-2 py-1" placeholder="例: HbA1c" required />
             </div>
             <div class="flex justify-end">
               <button class="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700">新規登録</button>
@@ -142,7 +136,7 @@
         type: 'test',
         enableCategoryFilter: true,
         enableCsvImport: true,
-        showDescription: true,
+        showDescription: false,
         showNotes: false,
         showClassification: false,
         enableManualAdd: true,
@@ -161,7 +155,6 @@
           addCategory: document.getElementById('addCategory'),
           addCategoryManual: document.getElementById('addCategoryManual'),
           addName: document.getElementById('addName'),
-          addDesc: document.getElementById('addDesc'),
           addStatus: document.getElementById('addStatus')
         }
       });

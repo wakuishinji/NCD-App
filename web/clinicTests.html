@@ -398,6 +398,18 @@ function toggleManualInput(show) {
   }
 }
 
+function testTemplateMetaFromItem(item) {
+  if (!item) return null;
+  return {
+    label: item.targetSlug || item.slug || '',
+    targetSlug: item.targetSlug || item.slug || '',
+    baseText: item.baseText || item.base_text || item.text || item.desc || '',
+    audience: item.audience || '',
+    context: item.context || '',
+    status: item.status || '',
+  };
+}
+
 function renderTestSelectedTemplates() {
   const container = els.selectedTemplates;
   if (!container) return;
@@ -409,7 +421,7 @@ function renderTestSelectedTemplates() {
   }
   container.classList.remove('hidden');
   container.innerHTML = ids.map((id) => {
-    const meta = testSelectedTemplateMeta[id] || testTemplateCache.find((tpl) => tpl.id === id) || { label: id };
+    const meta = testSelectedTemplateMeta[id] || testTemplateMetaFromItem(testTemplateCache.find((tpl) => tpl.id === id)) || { label: id };
     const audience = meta.audience ? `/${escapeHtml(meta.audience)}` : '';
     const context = meta.context ? `/${escapeHtml(meta.context)}` : '';
     const label = escapeHtml(meta.label || id);
@@ -477,16 +489,20 @@ function buildTestExplanationsPayload(selectedIds) {
   const payload = { selected: selectedIds, meta: {} };
   selectedIds.forEach((id) => {
     const tpl = testTemplateCache.find((item) => item.id === id) || testSelectedTemplateMeta[id];
-    if (tpl) {
-      const meta = {
-        label: tpl.targetSlug || tpl.slug || id,
-        audience: tpl.audience || '',
-        context: tpl.context || '',
-      };
-      payload.meta[id] = meta;
-    }
+    if (!tpl) return;
+    const meta = testTemplateMetaFromItem(tpl) || testSelectedTemplateMeta[id] || { label: id };
+    payload.meta[id] = meta;
   });
   return payload;
+}
+
+function resolveTestTemplateText(templateId) {
+  if (!templateId) return '';
+  const tpl = testTemplateCache.find((item) => item.id === templateId)
+    || testSelectedTemplateMeta[templateId]
+    || (testBySlug.get(testTemplateSlug)?.explanations || []).find((item) => (item.id || item.templateId) === templateId);
+  if (!tpl) return '';
+  return nk(tpl.baseText || tpl.base_text || tpl.text || tpl.desc || tpl.description || '');
 }
 
 function getTestCurrentSlugFromSelection() {
@@ -554,12 +570,8 @@ function insertTestTemplateToEditor(id) {
   textArea.value = newValue.trimStart();
   textArea.focus();
   testSelectedTemplateIds.add(id);
-  const meta = {
-    label: tpl.targetSlug || tpl.id,
-    audience: tpl.audience || '',
-    context: tpl.context || ''
-  };
-  testSelectedTemplateMeta[id] = meta;
+  const meta = testTemplateMetaFromItem(tpl);
+  if (meta) testSelectedTemplateMeta[id] = meta;
   renderTestSelectedTemplates();
   updateTestTemplateCheckboxes();
   updateFormState();
@@ -604,7 +616,8 @@ function updateFormState() {
   const manualValue = els.manualInput.value.trim();
   const descValue = els.desc.value.trim();
 
-  els.submit.disabled = !category || !selected || (isManual && !manualValue) || !descValue;
+  const hasTemplate = testSelectedTemplateIds.size > 0;
+  els.submit.disabled = !category || !selected || (isManual && !manualValue) || (!hasTemplate && !descValue);
 }
 
 function renderTestList() {
@@ -726,11 +739,12 @@ async function startEditing(index) {
     slug = `${target.category}|${target.name}`;
   }
 
-  els.desc.value = target.desc || "";
   const selectedTemplates = Array.isArray(target?.explanations?.selected) ? target.explanations.selected : [];
   const meta = target?.explanations?.meta || {};
   setTestSelectedTemplates(selectedTemplates, meta);
   await loadTestTemplates(slug, { preserveSelection: true });
+  const fallbackTemplateText = selectedTemplates.length ? resolveTestTemplateText(selectedTemplates[0]) : '';
+  els.desc.value = target.desc || fallbackTemplateText || "";
   renderTestSelectedTemplates();
   updateFormState();
 }
@@ -745,15 +759,16 @@ async function registerTestCandidate(category, name, desc) {
     if (res.ok) {
       const data = await res.json().catch(() => null);
       if (data?.item) {
-        upsertTestMasterItem(data.item);
+        return upsertTestMasterItem(data.item);
       }
     }
   } catch (err) {
     console.warn("failed to register test candidate", err);
   }
+  return null;
 }
 
-async function registerTestExplanation(category, name, desc) {
+async function registerTestExplanation(category, name, desc, { status = 'candidate' } = {}) {
   try {
     if (!desc) return;
     const slug = `${category}|${name}`;
@@ -765,7 +780,8 @@ async function registerTestExplanation(category, name, desc) {
         category,
         name,
         text: desc,
-        source: "clinicTests"
+        source: "clinicTests",
+        status
       })
     });
     if (!res.ok) {
@@ -779,10 +795,21 @@ async function registerTestExplanation(category, name, desc) {
       if (refreshedSlug && refreshedSlug === testTemplateSlug) {
         await loadTestTemplates(refreshedSlug, { preserveSelection: true });
       }
+      const explanation = Array.isArray(normalized?.explanations)
+        ? normalized.explanations.find((tpl) => nk(tpl.baseText || tpl.base_text || tpl.text || tpl.desc) === nk(desc))
+        : null;
+      if (explanation && explanation.id) {
+        testSelectedTemplateMeta[explanation.id] = {
+          ...testTemplateMetaFromItem(explanation),
+          baseText: explanation.baseText || explanation.base_text || desc
+        };
+        return explanation.id;
+      }
     }
   } catch (err) {
     console.warn("failed to append test explanation", err);
   }
+  return null;
 }
 
 async function persistTests() {
@@ -837,12 +864,8 @@ async function handleSubmit() {
     return;
   }
 
-  const desc = els.desc.value.trim();
-  if (!desc) {
-    alert("検査の説明を入力してください");
-    return;
-  }
-
+  let desc = els.desc.value.trim();
+  const selectedTemplates = Array.from(testSelectedTemplateIds);
   let entry = null;
   if (selected === "__direct") {
     const manualName = els.manualInput.value.trim();
@@ -850,15 +873,15 @@ async function handleSubmit() {
       alert("検査名を入力してください");
       return;
     }
-    entry = { category, name: manualName, desc, source: "manual" };
+    entry = { category, name: manualName, source: "manual" };
   } else {
     try {
       const parsed = JSON.parse(selected);
       entry = {
         category: parsed.category || category,
         name: parsed.name || "",
-        desc,
-        source: "master"
+        source: "master",
+        slug: parsed.slug || `${parsed.category || category}|${parsed.name || ''}`
       };
     } catch (err) {
       console.error("failed to parse selected test", err);
@@ -867,7 +890,28 @@ async function handleSubmit() {
     }
   }
 
-  const selectedTemplates = Array.from(testSelectedTemplateIds);
+  entry.slug = entry.slug || `${entry.category}|${entry.name}`;
+
+  if (!desc && selectedTemplates.length) {
+    desc = resolveTestTemplateText(selectedTemplates[0]) || '';
+  }
+  if (!desc && !selectedTemplates.length) {
+    alert("説明候補を選択するか、説明を入力してください。");
+    return;
+  }
+
+  if (!selectedTemplates.length && desc) {
+    if (entry.source === "manual") {
+      await registerTestCandidate(entry.category, entry.name, desc);
+    }
+    const newTemplateId = await registerTestExplanation(entry.category, entry.name, desc, { status: 'draft' });
+    if (newTemplateId) {
+      testSelectedTemplateIds.add(newTemplateId);
+      selectedTemplates.push(newTemplateId);
+    }
+  }
+
+  entry.desc = desc;
   entry.explanations = buildTestExplanationsPayload(selectedTemplates);
   entry.originTemplates = selectedTemplates;
 
@@ -887,10 +931,6 @@ async function handleSubmit() {
   try {
     setLoading(true);
     await persistTests();
-    if (entry.source === "manual") {
-      await registerTestCandidate(entry.category, entry.name, entry.desc);
-    }
-    await registerTestExplanation(entry.category, entry.name, entry.desc);
     renderTestList();
     clearForm();
     alert(wasEditing ? "検査を更新しました" : "検査を登録しました");
@@ -973,11 +1013,8 @@ if (els.templateList) {
       const tpl = testTemplateCache.find((item) => item.id === id);
       if (tpl) {
         testSelectedTemplateIds.add(id);
-        testSelectedTemplateMeta[id] = {
-          label: tpl.targetSlug || tpl.id,
-          audience: tpl.audience || '',
-          context: tpl.context || ''
-        };
+        const meta = testTemplateMetaFromItem(tpl);
+        if (meta) testSelectedTemplateMeta[id] = meta;
       } else {
         testSelectedTemplateIds.add(id);
       }
