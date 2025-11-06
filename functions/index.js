@@ -1254,6 +1254,11 @@ export default {
     async function hydrateClinicCollectionsD1(env, clinic) {
       if (!hasFacilitiesD1(env) || !clinic?.id) return clinic;
       const facilityId = clinic.id;
+      const snapshot = {
+        services: Array.isArray(clinic.services) ? clinic.services.map(clonePlain) : [],
+        tests: Array.isArray(clinic.tests) ? clinic.tests.map(clonePlain) : [],
+        qualifications: Array.isArray(clinic.qualifications) ? clinic.qualifications.map(clonePlain) : [],
+      };
       const fetchRows = async (table, columns) => {
         try {
           const stmt = env.MASTERS_D1.prepare(
@@ -1266,11 +1271,48 @@ export default {
           return [];
         }
       };
+      const deriveCollectionKey = (entry) => {
+        if (!entry || typeof entry !== 'object') return null;
+        if (entry.id) return `id:${entry.id}`;
+        const master = entry.masterId || entry.master_id;
+        if (master) return `master:${master}`;
+        const category = nk(entry.category || entry.type || '');
+        const name = nk(entry.name || entry.masterName || '');
+        if (category || name) return `name:${category}|${name}`;
+        return null;
+      };
+      const mergeCollections = (rows, originals, mapper) => {
+        const fallbackMap = new Map();
+        originals.forEach((item) => {
+          const key = deriveCollectionKey(item);
+          if (key && !fallbackMap.has(key)) {
+            fallbackMap.set(key, clonePlain(item));
+          }
+        });
+        if (rows.length) {
+          return {
+            items: rows.map((row) => {
+              const base = mapper(row);
+              const key = deriveCollectionKey(base);
+              const fallback = key ? fallbackMap.get(key) : null;
+              return fallback ? { ...fallback, ...base } : base;
+            }),
+            needsBackfill: false,
+          };
+        }
+        if (originals.length) {
+          return {
+            items: originals.map((item) => clonePlain(item)),
+            needsBackfill: true,
+          };
+        }
+        return { items: [], needsBackfill: false };
+      };
 
       const serviceRows = await fetchRows('facility_services', [
         'id', 'master_id', 'name', 'category', 'source', 'notes', 'organization_id',
       ]);
-      clinic.services = serviceRows.map((row) => ({
+      const mergedServices = mergeCollections(serviceRows, snapshot.services, (row) => ({
         id: row.id,
         masterId: row.master_id || undefined,
         name: row.name || '',
@@ -1278,11 +1320,12 @@ export default {
         source: row.source || undefined,
         notes: row.notes || undefined,
       }));
+      clinic.services = mergedServices.items;
 
       const testRows = await fetchRows('facility_tests', [
         'id', 'master_id', 'name', 'category', 'source', 'notes', 'organization_id',
       ]);
-      clinic.tests = testRows.map((row) => ({
+      const mergedTests = mergeCollections(testRows, snapshot.tests, (row) => ({
         id: row.id,
         masterId: row.master_id || undefined,
         name: row.name || '',
@@ -1290,11 +1333,12 @@ export default {
         source: row.source || undefined,
         notes: row.notes || undefined,
       }));
+      clinic.tests = mergedTests.items;
 
       const qualRows = await fetchRows('facility_qualifications', [
         'id', 'master_id', 'name', 'issuer', 'obtained_at', 'notes', 'organization_id',
       ]);
-      clinic.qualifications = qualRows.map((row) => ({
+      const mergedQuals = mergeCollections(qualRows, snapshot.qualifications, (row) => ({
         id: row.id,
         masterId: row.master_id || undefined,
         name: row.name || '',
@@ -1302,6 +1346,19 @@ export default {
         obtainedAt: row.obtained_at || undefined,
         notes: row.notes || undefined,
       }));
+      clinic.qualifications = mergedQuals.items;
+
+      const needsBackfill = mergedServices.needsBackfill || mergedTests.needsBackfill || mergedQuals.needsBackfill;
+      if (needsBackfill) {
+        const promise = replaceFacilityCollectionsD1(env, clinic).catch(err => {
+          console.error('[clinic] failed to backfill facility collections', err);
+        });
+        if (ctx?.waitUntil) {
+          ctx.waitUntil(promise);
+        } else {
+          await promise;
+        }
+      }
 
       let organizationCandidate = clinic.organizationId
         || serviceRows[0]?.organization_id
@@ -1673,7 +1730,14 @@ export default {
         console.warn('[clinic] falling back to KV-only store for clinic', { id: normalizedClinic.id });
         return hydrateClinicCollectionsD1(env, normalizedClinic);
       }
-      await replaceFacilityCollectionsD1(env, normalizedClinic);
+      const syncCollections = replaceFacilityCollectionsD1(env, normalizedClinic);
+      if (ctx?.waitUntil) {
+        ctx.waitUntil(syncCollections.catch(err => {
+          console.error('[clinic] async facility collection sync failed', err);
+        }));
+      } else {
+        await syncCollections;
+      }
       if (result && result.metadata) {
         try {
           const parsed = normalizeClinicRecord(JSON.parse(result.metadata));
