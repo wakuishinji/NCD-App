@@ -5,7 +5,8 @@
     "migrate:master-ids": "node ./scripts/migrateMasterIds.mjs",
     "cleanup:legacy-masters": "node ./scripts/cleanupLegacyMasters.mjs",
     "publish:mhlw": "node ./scripts/publishMhlwFacilities.mjs",
-    "upload:mhlw": "node ./scripts/uploadMhlwToR2.mjs"
+    "upload:mhlw": "node ./scripts/uploadMhlwToR2.mjs",
+    "backfill:facilities": "node ./scripts/backfillFacilityCollections.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.8",
