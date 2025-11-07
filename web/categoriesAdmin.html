@@ -368,7 +368,7 @@
             return;
           }
           try {
-            await fetchJson(`${BASE}/api/updateMasterItem`, {
+            await fetchJson('/api/updateMasterItem', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ type: 'department', category: newCategory, name: oldName, newCategory, newName })
@@ -392,7 +392,7 @@
             : (categoryField.value.trim() || departmentCategories[0] || DEFAULT_DEPARTMENT_CATEGORY);
           if (!confirm(`「${name}」を削除しますか？`)) return;
           try {
-            await fetchJson(`${BASE}/api/deleteMasterItem`, {
+            await fetchJson('/api/deleteMasterItem', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ type: 'department', category, name })
