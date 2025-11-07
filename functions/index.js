@@ -4317,7 +4317,10 @@ export default {
         if (!cachedStr) return null;
         const cached = JSON.parse(cachedStr);
         if (!cached || typeof cached !== 'object') return null;
-        const age = Date.now() - (cached.ts || 0);
+        if (!Number.isFinite(cached.ts)) {
+          return null;
+        }
+        const age = Date.now() - cached.ts;
         if (age > MASTER_CACHE_TTL_SECONDS * 1000) {
           return null;
         }
