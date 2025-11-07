@@ -7678,25 +7678,61 @@ if (routeMatch(url, "GET", "listClinics")) {
     if (routeMatch(url, "POST", "updateMasterItem")) {
       try {
         const body = await request.json();
-        const { type, category, name, status, canonical_name, sortGroup, sortOrder, newCategory, newName, desc, notes, classification, medicalField, referenceUrl } = body || {};
-        if (!type || !category || !name) {
-          return new Response(JSON.stringify({ error: "type, category, name は必須です" }), {
+        const {
+          id,
+          type: bodyType,
+          category,
+          name,
+          status,
+          canonical_name,
+          sortGroup,
+          sortOrder,
+          newCategory,
+          newName,
+          desc,
+          notes,
+          classification,
+          medicalField,
+          referenceUrl,
+        } = body || {};
+
+        if (!id && (!bodyType || !category || !name)) {
+          return new Response(JSON.stringify({ error: "id または type/category/name を指定してください" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        if (!MASTER_ALLOWED_TYPES.has(type)) {
+        if (bodyType && !MASTER_ALLOWED_TYPES.has(bodyType)) {
           return new Response(JSON.stringify({ error: `type は ${MASTER_TYPE_HELP_TEXT}` }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
 
-        const legacyKeyCurrent = normalizeKey(type, category, name);
-        let record = await getMasterRecordByLegacy(env, type, legacyKeyCurrent, { category, name });
+        let record = null;
+        let type = bodyType || null;
+        if (id) {
+          record = await getMasterItemByIdD1(env, id);
+          if (!record && bodyType && category && name) {
+            const legacyKeyFallback = normalizeKey(bodyType, category, name);
+            record = await getMasterRecordByLegacy(env, bodyType, legacyKeyFallback, { category, name });
+          }
+        } else if (bodyType && category && name) {
+          const legacyKeyCurrent = normalizeKey(bodyType, category, name);
+          record = await getMasterRecordByLegacy(env, bodyType, legacyKeyCurrent, { category, name });
+        }
+
         if (!record) {
           return new Response(JSON.stringify({ error: "対象が見つかりません" }), {
             status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
+        type = record.type || type || bodyType;
+        if (!type || !MASTER_ALLOWED_TYPES.has(type)) {
+          return new Response(JSON.stringify({ error: `type は ${MASTER_TYPE_HELP_TEXT}` }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const legacyKeyCurrent = record.legacyKey || normalizeKey(type, category || record.category, name || record.name);
 
         const now = Math.floor(Date.now() / 1000);
         const targetCategory = nk(newCategory) || nk(category);
@@ -7941,22 +7977,38 @@ if (routeMatch(url, "GET", "listClinics")) {
     if (routeMatch(url, "POST", "deleteMasterItem")) {
       try {
         const body = await request.json();
-        const { type, category, name } = body || {};
-        if (!type || !category || !name) {
-          return new Response(JSON.stringify({ error: "type, category, name は必須です" }), {
+        const { id, type: bodyType, category, name } = body || {};
+        if (!id && (!bodyType || !category || !name)) {
+          return new Response(JSON.stringify({ error: "id または type/category/name を指定してください" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        if (!MASTER_ALLOWED_TYPES.has(type)) {
+        if (bodyType && !MASTER_ALLOWED_TYPES.has(bodyType)) {
           return new Response(JSON.stringify({ error: `type は ${MASTER_TYPE_HELP_TEXT}` }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        const legacyKeyCurrent = normalizeKey(type, category, name);
-        const record = await getMasterRecordByLegacy(env, type, legacyKeyCurrent, { category, name });
+        let record = null;
+        let type = bodyType || null;
+        if (id) {
+          record = await getMasterItemByIdD1(env, id);
+          if (!record && bodyType && category && name) {
+            const legacyKeyFallback = normalizeKey(bodyType, category, name);
+            record = await getMasterRecordByLegacy(env, bodyType, legacyKeyFallback, { category, name });
+          }
+        } else if (bodyType && category && name) {
+          const legacyKeyCurrent = normalizeKey(bodyType, category, name);
+          record = await getMasterRecordByLegacy(env, bodyType, legacyKeyCurrent, { category, name });
+        }
         if (!record) {
           return new Response(JSON.stringify({ error: "対象が見つかりません" }), {
             status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        type = record.type || type || bodyType;
+        if (!type || !MASTER_ALLOWED_TYPES.has(type)) {
+          return new Response(JSON.stringify({ error: `type は ${MASTER_TYPE_HELP_TEXT}` }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
         try {
@@ -7968,7 +8020,10 @@ if (routeMatch(url, "GET", "listClinics")) {
         if (Array.isArray(record.legacyAliases)) {
           await Promise.all(record.legacyAliases.map(alias => env.SETTINGS.delete(alias).catch(() => {})));
         } else {
-          await env.SETTINGS.delete(legacyKeyCurrent).catch(() => {});
+          const legacyKeyCurrent = record.legacyKey || (type && category && name ? normalizeKey(type, category, name) : null);
+          if (legacyKeyCurrent) {
+            await env.SETTINGS.delete(legacyKeyCurrent).catch(() => {});
+          }
         }
         if (ctx?.waitUntil) ctx.waitUntil(invalidateMasterCache(env, type));
         else await invalidateMasterCache(env, type);

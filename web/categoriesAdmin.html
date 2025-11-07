@@ -346,6 +346,9 @@
              </select>`
           : `<input class="border rounded px-2 py-1 w-full" data-field="category" value="${category}" data-old-category="${category}">`;
         const row = document.createElement('tr');
+        if (item.id) {
+          row.dataset.masterId = item.id;
+        }
         row.innerHTML = `
           <td class="border px-2 py-1 text-center">${index + 1}</td>
           <td class="border px-2 py-1">${categoryControl}</td>
@@ -376,7 +379,14 @@
             await fetchJson('/api/updateMasterItem', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ type: 'department', category: oldCategory, name: oldName, newCategory, newName })
+              body: JSON.stringify({
+                id: row.dataset.masterId || undefined,
+                type: 'department',
+                category: oldCategory,
+                name: oldName,
+                newCategory,
+                newName,
+              })
             });
             await loadDepartmentList(true);
           } catch (err) {
@@ -398,7 +408,12 @@
             await fetchJson('/api/deleteMasterItem', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ type: 'department', category, name })
+              body: JSON.stringify({
+                id: row.dataset.masterId || undefined,
+                type: 'department',
+                category,
+                name,
+              })
             });
             await loadDepartmentList(true);
           } catch (err) {
