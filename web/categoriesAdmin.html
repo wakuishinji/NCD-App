@@ -341,10 +341,10 @@
       sorted.forEach((item, index) => {
         const category = item.category || departmentCategories[0] || DEFAULT_DEPARTMENT_CATEGORY;
         const categoryControl = departmentCategories.length
-          ? `<select class="border rounded px-2 py-1 w-full" data-field="category">
+          ? `<select class="border rounded px-2 py-1 w-full" data-field="category" data-old-category="${category}">
               ${departmentCategories.map(cat => `<option value="${cat}" ${cat === category ? 'selected' : ''}>${cat}</option>`).join('')}
              </select>`
-          : `<input class="border rounded px-2 py-1 w-full" data-field="category" value="${category}">`;
+          : `<input class="border rounded px-2 py-1 w-full" data-field="category" value="${category}" data-old-category="${category}">`;
         const row = document.createElement('tr');
         row.innerHTML = `
           <td class="border px-2 py-1 text-center">${index + 1}</td>
@@ -362,6 +362,7 @@
           const row = event.currentTarget.closest('tr');
           const nameInput = row.querySelector('input');
           const categoryField = row.querySelector('[data-field="category"]');
+          const oldCategory = categoryField.getAttribute('data-old-category') || departmentCategories[0] || DEFAULT_DEPARTMENT_CATEGORY;
           const oldName = nameInput.getAttribute('data-old-name');
           const newName = nameInput.value.trim();
           const newCategory = categoryField.tagName === 'SELECT'
@@ -375,7 +376,7 @@
             await fetchJson('/api/updateMasterItem', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ type: 'department', category: newCategory, name: oldName, newCategory, newName })
+              body: JSON.stringify({ type: 'department', category: oldCategory, name: oldName, newCategory, newName })
             });
             await loadDepartmentList(true);
           } catch (err) {
@@ -391,9 +392,7 @@
           const nameInput = row.querySelector('input');
           const categoryField = row.querySelector('[data-field="category"]');
           const name = nameInput.getAttribute('data-old-name');
-          const category = categoryField.tagName === 'SELECT'
-            ? categoryField.value
-            : (categoryField.value.trim() || departmentCategories[0] || DEFAULT_DEPARTMENT_CATEGORY);
+          const category = categoryField.getAttribute('data-old-category') || departmentCategories[0] || DEFAULT_DEPARTMENT_CATEGORY;
           if (!confirm(`「${name}」を削除しますか？`)) return;
           try {
             await fetchJson('/api/deleteMasterItem', {
