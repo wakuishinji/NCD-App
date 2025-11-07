@@ -207,6 +207,43 @@
    - 既存施設のデータを JSON でアーカイブし、`npm run backfill:facilities` に「指定施設のみ復旧できる」オプションを追加。  
    - D1 への投入・検証フローを `docs/d1-master-migration.md` に追記し、復旧手順を標準化。
 
+### 7.7 マスター D1 完全移行タスク詳細（2025-11-08）
+
+**目的**  
+- 診療・検査・資格など全マスターを D1 の単一正本に統一し、KV 依存の残骸を一掃する。  
+- API／UI／運用ドキュメントを「D1 前提」で再設計し、将来の多テナント展開や監査要件に備える。
+
+**フェーズ別タスク**
+1. **現状棚卸し & バックアップ**  
+   - `node scripts/exportMastersFromApi.mjs --pretty` で全タイプの最新 JSON を取得し、`tmp/backups/YYYYMMDD-masters.json` に保存。  
+   - `scripts/verifyMastersInD1.mjs` を追加実行し、D1 との件数差分を出力。差分一覧は `docs/d1-master-migration.md` に追記して再現可能にする。  
+   - KV にのみ存在するマスター項目（レガシー）を `reports/master-kv-orphans.json` に抽出する簡易スクリプトを用意し、移行対象を可視化。
+
+2. **D1 への一括投入と検証**  
+   - 種別ごとに `node scripts/migrateMastersToD1.mjs --dataset <backup> --db MASTERS_D1 --truncate` を実行し、SQL ログは `tmp/migrations/<type>-YYYYMMDD.sql` としてアーカイブ。  
+   - 実行後は `wrangler d1 execute MASTERS_D1 --command "SELECT type, COUNT(*) ..."` で件数を再確認し、差分がゼロであることをレポート化。  
+   - テナント（`organizationId`）を持つデータは別ジョブに切り分け、投入順・依存関係を checklist 化して `docs/d1-master-migration.md` に記録。
+
+3. **Workers/API の D1 専用化**  
+   - `functions/lib/masterStore.js` から KV フォールバックを削除し、D1 バインド未設定時は即 500 を返すガードを追加。  
+   - キャッシュ更新ロジックは D1 からのみ読み書きするよう整理し、`mastercache:*` の TTL・再生成フロー（`/api/listMaster?force=1`）を Runbook に明文化。  
+   - 旧 KV 更新系スクリプトやメンテナンス API（`maintenance/masterCleanup` など）は D1 用に書き直すか廃止。使用停止に伴い README を更新。
+
+4. **UI / テスト更新**  
+   - Playwright、Vitest、スモークテストで D1 モックを利用するよう修正し、`wrangler dev` でもローカル SQLite バッキングを必須化。  
+   - 管理 UI のマスター編集系画面は「D1 を正本」とする注意書きに変更し、反映待ちステータスやエラーメッセージを D1 応答に合わせて見直す。  
+   - e2e 実行前に `npm run seed:masters:d1`（新規タスク）で D1 を初期化するスクリプトを追加し、CI でも共通利用できるようにする。
+
+5. **レガシーデータ破棄と監査対応**  
+   - KV 上の `master:*` キーを段階的に削除し、`wrangler kv:key list` の結果と削除ログを保管。  
+   - 移行完了後 1 週間は D1 / KV の diff を監視する簡易ジョブを動かし、異常が無ければ KV の master namespace を完全停止。  
+   - 変更履歴・ロールバック手順・チェックリストを `docs/d1-master-migration.md` に統合し、agent.md にも「マスター編集は D1 経由のみ」と追記する。
+
+**成果物**  
+- 最新バックアップ JSON / 実行 SQL / 差分レポート  
+- 更新された Runbook (`docs/d1-master-migration.md`) と 運用ルール (`agent.md`)  
+- KV 削除完了ログとロールバック用アーカイブ
+
 ---
 
 ## 7. 現状の不具合・対応状況（2025-10-21）

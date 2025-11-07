@@ -1,0 +1,158 @@
+{
+  "generatedAt": "2025-11-07T05:51:57.900Z",
+  "apiBase": "http://127.0.0.1:8787",
+  "params": {
+    "types": "ALL",
+    "dryRun": true,
+    "batchSize": 1000,
+    "includeKeys": true,
+    "maxKeysPerType": 200
+  },
+  "summary": {
+    "types": [
+      {
+        "type": "test",
+        "legacyKeys": 0,
+        "migratedRecords": 0,
+        "migratedPointers": 0,
+        "deleted": 0,
+        "sampleKeys": [],
+        "sampleKeysTruncated": false
+      },
+      {
+        "type": "service",
+        "legacyKeys": 0,
+        "migratedRecords": 0,
+        "migratedPointers": 0,
+        "deleted": 0,
+        "sampleKeys": [],
+        "sampleKeysTruncated": false
+      },
+      {
+        "type": "qual",
+        "legacyKeys": 0,
+        "migratedRecords": 0,
+        "migratedPointers": 0,
+        "deleted": 0,
+        "sampleKeys": [],
+        "sampleKeysTruncated": false
+      },
+      {
+        "type": "department",
+        "legacyKeys": 0,
+        "migratedRecords": 0,
+        "migratedPointers": 0,
+        "deleted": 0,
+        "sampleKeys": [],
+        "sampleKeysTruncated": false
+      },
+      {
+        "type": "committee",
+        "legacyKeys": 0,
+        "migratedRecords": 0,
+        "migratedPointers": 0,
+        "deleted": 0,
+        "sampleKeys": [],
+        "sampleKeysTruncated": false
+      },
+      {
+        "type": "group",
+        "legacyKeys": 0,
+        "migratedRecords": 0,
+        "migratedPointers": 0,
+        "deleted": 0,
+        "sampleKeys": [],
+        "sampleKeysTruncated": false
+      },
+      {
+        "type": "position",
+        "legacyKeys": 0,
+        "migratedRecords": 0,
+        "migratedPointers": 0,
+        "deleted": 0,
+        "sampleKeys": [],
+        "sampleKeysTruncated": false
+      },
+      {
+        "type": "facility",
+        "legacyKeys": 0,
+        "migratedRecords": 0,
+        "migratedPointers": 0,
+        "deleted": 0,
+        "sampleKeys": [],
+        "sampleKeysTruncated": false
+      },
+      {
+        "type": "symptom",
+        "legacyKeys": 0,
+        "migratedRecords": 0,
+        "migratedPointers": 0,
+        "deleted": 0,
+        "sampleKeys": [],
+        "sampleKeysTruncated": false
+      },
+      {
+        "type": "bodySite",
+        "legacyKeys": 0,
+        "migratedRecords": 0,
+        "migratedPointers": 0,
+        "deleted": 0,
+        "sampleKeys": [],
+        "sampleKeysTruncated": false
+      },
+      {
+        "type": "society",
+        "legacyKeys": 0,
+        "migratedRecords": 0,
+        "migratedPointers": 0,
+        "deleted": 0,
+        "sampleKeys": [],
+        "sampleKeysTruncated": false
+      },
+      {
+        "type": "vaccination",
+        "legacyKeys": 0,
+        "migratedRecords": 0,
+        "migratedPointers": 0,
+        "deleted": 0,
+        "sampleKeys": [],
+        "sampleKeysTruncated": false
+      },
+      {
+        "type": "vaccinationType",
+        "legacyKeys": 0,
+        "migratedRecords": 0,
+        "migratedPointers": 0,
+        "deleted": 0,
+        "sampleKeys": [],
+        "sampleKeysTruncated": false
+      },
+      {
+        "type": "checkup",
+        "legacyKeys": 0,
+        "migratedRecords": 0,
+        "migratedPointers": 0,
+        "deleted": 0,
+        "sampleKeys": [],
+        "sampleKeysTruncated": false
+      },
+      {
+        "type": "checkupType",
+        "legacyKeys": 0,
+        "migratedRecords": 0,
+        "migratedPointers": 0,
+        "deleted": 0,
+        "sampleKeys": [],
+        "sampleKeysTruncated": false
+      }
+    ],
+    "totalLegacyKeys": 0,
+    "migratedRecords": 0,
+    "migratedPointers": 0,
+    "deletedLegacyKeys": 0,
+    "errors": [],
+    "dryRun": true,
+    "includeKeys": true,
+    "maxKeysPerType": 200
+  }
+}

@@ -14,6 +14,14 @@ export function hasD1MasterStore(env) {
   return Boolean(resolveD1Binding(env));
 }
 
+function requireD1Binding(env) {
+  const binding = resolveD1Binding(env);
+  if (!binding) {
+    throw new Error('Masters D1 binding is not configured. Set MASTERS_D1 (or DB) in wrangler.toml.');
+  }
+  return binding;
+}
+
 function parseJson(value, fallback) {
   if (!value) return fallback;
   if (typeof value === 'string') {
@@ -125,8 +133,10 @@ function mapMasterRow(row, type) {
 }
 
 export async function listMasterItemsD1(env, { type, status = null, organizationId = null } = {}) {
-  const d1 = resolveD1Binding(env);
-  if (!d1 || !type) return null;
+  if (!type) {
+    throw new Error('type is required when listing master items from D1.');
+  }
+  const d1 = requireD1Binding(env);
 
   const orgParam = organizationId ?? null;
   const statusParam = status ?? null;
@@ -147,15 +157,18 @@ ORDER BY
 `;
 
   const statement = d1.prepare(sql).bind(type, orgParam, statusParam);
-  const { results, error } = await statement.all();
-  if (error) {
+  let rows = [];
+  try {
+    const { results } = await statement.all();
+    rows = results || [];
+  } catch (error) {
     console.warn('[masterStore] failed to read master_items from D1', error);
-    return null;
+    throw error;
   }
 
   const seen = new Set();
   const items = [];
-  for (const row of results || []) {
+  for (const row of rows) {
     const record = mapMasterRow(row, type);
     const key = record.id || normalizeSlug(record.name || '', { maxLength: 80 });
     if (seen.has(key)) continue;
@@ -169,8 +182,10 @@ ORDER BY
 }
 
 export async function listMasterCategoriesD1(env, { type, organizationId = null } = {}) {
-  const d1 = resolveD1Binding(env);
-  if (!d1 || !type) return null;
+  if (!type) {
+    throw new Error('type is required when listing master categories from D1.');
+  }
+  const d1 = requireD1Binding(env);
 
   const orgParam = organizationId ?? null;
   const sql = `
@@ -189,15 +204,18 @@ ORDER BY
 `;
 
   const statement = d1.prepare(sql).bind(type, orgParam);
-  const { results, error } = await statement.all();
-  if (error) {
+  let rows = [];
+  try {
+    const { results } = await statement.all();
+    rows = results || [];
+  } catch (error) {
     console.warn('[masterStore] failed to read master_categories from D1', error);
-    return null;
+    throw error;
   }
 
   const seen = new Set();
   const categories = [];
-  for (const row of results || []) {
+  for (const row of rows) {
     const name = (row.name || '').trim();
     if (!name || seen.has(name)) continue;
     seen.add(name);
@@ -214,40 +232,35 @@ async function fetchSingleMasterRow(statement, fallbackType) {
     return mapMasterRow(row, inferredType);
   } catch (error) {
     console.warn('[masterStore] failed to fetch master item from D1', error);
-    return null;
+    throw error;
   }
 }
 
 export async function getMasterItemByIdD1(env, id) {
-  const d1 = resolveD1Binding(env);
-  if (!d1 || !id) return null;
+  if (!id) return null;
+  const d1 = requireD1Binding(env);
   const statement = d1.prepare('SELECT * FROM master_items WHERE id = ?1 LIMIT 1').bind(id);
   return fetchSingleMasterRow(statement);
 }
 
 export async function getMasterItemByLegacyKeyD1(env, legacyKey) {
-  const d1 = resolveD1Binding(env);
-  if (!d1 || !legacyKey) return null;
+  if (!legacyKey) return null;
+  const d1 = requireD1Binding(env);
   const statement = d1.prepare('SELECT * FROM master_items WHERE legacy_key = ?1 LIMIT 1').bind(legacyKey);
   return fetchSingleMasterRow(statement);
 }
 
 export async function getMasterItemByAliasD1(env, alias) {
-  const d1 = resolveD1Binding(env);
-  if (!d1 || !alias) return null;
-  try {
-    const row = await d1.prepare('SELECT item_id FROM master_item_aliases WHERE alias = ?1 LIMIT 1').bind(alias).first();
-    if (!row?.item_id) return null;
-    return getMasterItemByIdD1(env, row.item_id);
-  } catch (error) {
-    console.warn('[masterStore] failed to resolve alias in D1', error);
-    return null;
-  }
+  if (!alias) return null;
+  const d1 = requireD1Binding(env);
+  const row = await d1.prepare('SELECT item_id FROM master_item_aliases WHERE alias = ?1 LIMIT 1').bind(alias).first();
+  if (!row?.item_id) return null;
+  return getMasterItemByIdD1(env, row.item_id);
 }
 
 export async function getMasterItemByComparableD1(env, { type, category, name }) {
-  const d1 = resolveD1Binding(env);
-  if (!d1 || !type) return null;
+  if (!type) return null;
+  const d1 = requireD1Binding(env);
   const comparable = comparableKey(type, category, name);
   if (!comparable) return null;
   const statement = d1.prepare('SELECT * FROM master_items WHERE comparable_key = ?1 LIMIT 1').bind(comparable);
@@ -325,8 +338,7 @@ function normalizeForSearch(value) {
 }
 
 export async function upsertMasterItemD1(env, record) {
-  const d1 = resolveD1Binding(env);
-  if (!d1) return false;
+  const d1 = requireD1Binding(env);
   if (!record || typeof record !== 'object') return false;
   const { id, type } = record;
   if (!id || !type) return false;
@@ -436,8 +448,8 @@ ON CONFLICT(alias) DO UPDATE SET
 }
 
 export async function replaceMasterCategoriesD1(env, { type, categories, organizationId = null } = {}) {
-  const d1 = resolveD1Binding(env);
-  if (!d1 || !type) return false;
+  if (!type) return false;
+  const d1 = requireD1Binding(env);
   const list = Array.isArray(categories) ? categories : [];
   const statements = [];
 
@@ -466,8 +478,8 @@ ON CONFLICT(organization_id, type, name) DO UPDATE SET
 }
 
 export async function deleteMasterItemD1(env, { id }) {
-  const d1 = resolveD1Binding(env);
-  if (!d1 || !id) return false;
+  const d1 = requireD1Binding(env);
+  if (!id) return false;
   const statements = [
     d1.prepare('DELETE FROM master_item_aliases WHERE item_id = ?').bind(id),
     d1.prepare('DELETE FROM master_items WHERE id = ?').bind(id),

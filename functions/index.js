@@ -4,7 +4,6 @@ import { hashPassword, verifyPassword } from './lib/auth/password.js';
 import { generateInviteToken, generateTokenString } from './lib/auth/token.js';
 import { createMailClient } from './lib/mail/index.js';
 import {
-  hasD1MasterStore,
   listMasterItemsD1,
   listMasterCategoriesD1,
   upsertMasterItemD1,
@@ -3829,33 +3828,7 @@ export default {
 
     async function loadMasterItemsRaw(env, type) {
       const d1Items = await listMasterItemsD1(env, { type });
-      if (d1Items !== null) {
-        return d1Items.map(item => ({ ...item }));
-      }
-
-      const prefix = `master:${type}:`;
-      let cursor = undefined;
-      const out = [];
-      do {
-        const page = await env.SETTINGS.list({ prefix, cursor });
-        for (const entry of page.keys || []) {
-          const key = entry.name;
-          if (!key) continue;
-          const raw = await env.SETTINGS.get(key);
-          if (!raw) continue;
-          try {
-            const obj = JSON.parse(raw);
-            obj._key = key;
-            if (!obj.type) obj.type = type;
-            out.push(obj);
-          } catch (err) {
-            console.warn('failed to parse master item (raw)', key, err);
-          }
-        }
-        cursor = page.cursor;
-        if (page.list_complete) break;
-      } while (cursor);
-      return out;
+      return d1Items.map(item => ({ ...item }));
     }
 
     function masterKeyFromParts(type, category, name) {
@@ -5929,72 +5902,18 @@ export default {
     }
 
     async function loadMastersByType(env, type) {
-      if (hasD1MasterStore(env)) {
-        const d1Items = await listMasterItemsD1(env, { type });
-        if (Array.isArray(d1Items)) {
-          return d1Items;
-        }
-      }
-      const prefix = masterPrefix(type);
-      const keys = await env.SETTINGS.list({ prefix });
-      const map = new Map();
-      const keyEntries = keys.keys || [];
-      const keyNames = keyEntries.map(entry => entry.name).filter(Boolean);
-      const rawValues = await Promise.all(keyNames.map(name => env.SETTINGS.get(name)));
-
-      for (let i = 0; i < keyNames.length; i++) {
-        const keyName = keyNames[i];
-        const raw = rawValues[i];
-        if (!keyName || !raw) continue;
-
-        if (keyName.includes('|')) {
-          try {
-            const parsed = JSON.parse(raw);
-            if (isLegacyPointer(parsed)) {
-              await migrateLegacyPointer(env, keyName, raw);
-              if (parsed.id) {
-                const promotedRecord = await loadMasterById(env, type, parsed.id);
-                if (promotedRecord && promotedRecord.id) {
-                  map.set(promotedRecord.id, promotedRecord);
-                }
-              }
-            } else {
-              const promoted = await promoteLegacyMasterRecord(env, type, keyName, parsed);
-              if (promoted && promoted.id) {
-                map.set(promoted.id, promoted);
-              }
-            }
-          } catch (err) {
-            console.warn('failed to migrate legacy master record', keyName, err);
-          }
-          continue;
-        }
-
-        try {
-          const obj = JSON.parse(raw);
-          const id = keyName.slice(prefix.length);
-          if (!obj || typeof obj !== 'object') continue;
-          obj.id = obj.id || id;
-          obj.type = obj.type || type;
-          if (!Array.isArray(obj.legacyAliases)) {
-            obj.legacyAliases = [];
-          }
-          if (!obj.legacyKey && obj.category && obj.name) {
-            obj.legacyKey = normalizeKey(type, obj.category, obj.name);
-          }
-          if (obj.legacyKey) {
-            ensureLegacyAlias(obj, obj.legacyKey);
-          }
-          normalizeItemExplanations(obj, { fallbackStatus: obj.status === 'approved' ? 'published' : 'draft' });
-          map.set(obj.id, obj);
-        } catch (err) {
-          console.warn('failed to parse master record', keyName, err);
-        }
-      }
-      return Array.from(map.values());
+      if (!type) return [];
+      const d1Items = await listMasterItemsD1(env, { type });
+      return Array.isArray(d1Items) ? d1Items : [];
     }
 
-    async function cleanupLegacyMasterKeys(env, types, { dryRun = false, batchSize = 1000 } = {}) {
+    async function cleanupLegacyMasterKeys(env, types, {
+      dryRun = false,
+      batchSize = 1000,
+      includeKeys = false,
+      maxKeysPerType = 200,
+    } = {}) {
+      const captureKeys = includeKeys && Number.isFinite(maxKeysPerType) && maxKeysPerType > 0;
       const summary = {
         types: [],
         totalLegacyKeys: 0,
@@ -6003,6 +5922,8 @@ export default {
         deletedLegacyKeys: 0,
         errors: [],
         dryRun,
+        includeKeys: captureKeys,
+        maxKeysPerType: captureKeys ? maxKeysPerType : 0,
       };
 
       for (const type of types) {
@@ -6014,6 +5935,10 @@ export default {
           migratedPointers: 0,
           deleted: 0,
         };
+        if (captureKeys) {
+          typeSummary.sampleKeys = [];
+          typeSummary.sampleKeysTruncated = false;
+        }
         let cursor;
         do {
           const list = await env.SETTINGS.list({ prefix: masterPrefix(type), cursor, limit: batchSize });
@@ -6049,6 +5974,17 @@ export default {
                 typeSummary.migratedPointers += 1;
                 summary.migratedPointers += 1;
                 continue;
+              }
+
+              if (captureKeys && typeSummary.sampleKeys.length < maxKeysPerType) {
+                typeSummary.sampleKeys.push({
+                  key: keyName,
+                  category: parsed?.category || null,
+                  name: parsed?.name || null,
+                  status: parsed?.status || null,
+                });
+              } else if (captureKeys && typeSummary.sampleKeys.length === maxKeysPerType) {
+                typeSummary.sampleKeysTruncated = true;
               }
 
               if (!dryRun) {
@@ -7670,92 +7606,71 @@ if (routeMatch(url, "GET", "listClinics")) {
 
     // <<< START: MASTER_LIST >>>
     if (routeMatch(url, "GET", "listMaster")) {
-      const type = url.searchParams.get("type");
-      const status = url.searchParams.get("status");
-      const includeSimilar = url.searchParams.get("includeSimilar") === "true";
-      let items = null;
-
-      if (type) {
-        const d1Items = await listMasterItemsD1(env, { type, status });
-        if (d1Items !== null) {
-          items = d1Items.map(item => ({ ...item }));
-        }
-      } else if (hasD1MasterStore(env)) {
-        const aggregated = [];
-        let d1Failed = false;
-        for (const t of MASTER_ALLOWED_TYPES) {
-          const subset = await listMasterItemsD1(env, { type: t, status });
-          if (subset === null) {
-            d1Failed = true;
-            break;
-          }
-          aggregated.push(...subset);
-        }
-        if (!d1Failed) {
-          items = aggregated.map(item => ({ ...item }));
-        }
-      }
-
-      if (!items) {
-        let cached = await getMasterCache(env, type, status);
-        if (!cached) {
+      try {
+        const type = url.searchParams.get("type");
+        const status = url.searchParams.get("status");
+        const includeSimilar = url.searchParams.get("includeSimilar") === "true";
+        let items = await getMasterCache(env, type, status);
+        if (!items) {
           const typesToLoad = type ? [type] : Array.from(MASTER_ALLOWED_TYPES);
           const aggregated = [];
           for (const t of typesToLoad) {
-            const subset = await loadMastersByType(env, t);
+            const subset = await listMasterItemsD1(env, { type: t, status });
             aggregated.push(...subset);
           }
-          cached = aggregated;
-          if (status) {
-            cached = cached.filter(item => item.status === status);
-          }
-          await setMasterCache(env, type, status, cached);
+          items = aggregated;
+          await setMasterCache(env, type, status, aggregated);
         }
-        items = cached.map(item => ({ ...item }));
-      }
+        items = items.map(item => ({ ...item }));
 
-      const collator = new Intl.Collator('ja');
-      items.sort((a, b) => {
-        const ao = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER;
-        const bo = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER;
-        if (ao !== bo) return ao - bo;
-        const ag = a.sortGroup || '';
-        const bg = b.sortGroup || '';
-        const gcmp = collator.compare(ag, bg);
-        if (gcmp !== 0) return gcmp;
-        return collator.compare(a.name || '', b.name || '');
-      });
+        const collator = new Intl.Collator('ja');
+        items.sort((a, b) => {
+          const ao = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER;
+          const bo = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER;
+          if (ao !== bo) return ao - bo;
+          const ag = a.sortGroup || '';
+          const bg = b.sortGroup || '';
+          const gcmp = collator.compare(ag, bg);
+          if (gcmp !== 0) return gcmp;
+          return collator.compare(a.name || '', b.name || '');
+        });
 
-      if (includeSimilar && items.length > 1) {
-        const collected = items.map(obj => ({ obj, norm: normalizeForSimilarity(obj.canonical_name || obj.name) }));
-        for (const entry of collected) {
-          if (!entry.norm) continue;
-          const matches = [];
-          for (const other of collected) {
-            if (entry === other) continue;
-            if (!other.norm) continue;
-            const score = jaroWinkler(entry.norm, other.norm);
-            if (score >= 0.92) {
-              matches.push({
-                name: other.obj.name,
-                canonical_name: other.obj.canonical_name || null,
-                status: other.obj.status || null,
-                similarity: Number(score.toFixed(3)),
-              });
+        if (includeSimilar && items.length > 1) {
+          const collected = items.map(obj => ({ obj, norm: normalizeForSimilarity(obj.canonical_name || obj.name) }));
+          for (const entry of collected) {
+            if (!entry.norm) continue;
+            const matches = [];
+            for (const other of collected) {
+              if (entry === other) continue;
+              if (!other.norm) continue;
+              const score = jaroWinkler(entry.norm, other.norm);
+              if (score >= 0.92) {
+                matches.push({
+                  name: other.obj.name,
+                  canonical_name: other.obj.canonical_name || null,
+                  status: other.obj.status || null,
+                  similarity: Number(score.toFixed(3)),
+                });
+              }
+            }
+            if (matches.length) {
+              entry.obj.similarMatches = matches;
+            } else {
+              delete entry.obj.similarMatches;
             }
           }
-          if (matches.length) {
-            entry.obj.similarMatches = matches;
-          } else {
-            delete entry.obj.similarMatches;
-          }
         }
-      }
 
-      items.sort((a, b) => (b.count || 0) - (a.count || 0));
-      return new Response(JSON.stringify({ ok: true, items }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+        items.sort((a, b) => (b.count || 0) - (a.count || 0));
+        return new Response(JSON.stringify({ ok: true, items }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message || "failed to load master data" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
     // <<< END: MASTER_LIST >>>
 
@@ -8068,35 +7983,42 @@ if (routeMatch(url, "GET", "listClinics")) {
 
     // <<< START: MASTER_EXPORT >>>
     if (routeMatch(url, "GET", "exportMaster")) {
-      const type = url.searchParams.get("type"); // 任意
-      const format = (url.searchParams.get("format") || "json").toLowerCase();
-      if (type && !MASTER_ALLOWED_TYPES.has(type)) {
-        return new Response(JSON.stringify({ ok: false, error: "unknown master type" }), {
-          status: 400,
+      try {
+        const type = url.searchParams.get("type"); // 任意
+        const format = (url.searchParams.get("format") || "json").toLowerCase();
+        if (type && !MASTER_ALLOWED_TYPES.has(type)) {
+          return new Response(JSON.stringify({ ok: false, error: "unknown master type" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const typesToLoad = type ? [type] : Array.from(MASTER_ALLOWED_TYPES);
+        let items = [];
+        for (const t of typesToLoad) {
+          const subset = await loadMastersByType(env, t);
+          items = items.concat(subset);
+        }
+
+        if (format === "csv") {
+          const header = ["分類","名称","説明"].join(",");
+          const rows = items.map(o =>
+            [o.category, o.name, o.desc || ""]
+              .map(x => `"${String(x ?? '').replace(/"/g,'""')}"`).join(",")
+          );
+          return new Response([header, ...rows].join("\n"), {
+            headers: { ...corsHeaders, "Content-Type":"text/csv; charset=utf-8" }
+          });
+        }
+
+        return new Response(JSON.stringify({ ok: true, items }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ ok: false, error: err.message || "failed to export master data" }), {
+          status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      const typesToLoad = type ? [type] : Array.from(MASTER_ALLOWED_TYPES);
-      let items = [];
-      for (const t of typesToLoad) {
-        const subset = await loadMastersByType(env, t);
-        items = items.concat(subset);
-      }
-
-      if (format === "csv") {
-        const header = ["分類","名称","説明"].join(",");
-        const rows = items.map(o =>
-          [o.category, o.name, o.desc || ""]
-            .map(x => `"${String(x ?? '').replace(/"/g,'""')}"`).join(",")
-        );
-        return new Response([header, ...rows].join("\n"), {
-          headers: { ...corsHeaders, "Content-Type":"text/csv; charset=utf-8" }
-        });
-      }
-
-      return new Response(JSON.stringify({ ok: true, items }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
     }
     // <<< END: MASTER_EXPORT >>>
 
@@ -8113,7 +8035,17 @@ if (routeMatch(url, "GET", "listClinics")) {
         const dryRun = body?.dryRun !== false && body?.dryRun !== 'false';
         const batchSizeRaw = Number(body?.batchSize);
         const batchSize = Number.isFinite(batchSizeRaw) && batchSizeRaw > 0 ? Math.min(batchSizeRaw, 1000) : 1000;
-        const summary = await cleanupLegacyMasterKeys(env, types, { dryRun, batchSize });
+        const includeKeys = body?.includeKeys === true;
+        const maxKeysPerTypeRaw = Number(body?.maxKeysPerType);
+        const maxKeysPerType = Number.isFinite(maxKeysPerTypeRaw) && maxKeysPerTypeRaw > 0
+          ? Math.min(Math.floor(maxKeysPerTypeRaw), 5000)
+          : 200;
+        const summary = await cleanupLegacyMasterKeys(env, types, {
+          dryRun,
+          batchSize,
+          includeKeys,
+          maxKeysPerType,
+        });
         return new Response(JSON.stringify({ ok: true, summary }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
@@ -8158,41 +8090,19 @@ if (routeMatch(url, "GET", "listClinics")) {
     ];
 
     async function getCategories(env, type) {
-      if (!type) return null;
-      if (hasD1MasterStore(env)) {
-        try {
-          const d1Cats = await listMasterCategoriesD1(env, { type });
-          if (Array.isArray(d1Cats)) {
-            return d1Cats;
-          }
-        } catch (err) {
-          console.warn('failed to read categories from D1', err);
-        }
+      if (!type) return [];
+      const d1Cats = await listMasterCategoriesD1(env, { type });
+      if (Array.isArray(d1Cats)) {
+        return d1Cats;
       }
-
-      const key = `categories:${type}`;
-      const raw = await env.SETTINGS.get(key);
-      if (!raw) return null;
-      try {
-        return JSON.parse(raw);
-      } catch (err) {
-        console.warn('failed to parse categories from KV', err);
-        return null;
-      }
+      return [];
     }
     async function putCategories(env, type, arr) {
       const list = Array.isArray(arr) ? arr : [];
-      let handled = false;
-      if (hasD1MasterStore(env)) {
-        try {
-          handled = await replaceMasterCategoriesD1(env, { type, categories: list });
-        } catch (err) {
-          console.warn('[masterStore] failed to replace categories in D1', err);
-        }
-      }
+      await replaceMasterCategoriesD1(env, { type, categories: list });
       const key = `categories:${type}`;
       await env.SETTINGS.put(key, JSON.stringify(list));
-      return handled;
+      return list;
     }
     function defaultsFor(type){
       switch(type){
@@ -8211,87 +8121,111 @@ if (routeMatch(url, "GET", "listClinics")) {
     }
 
     // <<< START: CATEGORIES_LIST >>>
-      if (routeMatch(url, "GET", "listCategories")) {
-    const type = url.searchParams.get("type");
-    if (!type || !CATEGORY_ALLOWED_TYPES.includes(type)) {
-      return new Response(JSON.stringify({ error: `type は ${CATEGORY_TYPE_HELP_TEXT}` }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
-    }
+    if (routeMatch(url, "GET", "listCategories")) {
+      try {
+        const type = url.searchParams.get("type");
+        if (!type || !CATEGORY_ALLOWED_TYPES.includes(type)) {
+          return new Response(JSON.stringify({ error: `type は ${CATEGORY_TYPE_HELP_TEXT}` }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
+          });
+        }
 
-    let cats = null;
-    const d1Cats = await listMasterCategoriesD1(env, { type });
-    if (d1Cats !== null) {
-      cats = d1Cats;
-    } else {
-      cats = await getCategories(env, type);
-      if (!cats) {
-        cats = defaultsFor(type);
-        await putCategories(env, type, cats);
+        let cats = await getCategories(env, type);
+        if (!Array.isArray(cats) || !cats.length) {
+          cats = defaultsFor(type);
+          if (cats.length) {
+            await putCategories(env, type, cats);
+          }
+        }
+
+        return new Response(JSON.stringify({ ok: true, categories: cats }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message || 'カテゴリー取得に失敗しました' }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
     }
-
-    return new Response(JSON.stringify({ ok: true, categories: cats }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
     // <<< END: CATEGORIES_LIST >>>
 
     // <<< START: CATEGORIES_ADD >>>
-        if (routeMatch(url, "POST", "addCategory")) {
-      const body = await request.json();
-      const type = body?.type;
-      const name = (body?.name || "").trim();
-      if (!type || !MASTER_ALLOWED_TYPES.has(type) && !CATEGORY_ALLOWED_TYPES.includes(type) || !name) {
-        return new Response(JSON.stringify({ error: `type/name 不正（type は ${CATEGORY_TYPE_HELP_TEXT}）` }), {
-          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
+    if (routeMatch(url, "POST", "addCategory")) {
+      try {
+        const body = await request.json();
+        const type = body?.type;
+        const name = (body?.name || "").trim();
+        if (!type || !MASTER_ALLOWED_TYPES.has(type) && !CATEGORY_ALLOWED_TYPES.includes(type) || !name) {
+          return new Response(JSON.stringify({ error: `type/name 不正（type は ${CATEGORY_TYPE_HELP_TEXT}）` }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
+          });
+        }
+        const cats = (await getCategories(env, type)) || [];
+        if (!cats.includes(name)) cats.push(name);
+        await putCategories(env, type, cats);
+        return new Response(JSON.stringify({ ok:true, categories: cats }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message || 'カテゴリー追加に失敗しました' }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      const cats = (await getCategories(env, type)) || [];
-      if (!cats.includes(name)) cats.push(name);
-      await putCategories(env, type, cats);
-      return new Response(JSON.stringify({ ok:true, categories: cats }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
     }
     // <<< END: CATEGORIES_ADD >>>
 
     // <<< START: CATEGORIES_RENAME >>>
-        if (routeMatch(url, "POST", "renameCategory")) {
-      const body = await request.json();
-      const type = body?.type;
-      const oldName = (body?.oldName || "").trim();
-      const newName = (body?.newName || "").trim();
-      if (!type || !MASTER_ALLOWED_TYPES.has(type) && !CATEGORY_ALLOWED_TYPES.includes(type) || !oldName || !newName) {
-        return new Response(JSON.stringify({ error: `パラメータ不正（type は ${CATEGORY_TYPE_HELP_TEXT}）` }), {
-          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
+    if (routeMatch(url, "POST", "renameCategory")) {
+      try {
+        const body = await request.json();
+        const type = body?.type;
+        const oldName = (body?.oldName || "").trim();
+        const newName = (body?.newName || "").trim();
+        if (!type || !MASTER_ALLOWED_TYPES.has(type) && !CATEGORY_ALLOWED_TYPES.includes(type) || !oldName || !newName) {
+          return new Response(JSON.stringify({ error: `パラメータ不正（type は ${CATEGORY_TYPE_HELP_TEXT}）` }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
+          });
+        }
+        let cats = (await getCategories(env, type)) || [];
+        cats = cats.map(c => c === oldName ? newName : c);
+        await putCategories(env, type, cats);
+        return new Response(JSON.stringify({ ok:true, categories: cats }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message || 'カテゴリー更新に失敗しました' }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      let cats = (await getCategories(env, type)) || [];
-      cats = cats.map(c => c === oldName ? newName : c);
-      await putCategories(env, type, cats);
-      return new Response(JSON.stringify({ ok:true, categories: cats }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
     }
     // <<< END: CATEGORIES_RENAME >>>
 
     // <<< START: CATEGORIES_DELETE >>>
-        if (routeMatch(url, "POST", "deleteCategory")) {
-      const body = await request.json();
-      const type = body?.type;
-      const name = (body?.name || "").trim();
-      if (!type || !MASTER_ALLOWED_TYPES.has(type) && !CATEGORY_ALLOWED_TYPES.includes(type) || !name) {
-        return new Response(JSON.stringify({ error: `パラメータ不正（type は ${CATEGORY_TYPE_HELP_TEXT}）` }), {
-          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
+    if (routeMatch(url, "POST", "deleteCategory")) {
+      try {
+        const body = await request.json();
+        const type = body?.type;
+        const name = (body?.name || "").trim();
+        if (!type || !MASTER_ALLOWED_TYPES.has(type) && !CATEGORY_ALLOWED_TYPES.includes(type) || !name) {
+          return new Response(JSON.stringify({ error: `パラメータ不正（type は ${CATEGORY_TYPE_HELP_TEXT}）` }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
+          });
+        }
+        let cats = (await getCategories(env, type)) || [];
+        cats = cats.filter(c => c !== name);
+        await putCategories(env, type, cats);
+        return new Response(JSON.stringify({ ok:true, categories: cats }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message || 'カテゴリー削除に失敗しました' }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      let cats = (await getCategories(env, type)) || [];
-      cats = cats.filter(c => c !== name);
-      await putCategories(env, type, cats);
-      return new Response(JSON.stringify({ ok:true, categories: cats }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
     }
     // <<< END: CATEGORIES_DELETE >>>
 

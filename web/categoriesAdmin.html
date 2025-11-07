@@ -91,7 +91,11 @@
     }
 
     const API_BASE = resolveApiBase();
+    const BASE = API_BASE; // backward-compat for legacy scripts
     window.NCD_API_BASE = window.NCD_API_BASE || API_BASE;
+    if (typeof window.BASE === 'undefined') {
+      window.BASE = BASE;
+    }
     const TYPE_OPTIONS = [
       { value: "test", label: "検査分類" },
       { value: "service", label: "診療分類" },

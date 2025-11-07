@@ -4,6 +4,7 @@
     "test:playwright": "playwright test",
     "migrate:master-ids": "node ./scripts/migrateMasterIds.mjs",
     "cleanup:legacy-masters": "node ./scripts/cleanupLegacyMasters.mjs",
+    "report:master-orphans": "node ./scripts/reportMasterKvOrphans.mjs",
     "publish:mhlw": "node ./scripts/publishMhlwFacilities.mjs",
     "upload:mhlw": "node ./scripts/uploadMhlwToR2.mjs",
     "backfill:facilities": "node ./scripts/backfillFacilityCollections.mjs",
