@@ -149,10 +149,12 @@
 1. `membership` / `organizationId` 拡張のテクニカル Spike  
    - JWT payload への `memberships` 同梱と `NcdAuth` ヘルパー整理。  
    - メンバーシップで複数部署・委員会・グループを兼務できるよう配列化。  
+   - 2025-11-07: Workers 側で `organizationId` / `departments` / `committees` / `groups` を保持し、トークン・`NcdAuth` 双方で利用できるように更新済み。
 2. 組織タイプ別マスタの下準備  
    - 診療所／病院／医師会それぞれの「部署」「委員会」「グループ」「役職」テンプレを調査・ドラフト化。  
    - CLI スクリプト（`scripts/`）からマスター登録・更新できるパイプラインを検討。  
    - Codex セッション内でマスター候補を調査→レビュー→CLI 経由で登録する一連のフローをルーチン化し、作業手順書を `docs/` に整備。  
+   - 2025-11-07: `docs/organization-master-templates.md` と `npm run seed:org-masters` を追加し、テンプレの投入経路を確立。  
 3. Medical Orchestra 向けグルーピング要件の洗い出し  
    - チャット自動参加条件（委員会・部署・施設横断）とデータ構造のメモ作成。  
 4. メール運用手順の整備  

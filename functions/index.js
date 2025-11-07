@@ -21,6 +21,9 @@ const MASTER_TYPE_LIST = [
   'service',
   'qual',
   'department',
+  'committee',
+  'group',
+  'position',
   'facility',
   'symptom',
   'bodySite',
@@ -31,6 +34,22 @@ const MASTER_TYPE_LIST = [
   'checkupType',
 ];
 const MASTER_ALLOWED_TYPES = new Set(MASTER_TYPE_LIST);
+const MASTER_TYPE_HELP_TEXT = MASTER_TYPE_LIST.join(' / ');
+const CATEGORY_ALLOWED_TYPES = [
+  'test',
+  'service',
+  'qual',
+  'department',
+  'committee',
+  'group',
+  'position',
+  'facility',
+  'symptom',
+  'bodySite',
+  'vaccinationType',
+  'checkupType',
+];
+const CATEGORY_TYPE_HELP_TEXT = CATEGORY_ALLOWED_TYPES.join(' / ');
 
 const ACCESS_TOKEN_TTL_SECONDS = 60 * 15; // 15 min
 const REFRESH_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
@@ -3422,21 +3441,39 @@ export default {
 
     async function createMembershipRecord(env, {
       clinicId,
+      clinicName = '',
       accountId,
       roles = ['clinicStaff'],
       status = 'active',
       invitedBy,
+      organizationId = null,
+      organizationName = null,
+      departments = [],
+      committees = [],
+      groups = [],
+      label,
+      meta,
     }) {
       const membershipUuid = crypto.randomUUID();
       const membershipId = `membership:${membershipUuid}`;
       const nowIso = new Date().toISOString();
+      const normalizedRoles = Array.isArray(roles) && roles.length ? roles : ['clinicStaff'];
       const membershipRecord = {
         id: membershipId,
         clinicId,
+        clinicName: clinicName || null,
         accountId,
-        roles,
+        roles: normalizedRoles,
+        primaryRole: normalizedRoles[0] || null,
         status,
         invitedBy: invitedBy || null,
+        organizationId: organizationId || null,
+        organizationName: organizationName || null,
+        departments: normalizeStringArray(departments),
+        committees: normalizeStringArray(committees),
+        groups: normalizeStringArray(groups),
+        label: label ? nk(label) : (clinicName || ''),
+        meta: meta && typeof meta === 'object' ? meta : null,
         createdAt: nowIso,
         updatedAt: nowIso,
       };
@@ -3449,18 +3486,57 @@ export default {
       return kvGetJSON(env, membershipId);
     }
 
+    function applyClinicContextToMembership(record, clinic) {
+      if (!record || !clinic) return record;
+      if (clinic.name && !record.clinicName) {
+        record.clinicName = clinic.name;
+      }
+      if (!record.label && clinic.name) {
+        record.label = clinic.name;
+      }
+      const clinicOrgId = clinic.organizationId || null;
+      if (clinicOrgId && !record.organizationId) {
+        record.organizationId = clinicOrgId;
+      }
+      const clinicOrgName = clinic.organizationName || clinic.organization?.name || null;
+      if (clinicOrgName && !record.organizationName) {
+        record.organizationName = clinicOrgName;
+      }
+      return record;
+    }
+
     function sanitizeMembershipRecord(record) {
       if (!record || typeof record !== 'object') return null;
       const roles = Array.isArray(record.roles) ? record.roles.filter(Boolean) : [];
       const primaryRole = record.primaryRole || (roles.length ? roles[0] : null);
+      const normalizeList = (value) => {
+        if (!Array.isArray(value)) return [];
+        const seen = new Set();
+        const result = [];
+        for (const entry of value) {
+          const text = nk(entry);
+          if (!text || seen.has(text)) continue;
+          seen.add(text);
+          result.push(text);
+        }
+        return result;
+      };
       return {
         id: record.id || null,
         clinicId: record.clinicId || null,
+        clinicName: record.clinicName || '',
         accountId: record.accountId || null,
         roles,
         primaryRole,
         status: record.status || 'active',
         invitedBy: record.invitedBy || null,
+        organizationId: record.organizationId || null,
+        organizationName: record.organizationName || null,
+        departments: normalizeList(record.departments),
+        committees: normalizeList(record.committees),
+        groups: normalizeList(record.groups),
+        label: record.label || record.clinicName || '',
+        meta: record.meta && typeof record.meta === 'object' ? record.meta : null,
         createdAt: record.createdAt || null,
         updatedAt: record.updatedAt || null,
       };
@@ -4718,9 +4794,12 @@ export default {
       const membershipRoles = [role];
       const membership = await createMembershipRecord(env, {
         clinicId,
+        clinicName: clinic.name || clinic.displayName || '',
         accountId: account.id,
         roles: membershipRoles,
         invitedBy: invite.invitedBy || null,
+        organizationId: clinic.organizationId || null,
+        organizationName: clinic.organizationName || clinic.organization?.name || null,
       });
 
       const membershipSet = new Set(Array.isArray(account.membershipIds) ? account.membershipIds : []);
@@ -5377,6 +5456,7 @@ export default {
           }
         }
         if (existingMembership) {
+          applyClinicContextToMembership(existingMembership, clinic);
           const roles = new Set(Array.isArray(existingMembership.roles) ? existingMembership.roles : []);
           if (!roles.has(role)) {
             roles.add(role);
@@ -5390,9 +5470,12 @@ export default {
         } else {
           membership = await createMembershipRecord(env, {
             clinicId: clinic.id,
+            clinicName: clinic.name || clinic.displayName || '',
             accountId,
             roles: [role],
             invitedBy: processedBy,
+            organizationId: clinic.organizationId || null,
+            organizationName: clinic.organizationName || clinic.organization?.name || null,
           });
         }
 
@@ -7437,7 +7520,7 @@ if (routeMatch(url, "GET", "listClinics")) {
           });
         }
         if (!MASTER_ALLOWED_TYPES.has(type)) {
-          return new Response(JSON.stringify({ error: "type は test / service / qual / department / facility / symptom / bodySite / society" }), {
+          return new Response(JSON.stringify({ error: `type は ${MASTER_TYPE_HELP_TEXT}` }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
@@ -7687,7 +7770,7 @@ if (routeMatch(url, "GET", "listClinics")) {
           });
         }
         if (!MASTER_ALLOWED_TYPES.has(type)) {
-          return new Response(JSON.stringify({ error: "type は test / service / qual / department / facility / symptom / bodySite / society" }), {
+          return new Response(JSON.stringify({ error: `type は ${MASTER_TYPE_HELP_TEXT}` }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
@@ -7892,7 +7975,7 @@ if (routeMatch(url, "GET", "listClinics")) {
           });
         }
         if (!MASTER_ALLOWED_TYPES.has(type)) {
-          return new Response(JSON.stringify({ ok: false, error: "type は test / service / qual / department / facility / symptom / bodySite" }), {
+          return new Response(JSON.stringify({ ok: false, error: `type は ${MASTER_TYPE_HELP_TEXT}` }), {
             status: 400,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
@@ -7950,7 +8033,7 @@ if (routeMatch(url, "GET", "listClinics")) {
           });
         }
         if (!MASTER_ALLOWED_TYPES.has(type)) {
-          return new Response(JSON.stringify({ error: "type は test / service / qual / department / facility / symptom / bodySite" }), {
+          return new Response(JSON.stringify({ error: `type は ${MASTER_TYPE_HELP_TEXT}` }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
@@ -8130,9 +8213,8 @@ if (routeMatch(url, "GET", "listClinics")) {
     // <<< START: CATEGORIES_LIST >>>
       if (routeMatch(url, "GET", "listCategories")) {
     const type = url.searchParams.get("type");
-    const CATEGORY_ALLOWED_TYPES = ["test","service","qual","department","facility","symptom","bodySite","vaccinationType","checkupType"];
     if (!type || !CATEGORY_ALLOWED_TYPES.includes(type)) {
-      return new Response(JSON.stringify({ error: "type は test / service / qual / department / facility / symptom / bodySite / vaccinationType / checkupType" }), {
+      return new Response(JSON.stringify({ error: `type は ${CATEGORY_TYPE_HELP_TEXT}` }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
@@ -8160,8 +8242,8 @@ if (routeMatch(url, "GET", "listClinics")) {
       const body = await request.json();
       const type = body?.type;
       const name = (body?.name || "").trim();
-      if (!type || !MASTER_ALLOWED_TYPES.has(type) && !["test","service","qual","department","facility","symptom","bodySite","vaccinationType","checkupType"].includes(type) || !name) {
-        return new Response(JSON.stringify({ error: "type/name 不正（type は test / service / qual / department / facility / symptom / bodySite / vaccinationType / checkupType）" }), {
+      if (!type || !MASTER_ALLOWED_TYPES.has(type) && !CATEGORY_ALLOWED_TYPES.includes(type) || !name) {
+        return new Response(JSON.stringify({ error: `type/name 不正（type は ${CATEGORY_TYPE_HELP_TEXT}）` }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       }
@@ -8180,8 +8262,8 @@ if (routeMatch(url, "GET", "listClinics")) {
       const type = body?.type;
       const oldName = (body?.oldName || "").trim();
       const newName = (body?.newName || "").trim();
-      if (!type || !MASTER_ALLOWED_TYPES.has(type) && !["test","service","qual","department","facility","symptom","bodySite","vaccinationType","checkupType"].includes(type) || !oldName || !newName) {
-        return new Response(JSON.stringify({ error: "パラメータ不正（type は test / service / qual / department / facility / symptom / bodySite / vaccinationType / checkupType）" }), {
+      if (!type || !MASTER_ALLOWED_TYPES.has(type) && !CATEGORY_ALLOWED_TYPES.includes(type) || !oldName || !newName) {
+        return new Response(JSON.stringify({ error: `パラメータ不正（type は ${CATEGORY_TYPE_HELP_TEXT}）` }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       }
@@ -8199,8 +8281,8 @@ if (routeMatch(url, "GET", "listClinics")) {
       const body = await request.json();
       const type = body?.type;
       const name = (body?.name || "").trim();
-      if (!type || !MASTER_ALLOWED_TYPES.has(type) && !["test","service","qual","department","facility","symptom","bodySite","vaccinationType","checkupType"].includes(type) || !name) {
-        return new Response(JSON.stringify({ error: "パラメータ不正（type は test / service / qual / department / facility / symptom / bodySite / vaccinationType / checkupType）" }), {
+      if (!type || !MASTER_ALLOWED_TYPES.has(type) && !CATEGORY_ALLOWED_TYPES.includes(type) || !name) {
+        return new Response(JSON.stringify({ error: `パラメータ不正（type は ${CATEGORY_TYPE_HELP_TEXT}）` }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       }

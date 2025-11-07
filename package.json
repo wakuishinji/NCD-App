@@ -6,7 +6,8 @@
     "cleanup:legacy-masters": "node ./scripts/cleanupLegacyMasters.mjs",
     "publish:mhlw": "node ./scripts/publishMhlwFacilities.mjs",
     "upload:mhlw": "node ./scripts/uploadMhlwToR2.mjs",
-    "backfill:facilities": "node ./scripts/backfillFacilityCollections.mjs"
+    "backfill:facilities": "node ./scripts/backfillFacilityCollections.mjs",
+    "seed:org-masters": "node ./scripts/seedOrganizationMasters.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.8",

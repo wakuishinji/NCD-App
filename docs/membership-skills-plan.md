@@ -189,6 +189,12 @@
     "roles": ["clinicAdmin", "clinicStaff"],
     "primaryRole": "clinicAdmin",
     "status": "active",
+    "clinicName": "中野南口クリニック",
+    "organizationId": "organization:nakano-med-assoc",
+    "organizationName": "中野区医師会",
+    "departments": ["一般内科"],
+    "committees": ["感染対策委員会"],
+    "groups": ["在宅診療チーム"],
     "grantedSkills": ["service:uuid", "test:uuid"], // 任意
     "createdAt": "...",
     "updatedAt": "...",
@@ -235,8 +241,9 @@
 
 ## 4. マイグレーション計画（概要）
 1. **スキーマ拡張**
-   - `membership` レコードに `roles`, `primaryRole` 等のフィールドを追加し、既存データへデフォルト値を投入。
-   - `accounts` に `memberships`（詳細配列）を追加。初期データは `membershipIds` から派生。
+- `membership` レコードに `roles`, `primaryRole` 等のフィールドを追加し、既存データへデフォルト値を投入。
+- `accounts` に `memberships`（詳細配列）を追加。初期データは `membershipIds` から派生。
+- 組織タイプ別テンプレートは `docs/organization-master-templates.md` に定義し、`npm run seed:org-masters` でマスター登録できる。
 
 2. **API & フロント更新**
    - 認証 API のレスポンス形式を更新し、`NcdAuth` へ新ヘルパーを追加。

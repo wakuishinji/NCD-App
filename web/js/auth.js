@@ -207,6 +207,19 @@
     { test: /nakano.*medical.*association/i, label: '中野区医師会' },
   ];
 
+  function normalizeMembershipList(value) {
+    if (!Array.isArray(value)) return [];
+    const result = [];
+    const seen = new Set();
+    value.forEach((entry) => {
+      const text = (entry ?? '').toString().trim();
+      if (!text || seen.has(text)) return;
+      seen.add(text);
+      result.push(text);
+    });
+    return result;
+  }
+
   function normalizeMembershipRecord(entry) {
     if (!entry) return null;
     if (typeof entry === 'string') {
@@ -227,6 +240,7 @@
     const id = (entry.id || entry.membershipId || '').toString().trim();
     if (!id) return null;
     const clinicId = entry.clinicId ? String(entry.clinicId).trim() : null;
+    const clinicName = typeof entry.clinicName === 'string' ? entry.clinicName.trim() : '';
     const status = (entry.status || 'active').toString().trim() || 'active';
     const rawRoles = Array.isArray(entry.roles) ? entry.roles : [];
     const normalizedRoles = rawRoles
@@ -235,7 +249,12 @@
     const primaryRole = normalizeRole(entry.primaryRole || normalizedRoles[0] || '');
     const dedupedRoles = Array.from(new Set(primaryRole ? [primaryRole, ...normalizedRoles] : normalizedRoles));
     const label = typeof entry.label === 'string' ? entry.label.trim() : '';
-    const clinicName = typeof entry.clinicName === 'string' ? entry.clinicName.trim() : '';
+    const organizationId = entry.organizationId ? String(entry.organizationId).trim() : null;
+    const organizationName = typeof entry.organizationName === 'string' ? entry.organizationName.trim() : '';
+    const departments = normalizeMembershipList(entry.departments);
+    const committees = normalizeMembershipList(entry.committees);
+    const groups = normalizeMembershipList(entry.groups);
+    const meta = entry.meta && typeof entry.meta === 'object' ? entry.meta : null;
     return {
       id,
       clinicId,
@@ -244,8 +263,14 @@
       primaryRole: primaryRole || (dedupedRoles.length ? dedupedRoles[0] : ''),
       status,
       invitedBy: entry.invitedBy || null,
+      organizationId,
+      organizationName,
+      departments,
+      committees,
+      groups,
       createdAt: entry.createdAt || null,
       updatedAt: entry.updatedAt || null,
+      meta,
       label,
       raw: entry,
     };
@@ -336,8 +361,10 @@
     const candidates = [
       entry.label,
       entry.clinicName,
+      entry.organizationName,
       entry.raw?.label,
       entry.raw?.clinicName,
+      entry.raw?.organizationName,
       entry.clinicId,
     ].map((candidate) => (candidate || '').toString().trim()).filter(Boolean);
 
