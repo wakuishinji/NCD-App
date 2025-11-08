@@ -8,7 +8,10 @@
     "publish:mhlw": "node ./scripts/publishMhlwFacilities.mjs",
     "upload:mhlw": "node ./scripts/uploadMhlwToR2.mjs",
     "backfill:facilities": "node ./scripts/backfillFacilityCollections.mjs",
-    "seed:org-masters": "node ./scripts/seedOrganizationMasters.mjs"
+    "seed:org-masters": "node ./scripts/seedOrganizationMasters.mjs",
+    "pages:dev": "wrangler pages dev ./web --local true",
+    "deploy:pages:staging": "wrangler pages deploy ./web --project-name ncd-app --branch staging",
+    "deploy:pages:production": "wrangler pages deploy ./web --project-name ncd-app --branch main"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.8",

@@ -46,6 +46,12 @@
   <script>
     const DEFAULT_API_BASE = "https://ncd-app.altry.workers.dev";
     function resolveApiBase() {
+      if (typeof window !== 'undefined' && window.__CF_PAGES_ENV?.NCD_API_BASE) {
+        const cfBase = window.__CF_PAGES_ENV.NCD_API_BASE.trim();
+        if (cfBase) {
+          return cfBase.replace(/\/$/, "");
+        }
+      }
       if (typeof window !== 'undefined' && typeof window.API_BASE_OVERRIDE === 'string') {
         const override = window.API_BASE_OVERRIDE.trim();
         if (override) {

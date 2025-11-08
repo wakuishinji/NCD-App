@@ -255,8 +255,8 @@
    - Windows サーバー上のコンポーネント（IIS サイト、バッチ、スケジューラ、ファイル共有）を一覧化し、Cloudflare 上の置き換え先を決定。  
    - DNS / SSL 証明書 / Secrets 管理の現状をまとめ、Cloudflare へ移管する際の手順を記録。
 2. **ステージングを Cloudflare 化（2025-11 下旬）**  
-   - Cloudflare Pages に `web/` 静的ファイルをデプロイして `*.pages.dev` で検証。  
-   - Workers（API）と D1/KV/R2 のバインドを `wrangler.toml` 上で本番と同じ構成に揃え、ステージング用の環境変数（Secrets）を投入。  
+   - Cloudflare Pages に `web/` 静的ファイルをデプロイして `*.pages.dev` で検証（手順は `docs/cloudflare-pages-staging.md` を参照）。  
+   - Workers（API）と D1/KV/R2 のバインドを `wrangler.toml` 上で本番と同じ構成に揃え、ステージング用の環境変数（Secrets）は `docs/cloudflare-secrets.md` に沿って登録。  
    - GitHub Actions or CLI で `wrangler deploy --env staging` を実行できるよう設定。
 3. **本番 DNS 切替準備（2025-12 上旬）**  
    - Cloudflare 側でカスタムドメイン（`ncd-app.altry.workers.dev` など）を登録し、SSL/TLS 設定を確認。  
