@@ -22,6 +22,16 @@ database_name = "ncd-masters"
 database_id = "2d601bc3-8a3c-45f6-bb43-d9be3b64ee17"
 preview_database_id = "888a0e58-a8b3-40d9-a709-0231f63ac720"
 
+[env.staging]
+name = "ncd-app-staging"
+main = "./functions/index.js"
+compatibility_date = "2025-09-07"
+
+  [[env.staging.d1_databases]]
+  binding = "MASTERS_D1"
+  database_name = "ncd-masters"
+  database_id = "888a0e58-a8b3-40d9-a709-0231f63ac720"
+
 [env.production]
 name = "ncd-app-production"
 main = "./functions/index.js"
