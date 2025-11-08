@@ -244,6 +244,37 @@
 - 更新された Runbook (`docs/d1-master-migration.md`) と 運用ルール (`agent.md`)  
 - KV 削除完了ログとロールバック用アーカイブ
 
+### 7.8 Cloudflare 完全移行計画（2025-11-08）
+
+**前提**  
+- 現行の本番サイトは さくら VPS（Windows 2025 + IIS）上で動いているが、ユーザーはテスト利用のみ。短時間の停止や大幅な構成変更が許容される。
+- 目標はフロントエンド・API・データストアを Cloudflare（Workers/Pages/KV/D1/R2）へ集約し、`wrangler` ベースで統一運用すること。
+
+**タスク概要**
+1. **棚卸しとマッピング（2025-11 中旬）**  
+   - Windows サーバー上のコンポーネント（IIS サイト、バッチ、スケジューラ、ファイル共有）を一覧化し、Cloudflare 上の置き換え先を決定。  
+   - DNS / SSL 証明書 / Secrets 管理の現状をまとめ、Cloudflare へ移管する際の手順を記録。
+2. **ステージングを Cloudflare 化（2025-11 下旬）**  
+   - Cloudflare Pages に `web/` 静的ファイルをデプロイして `*.pages.dev` で検証。  
+   - Workers（API）と D1/KV/R2 のバインドを `wrangler.toml` 上で本番と同じ構成に揃え、ステージング用の環境変数（Secrets）を投入。  
+   - GitHub Actions or CLI で `wrangler deploy --env staging` を実行できるよう設定。
+3. **本番 DNS 切替準備（2025-12 上旬）**  
+   - Cloudflare 側でカスタムドメイン（`ncd-app.altry.workers.dev` など）を登録し、SSL/TLS 設定を確認。  
+   - さくら VPS 側の DNS TTL を 300 秒程度に下げ、切り替え当日の反映を早める。  
+   - Windows サーバー上の最新バックアップ（ファイル + DB）を取得して保管。
+4. **本番切替（2025-12 中旬）**  
+   - DNS を Cloudflare へ向ける or ネームサーバーを変更し、Cloudflare Pages/Workers を正面に据える。  
+   - 切替直後は `wrangler tail`・Cloudflare Analytics でエラー/リクエスト状況を監視し、必要に応じてロールバック。  
+   - 旧サーバーを「読み取り専用 + リダイレクト」に設定し、1〜2 週間後に停止する。
+5. **運用 Runbook 更新（2026-01）**  
+   - 新しいデプロイ手順、Secrets 管理、監視/アラート、障害時ロールバック方法を `docs/system-runbook.md`（新規）にまとめる。  
+   - GitHub / Cloudflare アカウント権限や CI/CD フローを定義し、開発者全員が同じ手順で運用できるようにする。
+
+**期待効果**
+- サーバー保守（OSアップデート、IIS設定、証明書更新）から解放され、アプリ開発に集中できる。  
+- CDN 配信によりレイテンシを均一化し、SkilBank / Medical Orchestra / MedicalDraft も同一基盤で展開できる。  
+- `wrangler deploy` / `wrangler rollback` により、バグ修正やロールバックが数秒で可能になるため、テスト中の大胆な実装変更がしやすくなる。
+
 ---
 
 ## 7. 現状の不具合・対応状況（2025-10-21）
