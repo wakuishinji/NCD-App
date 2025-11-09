@@ -259,7 +259,7 @@
    - Workers（API）と D1/KV/R2 のバインドを `wrangler.toml` 上で本番と同じ構成に揃え、ステージング用の環境変数（Secrets）は `docs/cloudflare-secrets.md` に沿って登録。  
    - GitHub Actions or CLI で `wrangler deploy --env staging` を実行できるよう設定。
 3. **本番 DNS 切替準備（2025-12 上旬）**  
-   - Cloudflare 側でカスタムドメイン（`ncd-app.altry.workers.dev` など）を登録し、SSL/TLS 設定を確認。  
+   - Cloudflare 側でカスタムドメイン（`ncd-app.altry.workers.dev` など）を登録し、SSL/TLS 設定を確認（詳細は `docs/cloudflare-dns-cutover.md` を参照）。  
    - さくら VPS 側の DNS TTL を 300 秒程度に下げ、切り替え当日の反映を早める。  
    - Windows サーバー上の最新バックアップ（ファイル + DB）を取得して保管。
 4. **本番切替（2025-12 中旬）**  
