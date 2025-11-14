@@ -16,7 +16,7 @@
 <body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col" data-require-role="systemAdmin,organizationAdmin,adminReviewer" data-guard-message="医師会事務局のみアクセスできます。トップページに戻ります。" data-redirect-to="/index.html">
   <header class="bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 text-white shadow">
     <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between gap-3">
-      <a href="/admin/admin.html" class="inline-flex items-center gap-2 rounded bg-white/10 px-3 py-2 text-sm font-semibold tracking-wide transition hover:bg-white/20">
+      <a href="/admin/admin.html" data-back-link data-default-return="/admin/admin.html" class="inline-flex items-center gap-2 rounded bg-white/10 px-3 py-2 text-sm font-semibold tracking-wide transition hover:bg-white/20">
         ← 管理ハブへ戻る
       </a>
       <h1 class="text-lg font-semibold tracking-wide">管理者申請の承認</h1>
@@ -163,6 +163,17 @@
         organizationId: '',
         organizations: [],
       };
+      function applyBackLinkTarget() {
+        const anchor = document.querySelector('[data-back-link]');
+        if (!anchor) return;
+        const params = new URLSearchParams(window.location.search);
+        const from = params.get('from');
+        const map = {
+          system: '/admin/systemHub.html',
+          municipality: '/admin/municipalityHub.html',
+        };
+        anchor.href = map[from] || anchor.dataset.defaultReturn || '/admin/admin.html';
+      }
 
       const requestList = document.getElementById('requestList');
       const detailPlaceholder = document.getElementById('detailPlaceholder');
@@ -196,6 +207,7 @@
       const organizationFilter = document.getElementById('organizationFilter');
       const reloadButton = document.getElementById('reloadButton');
       const loadMoreButton = document.getElementById('loadMoreButton');
+      applyBackLinkTarget();
 
       function resolveApiBase() {
         if (global.NcdAuth && typeof global.NcdAuth.resolveApiBase === 'function') {

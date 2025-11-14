@@ -5,6 +5,10 @@
   <title>厚労省ID同期 - NCD 管理</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://cdn.tailwindcss.com"></script>
+  
+<script>window.NCD_CF_ENV=window.__CF_PAGES_ENV||(window.__CF_PAGES_ENV?{NCD_API_BASE:window.__CF_PAGES_ENV.NCD_API_BASE,ENV_LABEL:window.__CF_PAGES_ENV.ENV_LABEL}:{NCD_API_BASE:'https://ncd-app.altry.workers.dev',ENV_LABEL:'production'});</script>
+<script src="../js/env.js"></script>
+
   <script src="../js/auth.js" defer></script>
   <script src="../js/sessionGuard.js" defer></script>
   <script src="../js/vendor/fflate.min.js" defer></script>
@@ -15,7 +19,7 @@
   <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-8 px-4 py-10">
     <section class="rounded-lg bg-white p-6 shadow">
       <header class="mb-6 flex flex-col gap-2">
-        <a href="/admin/admin.html" class="self-start text-sm text-blue-700 underline decoration-blue-400 hover:text-blue-900">← 管理ハブへ戻る</a>
+        <a href="/admin/systemHub.html" class="self-start text-sm text-blue-700 underline decoration-blue-400 hover:text-blue-900">← システム管理ハブへ戻る</a>
         <div>
           <h1 class="text-xl font-semibold text-blue-900">厚労省ID同期</h1>
           <p class="mt-1 text-sm text-slate-600">厚労省公開データの施設IDをNCDの診療所レコードへ紐付け、住所・連絡先等の情報を同期します。</p>
