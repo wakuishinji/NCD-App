@@ -5,6 +5,10 @@
   <title>診療所リスト管理 - NCD</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://cdn.tailwindcss.com"></script>
+  
+<script>window.NCD_CF_ENV=window.__CF_PAGES_ENV||(window.__CF_PAGES_ENV?{NCD_API_BASE:window.__CF_PAGES_ENV.NCD_API_BASE,ENV_LABEL:window.__CF_PAGES_ENV.ENV_LABEL}:{NCD_API_BASE:'https://ncd-app.altry.workers.dev',ENV_LABEL:'production'});</script>
+<script src="../js/env.js"></script>
+
   <script src="../js/auth.js" defer></script>
   <script src="../js/sessionGuard.js" defer></script>
   <script src="../js/loading.js" defer></script>
@@ -41,13 +45,13 @@
     }
   </style>
 </head>
-<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col" data-require-role="systemRoot" data-guard-message="システム管理者専用ページです。トップページへ戻ります。">
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col" data-require-role="systemRoot,systemAdmin,organizationAdmin" data-guard-message="自治体管理者専用ページです。トップページへ戻ります。">
   <header class="ncd-sticky-header bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 text-white shadow">
     <div class="ncd-header-condensed max-w-6xl mx-auto px-4 py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div class="flex flex-wrap items-center gap-2">
         <a href="/admin/admin.html" class="inline-flex items-center gap-2 rounded bg-white/10 px-3 py-2 text-sm font-semibold tracking-wide transition hover:bg-white/20">戻る</a>
       </div>
-      <h1 class="text-lg md:text-xl font-semibold tracking-wide text-center md:text-left md:flex-1">診療所リスト管理</h1>
+      <h1 class="text-lg md:text-xl font-semibold tracking-wide text-center md:text-left md:flex-1">自治体管理（施設一覧）</h1>
       <span class="self-start md:self-auto md:ml-auto text-sm text-white/80 whitespace-nowrap">Nakano Clinic Database</span>
     </div>
   </header>
@@ -58,8 +62,8 @@
         <div class="flex flex-col gap-4">
           <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
-              <h2 class="text-base font-semibold text-blue-900">診療所の一覧・検索・エクスポート</h2>
-              <p class="text-xs text-slate-500">選択すると対象施設が localStorage に保存され、運用画面から編集できます。</p>
+              <h2 class="text-base font-semibold text-blue-900">自治体ごとの施設一覧・検索・エクスポート</h2>
+              <p class="text-xs text-slate-500">自治体スタッフが担当する施設のみを表示し、管理者招待や削除などの自治体運用を行います。</p>
             </div>
             <div class="flex flex-wrap gap-2 text-sm">
               <a id="exportClinicsJson" class="rounded bg-slate-700 px-3 py-2 font-semibold text-white transition hover:bg-slate-800" href="#" download>JSON出力</a>
@@ -67,7 +71,10 @@
             </div>
           </div>
 
-          <div class="ncd-sticky-toolbar ncd-toolbar-surface rounded-lg border border-slate-200 px-3 py-3 shadow-sm ncd-toolbar-condensed grid gap-2 md:grid-cols-[2fr,1fr,auto]">
+          <div class="ncd-sticky-toolbar ncd-toolbar-surface rounded-lg border border-slate-200 px-3 py-3 shadow-sm ncd-toolbar-condensed grid gap-2 md:grid-cols-[1.5fr,1fr,1fr,auto]">
+            <select id="organizationFilter" class="rounded border px-3 py-2">
+              <option value="">自治体を選択</option>
+            </select>
             <input id="clinicQ" class="rounded border px-3 py-2" placeholder="検索（名称・住所）" />
             <select id="clinicOrder" class="rounded border px-3 py-2">
               <option value="updated_desc">更新が新しい</option>
@@ -84,6 +91,7 @@
                 <tr>
                   <th class="border px-2 py-1">ID</th>
                   <th class="border px-2 py-1">名称</th>
+                  <th class="border px-2 py-1">自治体</th>
                   <th class="border px-2 py-1">住所</th>
                   <th class="border px-2 py-1">最終更新</th>
                   <th class="border px-2 py-1">管理者</th>
@@ -132,7 +140,11 @@
     const BASE = resolveApiBase();
     window.NCD_API_BASE = BASE;
     const AUTH_TIMEOUT_MESSAGE = '権限の有効期限が切れています。再度ログインしてから操作してください。';
+    const DEFAULT_ORGANIZATION_NAME = '中野区医師会';
     let clinicsRaw = [];
+    let organizations = [];
+    let currentOrganizationId = '';
+    const organizationSelect = document.getElementById('organizationFilter');
 
     function formatDate(ts) {
       if (!ts) return '-';
@@ -141,6 +153,14 @@
       } catch (_) {
         return '-';
       }
+    }
+
+    function canViewAllOrganizations() {
+      if (!window.NcdAuth || typeof window.NcdAuth.getCurrentRole !== 'function') {
+        return false;
+      }
+      const role = window.NcdAuth.getCurrentRole();
+      return window.NcdAuth.roleIncludes(role, 'systemAdmin') || window.NcdAuth.roleIncludes(role, 'systemRoot');
     }
 
     function escapeHtml(value) {
@@ -182,6 +202,7 @@
       list.forEach(clinic => {
         const tr = document.createElement('tr');
         const nameCell = escapeHtml(clinic.name || '');
+        const organizationCell = escapeHtml(clinic.organizationName || '中野区医師会');
         const addressCell = escapeHtml(clinic.address || '');
         const managers = Array.isArray(clinic.managerAccounts) ? clinic.managerAccounts : [];
         const pendingInvites = Array.isArray(clinic.pendingInvites) ? clinic.pendingInvites.filter(inv => inv.status === 'pending') : [];
@@ -193,6 +214,7 @@
         tr.innerHTML = `
           <td class="border px-2 py-1">${escapeHtml(clinic.id || '')}</td>
           <td class="border px-2 py-1">${nameCell}</td>
+          <td class="border px-2 py-1">${organizationCell}</td>
           <td class="border px-2 py-1">${addressCell}</td>
           <td class="border px-2 py-1">${escapeHtml(formatDate(clinic.updated_at))}</td>
           <td class="border px-2 py-1 min-w-[160px]">${managerDisplay}</td>
@@ -210,20 +232,39 @@
     async function loadClinics(withOverlay = false) {
       const panel = document.getElementById('clinicsPanel');
       const executor = async () => {
+        const params = new URLSearchParams();
+        if (currentOrganizationId) {
+          params.set('organizationId', currentOrganizationId);
+        }
+        const query = params.toString() ? `?${params.toString()}` : '';
         try {
-          const res = await fetch(`${BASE}/api/listClinics`);
+          const res = await window.NcdAuth.authorizedFetch(`${BASE}/api/admin/clinics${query}`);
           if (!res.ok) {
             throw new Error(`HTTP ${res.status}`);
           }
           const data = await res.json();
           clinicsRaw = (data.ok && Array.isArray(data.clinics)) ? data.clinics : [];
+          if (Array.isArray(data.organizations)) {
+            organizations = data.organizations;
+          }
+          if (typeof data.organizationId === 'string') {
+            currentOrganizationId = data.organizationId;
+          } else if (!currentOrganizationId && organizations.length === 1) {
+            currentOrganizationId = organizations[0].id;
+          }
+          renderOrganizationOptions();
           renderClinics();
           const jsonLink = document.getElementById('exportClinicsJson');
           const csvLink = document.getElementById('exportClinicsCsv');
           jsonLink.href = `${BASE}/api/exportClinics?format=json`;
           csvLink.href = `${BASE}/api/exportClinics?format=csv`;
         } catch (error) {
-          console.error('failed to load clinics', error);
+          if (error?.code === 'AUTH_REQUIRED') {
+            alert(AUTH_TIMEOUT_MESSAGE);
+          } else {
+            console.error('failed to load clinics', error);
+            alert('診療所リストの取得に失敗しました');
+          }
           clinicsRaw = [];
           renderClinics();
           throw error;
@@ -234,15 +275,38 @@
         try {
           await wrapWithLoading(executor, '診療所リストを読み込み中...', panel);
         } catch (error) {
-          alert('診療所リストの取得に失敗しました');
+          // handled above
         }
       } else {
-        try {
-          await executor();
-        } catch (error) {
-          alert('診療所リストの取得に失敗しました');
-        }
+        await executor().catch(() => {});
       }
+    }
+
+    function renderOrganizationOptions() {
+      if (!organizationSelect) return;
+      const allowAll = canViewAllOrganizations();
+      organizationSelect.innerHTML = '';
+      const activeValue = currentOrganizationId || (allowAll ? '' : (organizations.length === 1 ? organizations[0].id : ''));
+      if (allowAll) {
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = 'すべての自治体';
+        organizationSelect.appendChild(option);
+      }
+      organizations.forEach((org) => {
+        const option = document.createElement('option');
+        option.value = org.id || '';
+        option.textContent = org.name || org.slug || org.id;
+        organizationSelect.appendChild(option);
+      });
+      if (!allowAll && !organizations.length) {
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = DEFAULT_ORGANIZATION_NAME || '中野区医師会';
+        organizationSelect.appendChild(option);
+      }
+      organizationSelect.disabled = !allowAll && organizations.length <= 1;
+      organizationSelect.value = activeValue || '';
     }
 
     function selectClinic(clinic) {
@@ -268,13 +332,15 @@
 
       const payload = { id, name };
       const executor = async () => {
-        const res = await fetch(`${BASE}/api/deleteClinic`, {
+        const res = await window.NcdAuth.authorizedFetch(`${BASE}/api/deleteClinic`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
         });
         if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
+          const errorBody = await res.json().catch(() => null);
+          const message = errorBody?.message || `HTTP ${res.status}`;
+          throw new Error(message);
         }
         await loadClinics();
       };
@@ -287,7 +353,11 @@
         }
       } catch (error) {
         console.error('failed to delete clinic', error);
-        alert('削除に失敗しました');
+        if (error?.message) {
+          alert(`削除に失敗しました: ${error.message}`);
+        } else {
+          alert('削除に失敗しました');
+        }
       }
     }
 
@@ -437,9 +507,16 @@
       inviteLinkWrapper = document.getElementById('inviteLinkWrapper');
       inviteLinkInput = document.getElementById('inviteLink');
       inviteCopyButton = document.getElementById('inviteCopy');
-      if (inviteCopyButton) {
-        inviteCopyButton.addEventListener('click', copyInviteLink);
-      }
+    if (inviteCopyButton) {
+      inviteCopyButton.addEventListener('click', copyInviteLink);
+    }
+
+    if (organizationSelect) {
+      organizationSelect.addEventListener('change', () => {
+        currentOrganizationId = organizationSelect.value || '';
+        loadClinics(true).catch(() => {});
+      });
+    }
 
       if (orderSelect) {
         orderSelect.addEventListener('change', renderClinics);

@@ -5,6 +5,10 @@
   <title>施設ホーム - NCD</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <script src="https://cdn.tailwindcss.com"></script>
+  
+<script>window.NCD_CF_ENV=window.__CF_PAGES_ENV||(window.__CF_PAGES_ENV?{NCD_API_BASE:window.__CF_PAGES_ENV.NCD_API_BASE,ENV_LABEL:window.__CF_PAGES_ENV.ENV_LABEL}:{NCD_API_BASE:'https://ncd-app.altry.workers.dev',ENV_LABEL:'production'});</script>
+<script src="js/env.js"></script>
+
   <script src="js/auth.js" defer></script>
   <script src="js/loading.js" defer></script>
   <script src="js/userMenu.js" defer></script>
@@ -97,16 +101,18 @@
         </a>
 
         <!-- 管理者カード -->
-        <div id="managerCard" class="bg-white rounded shadow p-6 hover:shadow-lg transition pointer-events-none opacity-60" data-disabled="true">
+        <div class="bg-white rounded shadow p-6 hover:shadow-lg transition">
           <div class="flex items-center justify-between mb-3">
             <div>
               <div class="text-lg font-semibold text-blue-800">施設管理者の設定</div>
-              <div class="text-xs text-gray-500">管理者が未設定の場合は、ここからメール招待できます。</div>
+              <div class="text-xs text-gray-500">管理者の招待・承認は自治体管理画面で実施します。</div>
             </div>
-            <button type="button" id="managerInviteButton" class="hidden rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-blue-700">管理者を招待</button>
           </div>
-          <div id="managerInfo" class="space-y-2 text-sm text-gray-700">
-            <div>管理者が設定されていません。</div>
+          <div class="space-y-2 text-sm text-gray-700">
+            <p>施設管理者を付与したい場合は、中野区医師会の自治体管理画面から申請の承認または招待を行ってください。</p>
+            <a href="/admin/clinicList.html" class="inline-flex items-center gap-2 rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-blue-700">
+              自治体管理画面を開く
+            </a>
           </div>
         </div>
 
@@ -365,7 +371,6 @@
         refreshClinicDetails(clinicId);
       } else if (!clinicId) {
         updateActionLinks(null, { canEdit: false });
-        updateManagerSection(null);
         updateStaffSection(null);
       }
     });
@@ -456,7 +461,7 @@
 
     async function refreshClinicDetails(id) {
       if (!id) return;
-      const card = document.getElementById('managerCard');
+      const panel = document.getElementById('clinicSummaryLink');
       try {
         await wrapWithLoading(async () => {
           const data = await fetchClinicDetail(id);
@@ -464,71 +469,15 @@
           const canEdit = hasClinicEditAccess(clinic);
           currentClinicDetail = clinic;
           updateActionLinks(clinic, { canEdit });
-          updateManagerSection(clinic, { canEdit });
           updateStaffSection(clinic, { canEdit });
           updateLoginNotice(clinic, canEdit);
-        }, '施設情報を取得中...', card);
+        }, '施設情報を取得中...', panel);
       } catch (err) {
         console.error('failed to fetch clinic detail', err);
         currentClinicDetail = null;
-        updateManagerSection(null);
         updateStaffSection(null);
         updateActionLinks(null, { canEdit: false });
         updateLoginNotice(null, false);
-      }
-    }
-
-    function updateManagerSection(clinic, options = {}) {
-      const canEdit = options.canEdit !== false;
-      const card = document.getElementById('managerCard');
-      const info = document.getElementById('managerInfo');
-      const inviteButton = document.getElementById('managerInviteButton');
-      if (!card || !info || !inviteButton) return;
-
-      if (!clinic || !clinic.id) {
-        card.classList.add('pointer-events-none', 'opacity-60');
-        inviteButton.classList.add('hidden');
-        info.innerHTML = '<div>管理者が設定されていません。</div>';
-        return;
-      }
-
-      card.classList.remove('pointer-events-none', 'opacity-60');
-      card.dataset.disabled = 'false';
-      inviteButton.classList.add('hidden');
-      card.classList.add('pointer-events-none', 'opacity-60');
-
-      const managers = Array.isArray(clinic.managerAccounts) ? clinic.managerAccounts : [];
-      const pending = Array.isArray(clinic.pendingInvites) ? clinic.pendingInvites.filter(inv => inv.role === 'clinicAdmin' && inv.status === 'pending') : [];
-
-      const fragments = [];
-      if (managers.length) {
-        fragments.push('<div class="text-sm font-semibold text-emerald-700">設定済みの管理者:</div>');
-        fragments.push('<ul class="space-y-1">');
-        managers.forEach(id => {
-          fragments.push(`<li class="flex items-center gap-2"><span class="rounded border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">${escapeHtml(String(id))}</span></li>`);
-        });
-        fragments.push('</ul>');
-      } else {
-        fragments.push('<div class="text-sm text-slate-600">管理者は未設定です。右上のボタンから招待してください。</div>');
-      }
-
-      if (pending.length) {
-        fragments.push('<div class="mt-3 text-sm font-semibold text-amber-700">招待中:</div>');
-        fragments.push('<ul class="space-y-1">');
-        pending.forEach(inv => {
-          fragments.push(`<li class="flex items-center justify-between gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">${escapeHtml(inv.email || '')}<span>${escapeHtml(inv.status || 'pending')}</span></li>`);
-        });
-        fragments.push('</ul>');
-      }
-      if (!canEdit) {
-        fragments.push('<div class="mt-3 text-xs text-slate-500">管理者としてログインすると招待操作ができます。</div>');
-      }
-
-      info.innerHTML = fragments.join('');
-      if (canEdit) {
-        inviteButton.onclick = () => openManagerInvitePrompt(clinic);
-      } else {
-        inviteButton.onclick = null;
       }
     }
 
@@ -577,13 +526,6 @@
       }
       info.innerHTML = fragments.join('');
       inviteButton.onclick = () => openStaffInvitePrompt(clinic);
-    }
-
-    function openManagerInvitePrompt(clinic) {
-      const email = prompt('管理者として招待するメールアドレスを入力してください。');
-      if (!email) return;
-      const displayName = prompt('招待相手の氏名（任意）を入力してください。') || undefined;
-      sendInviteRequest('/api/auth/registerFacilityAdmin', clinic, email, displayName);
     }
 
     function openStaffInvitePrompt(clinic) {

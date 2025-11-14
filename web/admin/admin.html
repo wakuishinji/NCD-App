@@ -5,6 +5,10 @@
   <title>NCD 管理ハブ</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://cdn.tailwindcss.com"></script>
+  
+<script>window.NCD_CF_ENV=window.__CF_PAGES_ENV||(window.__CF_PAGES_ENV?{NCD_API_BASE:window.__CF_PAGES_ENV.NCD_API_BASE,ENV_LABEL:window.__CF_PAGES_ENV.ENV_LABEL}:{NCD_API_BASE:'https://ncd-app.altry.workers.dev',ENV_LABEL:'production'});</script>
+<script src="../js/env.js"></script>
+
   <script src="../js/auth.js" defer></script>
   <script src="../js/sessionGuard.js" defer></script>
 </head>
@@ -42,8 +46,8 @@
         </div>
         <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <a href="clinicList.html" class="group block rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:border-blue-400 hover:shadow-lg">
-            <h3 class="text-base font-semibold text-slate-900">診療所リスト</h3>
-            <p class="mt-2 text-sm text-slate-600">登録済み診療所の検索・エクスポート・削除にアクセスします。</p>
+            <h3 class="text-base font-semibold text-slate-900">自治体管理（中野区）</h3>
+            <p class="mt-2 text-sm text-slate-600">中野区医師会の施設一覧・管理者招待・申請承認など自治体単位の運用ハブです。</p>
           </a>
           <a href="/categoriesAdmin.html?type=department" class="group block rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:border-blue-400 hover:shadow-lg">
             <h3 class="text-base font-semibold text-slate-900">標榜診療科分類マスター</h3>

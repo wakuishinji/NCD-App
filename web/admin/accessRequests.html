@@ -5,11 +5,15 @@
   <title>管理者申請の承認 - NCD</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://cdn.tailwindcss.com"></script>
+  
+<script>window.NCD_CF_ENV=window.__CF_PAGES_ENV||(window.__CF_PAGES_ENV?{NCD_API_BASE:window.__CF_PAGES_ENV.NCD_API_BASE,ENV_LABEL:window.__CF_PAGES_ENV.ENV_LABEL}:{NCD_API_BASE:'https://ncd-app.altry.workers.dev',ENV_LABEL:'production'});</script>
+<script src="../js/env.js"></script>
+
   <script src="../js/auth.js" defer></script>
   <script src="../js/sessionGuard.js" defer></script>
   <script src="../js/loading.js" defer></script>
 </head>
-<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col" data-require-role="systemAdmin,adminReviewer" data-guard-message="医師会事務局のみアクセスできます。トップページに戻ります。" data-redirect-to="/index.html">
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col" data-require-role="systemAdmin,organizationAdmin,adminReviewer" data-guard-message="医師会事務局のみアクセスできます。トップページに戻ります。" data-redirect-to="/index.html">
   <header class="bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 text-white shadow">
     <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between gap-3">
       <a href="/admin/admin.html" class="inline-flex items-center gap-2 rounded bg-white/10 px-3 py-2 text-sm font-semibold tracking-wide transition hover:bg-white/20">
@@ -31,6 +35,12 @@
                 <option value="pending">未処理</option>
                 <option value="approved">承認済み</option>
                 <option value="denied">却下済み</option>
+                <option value="">すべて</option>
+              </select>
+            </label>
+            <label class="text-sm font-medium text-slate-700">
+              自治体
+              <select id="organizationFilter" class="ml-2 rounded border px-2 py-1 text-sm">
                 <option value="">すべて</option>
               </select>
             </label>
@@ -150,6 +160,8 @@
         clinics: [],
         selectedId: null,
         loading: false,
+        organizationId: '',
+        organizations: [],
       };
 
       const requestList = document.getElementById('requestList');
@@ -181,6 +193,7 @@
       const denyReason = document.getElementById('denyReason');
       const detailClinicLink = document.getElementById('detailClinicLink');
       const statusFilter = document.getElementById('statusFilter');
+      const organizationFilter = document.getElementById('organizationFilter');
       const reloadButton = document.getElementById('reloadButton');
       const loadMoreButton = document.getElementById('loadMoreButton');
 
@@ -219,6 +232,40 @@
           return { text: '却下済み', classes: 'border-red-300 bg-red-50 text-red-700' };
         }
         return { text: '未処理', classes: 'border-amber-300 bg-amber-50 text-amber-700' };
+      }
+
+      function canViewAllOrganizations() {
+        if (!global.NcdAuth || typeof global.NcdAuth.getCurrentRole !== 'function') return false;
+        const role = global.NcdAuth.getCurrentRole();
+        return global.NcdAuth.roleIncludes(role, 'systemAdmin') || global.NcdAuth.roleIncludes(role, 'systemRoot');
+      }
+
+      function renderOrganizationFilter() {
+        if (!organizationFilter) return;
+        const allowAll = canViewAllOrganizations();
+        organizationFilter.innerHTML = '';
+        if (allowAll) {
+          const option = document.createElement('option');
+          option.value = '';
+          option.textContent = 'すべて';
+          organizationFilter.appendChild(option);
+        }
+        state.organizations.forEach((org) => {
+          const option = document.createElement('option');
+          option.value = org.id || '';
+          option.textContent = org.name || org.slug || org.id;
+          organizationFilter.appendChild(option);
+        });
+        if (!allowAll && !state.organizations.length) {
+          const option = document.createElement('option');
+          option.value = '';
+          option.textContent = '中野区医師会';
+          organizationFilter.appendChild(option);
+          organizationFilter.disabled = true;
+        } else {
+          organizationFilter.disabled = false;
+        }
+        organizationFilter.value = state.organizationId || '';
       }
 
       function escapeHtml(text) {
@@ -406,11 +453,24 @@
 
       async function loadClinics() {
         if (!global.NcdAuth || typeof global.NcdAuth.authorizedFetch !== 'function') return;
+        const params = new URLSearchParams();
+        if (state.organizationId) {
+          params.set('organizationId', state.organizationId);
+        }
+        const query = params.toString() ? `?${params.toString()}` : '';
         try {
-          const res = await global.NcdAuth.authorizedFetch(`${API_BASE}/api/listClinics`);
+          const res = await global.NcdAuth.authorizedFetch(`${API_BASE}/api/admin/clinics${query}`);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const data = await res.json();
           if (!Array.isArray(data?.clinics)) return;
+          if (Array.isArray(data?.organizations)) {
+            state.organizations = data.organizations;
+            renderOrganizationFilter();
+          }
+          if (typeof data?.organizationId === 'string') {
+            state.organizationId = data.organizationId;
+            renderOrganizationFilter();
+          }
           state.clinics = data.clinics
             .map((clinic) => ({
               id: clinic.id || clinic.clinicId || '',
@@ -436,6 +496,9 @@
           if (state.status) {
             params.set('status', state.status);
           }
+          if (state.organizationId) {
+            params.set('organizationId', state.organizationId);
+          }
           params.set('limit', REQUEST_LIMIT.toString());
           if (append && state.cursor) {
             params.set('cursor', state.cursor);
@@ -447,6 +510,17 @@
           const data = await res.json();
           const requests = Array.isArray(data?.requests) ? data.requests : [];
           state.cursor = data?.cursor || null;
+          if (Array.isArray(data?.organizations)) {
+            state.organizations = data.organizations;
+            renderOrganizationFilter();
+          }
+          if (typeof data?.organizationId === 'string') {
+            state.organizationId = data.organizationId;
+            renderOrganizationFilter();
+          } else if (!state.organizationId && state.organizations.length === 1) {
+            state.organizationId = state.organizations[0].id;
+            renderOrganizationFilter();
+          }
           if (append) {
             state.requests = state.requests.concat(requests);
           } else {
@@ -459,6 +533,7 @@
           }
           renderList();
           renderDetail(getSelectedRequest());
+          loadClinics();
           if (state.cursor) {
             loadMoreButton.classList.remove('hidden');
           } else {
@@ -487,6 +562,14 @@
         statusFilter.value = state.status;
         statusFilter.addEventListener('change', () => {
           state.status = statusFilter.value || '';
+          state.cursor = null;
+          loadRequests({ append: false });
+        });
+      }
+
+      if (organizationFilter) {
+        organizationFilter.addEventListener('change', () => {
+          state.organizationId = organizationFilter.value || '';
           state.cursor = null;
           loadRequests({ append: false });
         });

@@ -67,8 +67,17 @@ const ADMIN_REQUEST_DEFAULT_LIMIT = 20;
 const ORGANIZATION_ID_PREFIX = 'organization:';
 const ORGANIZATION_ID_KEY_PREFIX = 'organization:id:';
 const ORGANIZATION_SLUG_INDEX_PREFIX = 'organization:slug:';
-const DEFAULT_ORGANIZATION_SLUG = 'default';
+const DEFAULT_ORGANIZATION_SLUG = 'nakano-med';
 const DEFAULT_ORGANIZATION_ID = `${ORGANIZATION_ID_PREFIX}${DEFAULT_ORGANIZATION_SLUG}`;
+const DEFAULT_ORGANIZATION_NAME = '中野区医師会';
+const DEFAULT_ORGANIZATION = {
+  id: DEFAULT_ORGANIZATION_ID,
+  slug: DEFAULT_ORGANIZATION_SLUG,
+  name: DEFAULT_ORGANIZATION_NAME,
+};
+const KNOWN_ORGANIZATIONS = [DEFAULT_ORGANIZATION];
+const ORGANIZATION_INDEX_BY_ID = new Map(KNOWN_ORGANIZATIONS.map((org) => [org.id, org]));
+const ORGANIZATION_INDEX_BY_SLUG = new Map(KNOWN_ORGANIZATIONS.map((org) => [org.slug, org]));
 
 const MHLW_FACILITIES_R2_KEY = 'mhlw/facilities.json';
 const MHLW_FACILITIES_META_KEY = 'mhlw:facilities:meta';
@@ -292,6 +301,141 @@ export default {
     function optionalString(value) {
       const trimmed = nk(value);
       return trimmed ? trimmed : null;
+    }
+
+    function normalizeOrganizationId(value) {
+      const trimmed = nk(value);
+      if (!trimmed) return null;
+      if (trimmed.startsWith(ORGANIZATION_ID_PREFIX)) {
+        return trimmed;
+      }
+      return `${ORGANIZATION_ID_PREFIX}${trimmed.replace(/^:+/, '')}`;
+    }
+
+    function resolveOrganizationMeta(identifier) {
+      const normalizedId = normalizeOrganizationId(identifier) || DEFAULT_ORGANIZATION_ID;
+      if (ORGANIZATION_INDEX_BY_ID.has(normalizedId)) {
+        return ORGANIZATION_INDEX_BY_ID.get(normalizedId);
+      }
+      const slug = normalizedId.replace(ORGANIZATION_ID_PREFIX, '');
+      if (ORGANIZATION_INDEX_BY_SLUG.has(slug)) {
+        return ORGANIZATION_INDEX_BY_SLUG.get(slug);
+      }
+      return {
+        id: normalizedId,
+        slug,
+        name: DEFAULT_ORGANIZATION_NAME,
+      };
+    }
+
+    function ensureClinicOrganization(record) {
+      if (!record || typeof record !== 'object') return record;
+      if (!record.organizationId) {
+        record.organizationId = DEFAULT_ORGANIZATION_ID;
+      } else {
+        record.organizationId = normalizeOrganizationId(record.organizationId);
+      }
+      if (record.organizationId === DEFAULT_ORGANIZATION_ID && !record.organizationName) {
+        record.organizationName = DEFAULT_ORGANIZATION_NAME;
+      }
+      return record;
+    }
+
+    function normalizeOrganizationEntry(entry) {
+      if (!entry) return null;
+      if (typeof entry === 'string') {
+        return resolveOrganizationMeta(entry);
+      }
+      if (typeof entry === 'object') {
+        if (entry.id || entry.slug) {
+          return resolveOrganizationMeta(entry.id || entry.slug);
+        }
+      }
+      return null;
+    }
+
+    function resolveAccountOrganizations(account) {
+      if (!account) return [];
+      const collected = [];
+      const seen = new Set();
+      const push = (org) => {
+        if (!org || !org.id || seen.has(org.id)) return;
+        seen.add(org.id);
+        collected.push(org);
+      };
+      const candidateLists = [];
+      if (Array.isArray(account.organizations)) candidateLists.push(account.organizations);
+      if (Array.isArray(account.primaryOrganizationIds)) candidateLists.push(account.primaryOrganizationIds);
+      if (Array.isArray(account.profile?.organizations)) candidateLists.push(account.profile.organizations);
+      for (const list of candidateLists) {
+        if (!Array.isArray(list)) continue;
+        for (const entry of list) {
+          const normalized = normalizeOrganizationEntry(entry);
+          if (normalized) push(normalized);
+        }
+      }
+      return collected;
+    }
+
+    function resolveLimitedOrganizations(authContext) {
+      if (!authContext) return [DEFAULT_ORGANIZATION];
+      if (hasRole(authContext.payload, ['systemRoot', 'systemAdmin'])) {
+        return [];
+      }
+      if (hasRole(authContext.payload, ['organizationAdmin', 'adminReviewer'])) {
+        const orgs = resolveAccountOrganizations(authContext.account);
+        if (orgs.length) return orgs;
+        return [DEFAULT_ORGANIZATION];
+      }
+      return [];
+    }
+
+    function listKnownOrganizations() {
+      return KNOWN_ORGANIZATIONS;
+    }
+
+    function clinicBelongsToOrganizations(clinic, organizationIds) {
+      if (!organizationIds || !organizationIds.length) return true;
+      const clinicOrgId = normalizeOrganizationId(clinic?.organizationId) || DEFAULT_ORGANIZATION_ID;
+      return organizationIds.includes(clinicOrgId);
+    }
+
+    async function ensureClinicWriteAccess(env, authContext, clinicId, {
+      allowClinicAdmins = true,
+    } = {}) {
+      if (!authContext) {
+        return { ok: false, status: 401, message: '認証が必要です。' };
+      }
+      const normalizedClinicId = nk(clinicId);
+      if (!normalizedClinicId) {
+        return { ok: false, status: 400, message: 'clinicId が必要です。' };
+      }
+      let clinic = await getClinicById(env, normalizedClinicId);
+      if (!clinic) {
+        return { ok: false, status: 404, message: '対象施設が見つかりません。' };
+      }
+      if (hasRole(authContext.payload, ['systemRoot', 'systemAdmin'])) {
+        return { ok: true, clinic };
+      }
+      const limitedOrganizations = resolveLimitedOrganizations(authContext).map((org) => org.id);
+      if (hasRole(authContext.payload, ['organizationAdmin'])) {
+        if (!limitedOrganizations.length || clinicBelongsToOrganizations(clinic, limitedOrganizations)) {
+          return { ok: true, clinic };
+        }
+        return { ok: false, status: 403, message: '他組織の施設は操作できません。' };
+      }
+      if (allowClinicAdmins) {
+        const { memberships } = await resolveAccountMemberships(env, authContext.account);
+        const membership = memberships.find((entry) => (entry.clinicId || '').trim() === clinic.id);
+        if (membership) {
+          const roles = Array.isArray(membership.roles) ? membership.roles : [];
+          const isClinicAdmin = roles.some((role) => normalizeRole(role) === 'clinicAdmin');
+          if (isClinicAdmin) {
+            return { ok: true, clinic };
+          }
+        }
+      }
+      return { ok: false, status: 403, message: '権限が不足しています。' };
     }
 
     function sanitizeUrl(value) {
@@ -539,6 +683,7 @@ export default {
       clinic.schemaVersion = CLINIC_SCHEMA_VERSION;
       clinic.schema_version = CLINIC_SCHEMA_VERSION;
       clinic.organizationId = clinic.organizationId || clinic.organization_id || null;
+      ensureClinicOrganization(clinic);
 
       const basic = clonePlain(clinic.basic);
       const assignFromBasic = (field, basicKey) => {
@@ -2806,25 +2951,28 @@ export default {
     }
 
     const ROLE_CANONICAL = {
-    systemroot: 'systemRoot',
-    sysroot: 'systemRoot',
-    root: 'systemRoot',
-    systemadmin: 'systemAdmin',
-    adminreviewer: 'adminReviewer',
-    reviewer: 'adminReviewer',
-    admin: 'clinicAdmin',
-    clinicadmin: 'clinicAdmin',
-    clinicstaff: 'clinicStaff',
-    staff: 'clinicStaff',
-  };
+      systemroot: 'systemRoot',
+      sysroot: 'systemRoot',
+      root: 'systemRoot',
+      systemadmin: 'systemAdmin',
+      adminreviewer: 'adminReviewer',
+      reviewer: 'adminReviewer',
+      organizationadmin: 'organizationAdmin',
+      municipaladmin: 'organizationAdmin',
+      admin: 'clinicAdmin',
+      clinicadmin: 'clinicAdmin',
+      clinicstaff: 'clinicStaff',
+      staff: 'clinicStaff',
+    };
 
-  const ROLE_INHERITANCE = {
-    systemRoot: ['systemRoot', 'systemAdmin', 'clinicAdmin', 'clinicStaff'],
-    systemAdmin: ['systemAdmin', 'clinicAdmin', 'clinicStaff'],
-    adminReviewer: ['adminReviewer', 'clinicStaff'],
-    clinicAdmin: ['clinicAdmin', 'clinicStaff'],
-    clinicStaff: ['clinicStaff'],
-  };
+    const ROLE_INHERITANCE = {
+      systemRoot: ['systemRoot', 'systemAdmin', 'organizationAdmin', 'clinicAdmin', 'clinicStaff'],
+      systemAdmin: ['systemAdmin', 'organizationAdmin', 'clinicAdmin', 'clinicStaff'],
+      organizationAdmin: ['organizationAdmin', 'clinicAdmin', 'clinicStaff'],
+      adminReviewer: ['adminReviewer', 'clinicStaff'],
+      clinicAdmin: ['clinicAdmin', 'clinicStaff'],
+      clinicStaff: ['clinicStaff'],
+    };
 
   const SYSTEM_ROOT_ONLY = ['systemRoot'];
 
@@ -3068,6 +3216,8 @@ export default {
         displayName: record.displayName || null,
         clinicId: record.clinicId || null,
         clinicName: record.clinicName || null,
+        organizationId: record.organizationId || null,
+        organizationName: record.organizationName || null,
         notes: record.notes || '',
         accountId: record.accountId || null,
         requestedAt: record.requestedAt || null,
@@ -3130,6 +3280,7 @@ export default {
       status,
       limit = ADMIN_REQUEST_DEFAULT_LIMIT,
       cursor,
+      organizationIds = [],
     } = {}) {
       const normalizedStatus = status ? status.toString().trim().toLowerCase() : '';
       const collected = [];
@@ -3152,6 +3303,13 @@ export default {
           const record = await kvGetJSON(env, entry.name);
           if (!record) continue;
           if (normalizedStatus && (record.status || '').toLowerCase() !== normalizedStatus) {
+            continue;
+          }
+          if (organizationIds.length) {
+            const recordOrgId = normalizeOrganizationId(record.organizationId) || DEFAULT_ORGANIZATION_ID;
+            if (!organizationIds.includes(recordOrgId)) {
+              continue;
+            }
             continue;
           }
           collected.push(sanitizeAdminRequest(record));
@@ -4992,6 +5150,9 @@ export default {
         accountId = ensureAccountId(accountLookup.account, accountLookup.pointer);
       }
 
+      const organizationMeta = clinic
+        ? resolveOrganizationMeta(clinic.organizationId)
+        : DEFAULT_ORGANIZATION;
       const id = crypto.randomUUID();
       const nowIso = new Date().toISOString();
       const requestRecord = {
@@ -5002,6 +5163,8 @@ export default {
         displayName: displayName || '',
         clinicId: clinicId || null,
         clinicName: clinicName || '',
+        organizationId: organizationMeta.id,
+        organizationName: organizationMeta.name,
         notes,
         accountId,
         requestedAt: nowIso,
@@ -5175,6 +5338,7 @@ export default {
       const responsePayload = {
         ok: true,
         account: publicAccountView(account, { memberships }),
+        memberships,
         tokens: {
           accessToken: accessTokenData.token,
           accessTokenExpiresAt: new Date(accessTokenData.expiresAt * 1000).toISOString(),
@@ -5307,6 +5471,7 @@ export default {
       return new Response(JSON.stringify({
         ok: true,
         account: publicAccountView(account, { memberships }),
+        memberships,
         tokens: {
           accessToken: accessTokenData.token,
           accessTokenExpiresAt: new Date(accessTokenData.expiresAt * 1000).toISOString(),
@@ -5324,20 +5489,37 @@ export default {
       if (!authContext) {
         return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
       }
-      if (!hasRole(authContext.payload, SYSTEM_ROOT_ONLY)) {
+      if (!hasRole(authContext.payload, ['systemRoot', 'systemAdmin', 'organizationAdmin', 'adminReviewer'])) {
         return jsonResponse({ error: 'FORBIDDEN', message: '権限が不足しています。' }, 403);
       }
       const statusParam = nk(url.searchParams.get('status'));
       const limitParam = nk(url.searchParams.get('limit'));
       const cursorParam = nk(url.searchParams.get('cursor')) || undefined;
+      const requestedOrg = normalizeOrganizationId(url.searchParams.get('organizationId'));
       const limit = limitParam ? Math.max(1, Math.min(100, Number(limitParam) || ADMIN_REQUEST_DEFAULT_LIMIT)) : ADMIN_REQUEST_DEFAULT_LIMIT;
+      const limitedOrganizations = resolveLimitedOrganizations(authContext);
+      const accessibleOrganizations = limitedOrganizations.length ? limitedOrganizations : listKnownOrganizations();
+      let filterOrgIds = limitedOrganizations.length ? limitedOrganizations.map((org) => org.id) : [];
+      if (requestedOrg) {
+        if (filterOrgIds.length && !filterOrgIds.includes(requestedOrg)) {
+          return jsonResponse({ error: 'FORBIDDEN_ORGANIZATION', message: '指定された自治体の申請にはアクセスできません。' }, 403);
+        }
+        filterOrgIds = [requestedOrg];
+      }
 
       const { requests, cursor: nextCursor } = await listAdminRequests(env, {
         status: statusParam,
         limit,
         cursor: cursorParam,
+        organizationIds: filterOrgIds,
       });
-      return jsonResponse({ ok: true, requests, cursor: nextCursor });
+      return jsonResponse({
+        ok: true,
+        requests,
+        cursor: nextCursor,
+        organizations: accessibleOrganizations,
+        organizationId: (filterOrgIds.length === 1) ? filterOrgIds[0] : null,
+      });
     }
 
     if (routeMatch(url, 'GET', 'admin/accessRequest')) {
@@ -5345,7 +5527,7 @@ export default {
       if (!authContext) {
         return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
       }
-      if (!hasRole(authContext.payload, SYSTEM_ROOT_ONLY)) {
+      if (!hasRole(authContext.payload, ['systemRoot', 'systemAdmin', 'organizationAdmin', 'adminReviewer'])) {
         return jsonResponse({ error: 'FORBIDDEN', message: '権限が不足しています。' }, 403);
       }
       const requestId = nk(url.searchParams.get('id'));
@@ -5356,6 +5538,14 @@ export default {
       if (!adminRequest) {
         return jsonResponse({ error: 'NOT_FOUND', message: '申請が見つかりません。' }, 404);
       }
+      const limitedOrganizations = resolveLimitedOrganizations(authContext);
+      if (limitedOrganizations.length) {
+        const allowedIds = limitedOrganizations.map((org) => org.id);
+        const recordOrgId = normalizeOrganizationId(adminRequest.organizationId) || DEFAULT_ORGANIZATION_ID;
+        if (!allowedIds.includes(recordOrgId)) {
+          return jsonResponse({ error: 'FORBIDDEN', message: '他組織の申請にはアクセスできません。' }, 403);
+        }
+      }
       return jsonResponse({ ok: true, request: sanitizeAdminRequest(adminRequest) });
     }
 
@@ -5364,7 +5554,7 @@ export default {
       if (!authContext) {
         return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
       }
-      if (!hasRole(authContext.payload, SYSTEM_ROOT_ONLY)) {
+      if (!hasRole(authContext.payload, ['systemRoot', 'systemAdmin', 'organizationAdmin'])) {
         return jsonResponse({ error: 'FORBIDDEN', message: '権限が不足しています。' }, 403);
       }
       let body;
@@ -5380,6 +5570,14 @@ export default {
       let adminRequest = await getAdminRequestById(env, requestId);
       if (!adminRequest) {
         return jsonResponse({ error: 'NOT_FOUND', message: '申請が見つかりません。' }, 404);
+      }
+      const limitedOrganizations = resolveLimitedOrganizations(authContext);
+      if (limitedOrganizations.length) {
+        const allowedIds = limitedOrganizations.map((org) => org.id);
+        const recordOrgId = normalizeOrganizationId(adminRequest.organizationId) || DEFAULT_ORGANIZATION_ID;
+        if (!allowedIds.includes(recordOrgId)) {
+          return jsonResponse({ error: 'FORBIDDEN', message: '他組織の申請は承認できません。' }, 403);
+        }
       }
       if ((adminRequest.status || '').toLowerCase() !== 'pending') {
         return jsonResponse({ error: 'REQUEST_ALREADY_PROCESSED', message: 'この申請は処理済みです。' }, 409);
@@ -5544,7 +5742,7 @@ export default {
       if (!authContext) {
         return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
       }
-      if (!hasRole(authContext.payload, SYSTEM_ROOT_ONLY)) {
+      if (!hasRole(authContext.payload, ['systemRoot', 'systemAdmin', 'organizationAdmin', 'adminReviewer'])) {
         return jsonResponse({ error: 'FORBIDDEN', message: '権限が不足しています。' }, 403);
       }
       let body;
@@ -5560,6 +5758,14 @@ export default {
       const adminRequest = await getAdminRequestById(env, requestId);
       if (!adminRequest) {
         return jsonResponse({ error: 'NOT_FOUND', message: '申請が見つかりません。' }, 404);
+      }
+      const limitedOrganizations = resolveLimitedOrganizations(authContext);
+      if (limitedOrganizations.length) {
+        const allowedIds = limitedOrganizations.map((org) => org.id);
+        const recordOrgId = normalizeOrganizationId(adminRequest.organizationId) || DEFAULT_ORGANIZATION_ID;
+        if (!allowedIds.includes(recordOrgId)) {
+          return jsonResponse({ error: 'FORBIDDEN', message: '他組織の申請は処理できません。' }, 403);
+        }
       }
       if ((adminRequest.status || '').toLowerCase() !== 'pending') {
         return jsonResponse({ error: 'REQUEST_ALREADY_PROCESSED', message: 'この申請は処理済みです。' }, 409);
@@ -7178,7 +7384,20 @@ if (routeMatch(url, "POST", "registerClinic")) {
 // <<< END: CLINIC_REGISTER >>>
 
     // <<< START: CLINIC_LIST >>>
-if (routeMatch(url, "GET", "listClinics")) {
+    if (routeMatch(url, 'GET', 'admin/organizations')) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      if (!hasRole(authContext.payload, ['systemRoot', 'systemAdmin', 'organizationAdmin', 'adminReviewer'])) {
+        return jsonResponse({ error: 'FORBIDDEN', message: '権限が不足しています。' }, 403);
+      }
+      const limitedOrganizations = resolveLimitedOrganizations(authContext);
+      const organizations = limitedOrganizations.length ? limitedOrganizations : listKnownOrganizations();
+      return jsonResponse({ ok: true, organizations });
+    }
+
+    if (routeMatch(url, "GET", "listClinics")) {
   // まず新形式の件数を確認
   const idKeys = await env.SETTINGS.list({ prefix: "clinic:id:" });
   // 新形式がゼロなら、旧形式をスキャンして自動移行
@@ -7217,6 +7436,42 @@ if (routeMatch(url, "GET", "listClinics")) {
 }
 // <<< END: CLINIC_LIST >>>
 
+    if (routeMatch(url, 'GET', 'admin/clinics')) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      if (!hasRole(authContext.payload, ['systemRoot', 'systemAdmin', 'organizationAdmin', 'adminReviewer'])) {
+        return jsonResponse({ error: 'FORBIDDEN', message: '権限が不足しています。' }, 403);
+      }
+      const requestedOrg = normalizeOrganizationId(url.searchParams.get('organizationId'));
+      const limitedOrganizations = resolveLimitedOrganizations(authContext);
+      const accessibleOrganizations = limitedOrganizations.length ? limitedOrganizations : listKnownOrganizations();
+      const accessibleOrgIds = accessibleOrganizations.map((org) => org.id);
+      let filterOrgIds = [];
+      if (limitedOrganizations.length) {
+        filterOrgIds = [...new Set(accessibleOrgIds)];
+      }
+      if (requestedOrg) {
+        if (limitedOrganizations.length && !filterOrgIds.includes(requestedOrg)) {
+          return jsonResponse({ error: 'FORBIDDEN_ORGANIZATION', message: '指定された自治体データにはアクセスできません。' }, 403);
+        }
+        filterOrgIds = [requestedOrg];
+      }
+      const { items } = await listClinicsKV(env, { limit: 5000, offset: 0 });
+      let clinics = Array.isArray(items) ? items : [];
+      if (filterOrgIds.length) {
+        clinics = clinics.filter((clinic) => clinicBelongsToOrganizations(clinic, filterOrgIds));
+      }
+      const activeOrganizationId = (filterOrgIds.length === 1) ? filterOrgIds[0] : null;
+      return jsonResponse({
+        ok: true,
+        clinics,
+        organizationId: activeOrganizationId,
+        organizations: accessibleOrganizations,
+      });
+    }
+
     // ============================================================
     // <<< START: CLINIC_DETAIL >>>
     // ============================================================
@@ -7253,68 +7508,71 @@ if (routeMatch(url, "GET", "listClinics")) {
 
     // <<< START: CLINIC_UPDATE >>>
     if (routeMatch(url, "POST", "updateClinic")) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
       try {
         const body = await request.json();
         const clinicIdParam = nk(body?.id || body?.clinicId);
         const name = nk(body?.name);
         if (!clinicIdParam && !name) {
-          return new Response(JSON.stringify({ error: "診療所名が必要です" }), {
-            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return jsonResponse({ error: 'INVALID_REQUEST', message: '診療所名が必要です。' }, 400);
         }
         let clinicData = null;
         if (clinicIdParam) {
           clinicData = await getClinicById(env, clinicIdParam);
         }
         if (!clinicData && name) {
-          clinicData = await getClinicByName(env, name) || {};
+          clinicData = await getClinicByName(env, name) || null;
+        }
+        if (clinicData) {
+          const access = await ensureClinicWriteAccess(env, authContext, clinicData.id, { allowClinicAdmins: true });
+          if (!access.ok) {
+            return jsonResponse({ error: 'FORBIDDEN', message: access.message || '権限が不足しています。' }, access.status || 403);
+          }
+          clinicData = access.clinic;
+        } else if (!hasRole(authContext.payload, ['systemRoot', 'systemAdmin', 'organizationAdmin'])) {
+          return jsonResponse({ error: 'FORBIDDEN', message: '施設の新規作成には権限が必要です。' }, 403);
         }
         const baseClinicData = (clinicData && typeof clinicData === 'object') ? clinicData : {};
-        clinicData = { ...baseClinicData, ...body };
-        if (name) clinicData.name = name;
-        if (clinicIdParam) clinicData.id = clinicIdParam;
+        const mergedClinic = { ...baseClinicData, ...body };
+        if (name) mergedClinic.name = name;
+        if (clinicIdParam) mergedClinic.id = clinicIdParam;
         if (body?.mhlwFacilityId || body?.facilityId || body?.mhlwId) {
-          clinicData.mhlwFacilityId = normalizeMhlwFacilityId(body.mhlwFacilityId || body.facilityId || body.mhlwId);
+          mergedClinic.mhlwFacilityId = normalizeMhlwFacilityId(body.mhlwFacilityId || body.facilityId || body.mhlwId);
         }
         if (Object.prototype.hasOwnProperty.call(body, 'mhlwManualNote')) {
           if (body.mhlwManualNote === null) {
-            clinicData.mhlwManualNote = null;
+            mergedClinic.mhlwManualNote = null;
           } else if (typeof body.mhlwManualNote === 'string') {
-            clinicData.mhlwManualNote = body.mhlwManualNote;
+            mergedClinic.mhlwManualNote = body.mhlwManualNote;
           }
         }
         const requestedStatus = nk(body?.mhlwSyncStatus);
         if (requestedStatus) {
           const normalizedStatus = requestedStatus.toLowerCase();
           if (MHLW_SYNC_STATUSES.has(normalizedStatus)) {
-            clinicData.mhlwSyncStatus = normalizedStatus;
+            mergedClinic.mhlwSyncStatus = normalizedStatus;
           }
         }
         let saved;
         try {
-          saved = await saveClinic(env, clinicData);
+          saved = await saveClinic(env, mergedClinic);
         } catch (err) {
           if (err?.code === 'MHLW_FACILITY_ID_CONFLICT') {
-            return new Response(JSON.stringify({ error: 'MHLW_FACILITY_ID_CONFLICT', message: 'この厚生労働省施設IDは既に登録済みです。' }), {
-              status: 409,
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
+            return jsonResponse({ error: 'MHLW_FACILITY_ID_CONFLICT', message: 'この厚生労働省施設IDは既に登録済みです。' }, 409);
           }
           console.error('[updateClinic] saveClinic failed', { clinicIdParam, name, body }, err);
           throw err;
         }
-        return new Response(JSON.stringify({ ok: true, clinic: saved }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return jsonResponse({ ok: true, clinic: saved });
       } catch (err) {
         if (err?.code === 'MHLW_FACILITY_ID_CONFLICT') {
-          return new Response(JSON.stringify({ error: 'MHLW_FACILITY_ID_CONFLICT', message: 'この厚生労働省施設IDは既に登録済みです。' }), {
-            status: 409,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
+          return jsonResponse({ error: 'MHLW_FACILITY_ID_CONFLICT', message: 'この厚生労働省施設IDは既に登録済みです。' }, 409);
         }
         console.error('[updateClinic] unexpected error', err);
-        return new Response("Error: " + err.message, { status: 500, headers: corsHeaders });
+        return jsonResponse({ error: 'SERVER_ERROR', message: err.message || '更新に失敗しました。' }, 500);
       }
     }
 
@@ -7395,6 +7653,10 @@ if (routeMatch(url, "GET", "listClinics")) {
 
     // <<< START: CLINIC_DELETE >>>
     if (routeMatch(url, "POST", "deleteClinic")) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
       try {
         const body = await request.json();
         const id = nk(body?.id);
@@ -7409,37 +7671,37 @@ if (routeMatch(url, "GET", "listClinics")) {
           if (!target) target = await env.SETTINGS.get(`clinic:${name}`); // 互換
         }
         if (!target) {
-          return new Response(JSON.stringify({ error: "対象が見つかりません" }), {
-            status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return jsonResponse({ error: 'NOT_FOUND', message: '対象が見つかりません。' }, 404);
         }
 
         const obj = JSON.parse(target);
-        const _id = obj.id;
-        const _name = obj.name;
+        const clinicId = obj.id || id;
+        const access = await ensureClinicWriteAccess(env, authContext, clinicId, { allowClinicAdmins: false });
+        if (!access.ok) {
+          return jsonResponse({ error: 'FORBIDDEN', message: access.message || '権限が不足しています。' }, access.status || 403);
+        }
+        const clinic = access.clinic || obj;
 
-        if (hasFacilitiesD1(env) && _id) {
-          await env.MASTERS_D1.prepare('DELETE FROM facilities WHERE id = ?').bind(_id).run().catch((err) => {
+        if (hasFacilitiesD1(env) && clinic.id) {
+          await env.MASTERS_D1.prepare('DELETE FROM facilities WHERE id = ?').bind(clinic.id).run().catch((err) => {
             console.error('[clinic] failed to delete facility from D1', err);
           });
         }
-        if (_id) await env.SETTINGS.delete(`clinic:id:${_id}`);
-        if (_name) {
-          await env.SETTINGS.delete(`clinic:name:${_name}`);
-          await env.SETTINGS.delete(`clinic:${_name}`); // 旧互換キー
+        if (clinic.id) await env.SETTINGS.delete(`clinic:id:${clinic.id}`);
+        if (clinic.name) {
+          await env.SETTINGS.delete(`clinic:name:${clinic.name}`);
+          await env.SETTINGS.delete(`clinic:${clinic.name}`); // 旧互換キー
         }
-        if (obj?.mhlwFacilityId) {
-          const normalizedId = normalizeMhlwFacilityId(obj.mhlwFacilityId);
+        if (clinic.mhlwFacilityId) {
+          const normalizedId = normalizeMhlwFacilityId(clinic.mhlwFacilityId);
           if (normalizedId) {
             await env.SETTINGS.delete(`clinic:mhlw:${normalizedId}`).catch(() => {});
           }
         }
 
-        return new Response(JSON.stringify({ ok: true }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return jsonResponse({ ok: true });
       } catch (err) {
-        return new Response("Error: " + err.message, { status: 500, headers: corsHeaders });
+        return jsonResponse({ error: 'SERVER_ERROR', message: err.message || '削除に失敗しました。' }, 500);
       }
     }
     // <<< END: CLINIC_DELETE >>>

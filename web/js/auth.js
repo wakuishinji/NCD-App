@@ -12,14 +12,20 @@
     sysroot: 'systemRoot',
     root: 'systemRoot',
     systemadmin: 'systemAdmin',
+    adminreviewer: 'adminReviewer',
+    reviewer: 'adminReviewer',
+    organizationadmin: 'organizationAdmin',
+    municipaladmin: 'organizationAdmin',
     admin: 'clinicAdmin',
     clinicadmin: 'clinicAdmin',
     clinicstaff: 'clinicStaff',
     staff: 'clinicStaff',
   };
   const ROLE_INHERITANCE = {
-    systemRoot: ['systemRoot', 'systemAdmin', 'clinicAdmin', 'clinicStaff'],
-    systemAdmin: ['systemAdmin', 'clinicAdmin', 'clinicStaff'],
+    systemRoot: ['systemRoot', 'systemAdmin', 'organizationAdmin', 'adminReviewer', 'clinicAdmin', 'clinicStaff'],
+    systemAdmin: ['systemAdmin', 'organizationAdmin', 'adminReviewer', 'clinicAdmin', 'clinicStaff'],
+    organizationAdmin: ['organizationAdmin', 'clinicAdmin', 'clinicStaff'],
+    adminReviewer: ['adminReviewer', 'clinicStaff'],
     clinicAdmin: ['clinicAdmin', 'clinicStaff'],
     clinicStaff: ['clinicStaff'],
   };
@@ -193,6 +199,8 @@
   const ROLE_LABELS = {
     systemRoot: 'システムルート管理者',
     systemAdmin: 'システム管理者',
+    organizationAdmin: '自治体管理者',
+    adminReviewer: '申請レビュアー',
     clinicAdmin: '施設管理者',
     clinicStaff: '施設スタッフ',
   };
