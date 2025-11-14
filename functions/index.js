@@ -328,6 +328,19 @@ export default {
       };
     }
 
+    function cloneOrganizationMeta(meta) {
+      if (!meta || typeof meta !== 'object') return null;
+      const normalizedId = normalizeOrganizationId(meta.id) || DEFAULT_ORGANIZATION_ID;
+      const derivedSlug = normalizedId.replace(ORGANIZATION_ID_PREFIX, '');
+      const slug = nk(meta.slug) || derivedSlug;
+      const name = nk(meta.name) || DEFAULT_ORGANIZATION_NAME;
+      return {
+        id: normalizedId,
+        slug,
+        name,
+      };
+    }
+
     function ensureClinicOrganization(record) {
       if (!record || typeof record !== 'object') return record;
       if (!record.organizationId) {
@@ -344,18 +357,40 @@ export default {
     function normalizeOrganizationEntry(entry) {
       if (!entry) return null;
       if (typeof entry === 'string') {
-        return resolveOrganizationMeta(entry);
+        const meta = resolveOrganizationMeta(entry);
+        return cloneOrganizationMeta(meta);
       }
       if (typeof entry === 'object') {
-        if (entry.id || entry.slug) {
-          return resolveOrganizationMeta(entry.id || entry.slug);
+        const candidateId = entry.id || entry.organizationId || entry.slug;
+        if (!candidateId && !entry.name && !entry.organizationName) {
+          return null;
         }
+        const meta = candidateId ? resolveOrganizationMeta(candidateId) : DEFAULT_ORGANIZATION;
+        const summary = cloneOrganizationMeta(meta);
+        const overrideName = nk(entry.name || entry.organizationName);
+        const overrideSlug = nk(entry.slug);
+        if (overrideName) summary.name = overrideName;
+        if (overrideSlug) summary.slug = overrideSlug;
+        return summary;
       }
       return null;
     }
 
-    function resolveAccountOrganizations(account) {
-      if (!account) return [];
+    function normalizeOrganizationList(value) {
+      if (value == null) return [];
+      const list = Array.isArray(value) ? value : [value];
+      const result = [];
+      const seen = new Set();
+      for (const entry of list) {
+        const normalized = normalizeOrganizationEntry(entry);
+        if (!normalized || !normalized.id || seen.has(normalized.id)) continue;
+        seen.add(normalized.id);
+        result.push(normalized);
+      }
+      return result;
+    }
+
+    function resolveOrganizationsForAccount(account, memberships = []) {
       const collected = [];
       const seen = new Set();
       const push = (org) => {
@@ -363,18 +398,33 @@ export default {
         seen.add(org.id);
         collected.push(org);
       };
-      const candidateLists = [];
-      if (Array.isArray(account.organizations)) candidateLists.push(account.organizations);
-      if (Array.isArray(account.primaryOrganizationIds)) candidateLists.push(account.primaryOrganizationIds);
-      if (Array.isArray(account.profile?.organizations)) candidateLists.push(account.profile.organizations);
-      for (const list of candidateLists) {
-        if (!Array.isArray(list)) continue;
-        for (const entry of list) {
-          const normalized = normalizeOrganizationEntry(entry);
-          if (normalized) push(normalized);
-        }
+
+      normalizeOrganizationList(account?.organizations).forEach(push);
+      normalizeOrganizationList(account?.primaryOrganizationIds).forEach(push);
+      normalizeOrganizationList(account?.profile?.organizations).forEach(push);
+
+      if (Array.isArray(memberships)) {
+        memberships.forEach((membership) => {
+          const org = normalizeOrganizationEntry({
+            id: membership?.organizationId,
+            name: membership?.organizationName,
+          });
+          if (org) push(org);
+        });
       }
+
+      if (!collected.length) {
+        const fallback = cloneOrganizationMeta(DEFAULT_ORGANIZATION);
+        if (fallback) push(fallback);
+      }
+
       return collected;
+    }
+
+    function resolveAccountOrganizations(account) {
+      if (!account) return [];
+      const membershipList = Array.isArray(account.memberships) ? account.memberships : [];
+      return resolveOrganizationsForAccount(account, membershipList);
     }
 
     function resolveLimitedOrganizations(authContext) {
@@ -391,7 +441,9 @@ export default {
     }
 
     function listKnownOrganizations() {
-      return KNOWN_ORGANIZATIONS;
+      return KNOWN_ORGANIZATIONS
+        .map((org) => cloneOrganizationMeta(org))
+        .filter(Boolean);
     }
 
     function clinicBelongsToOrganizations(clinic, organizationIds) {
@@ -2943,6 +2995,27 @@ export default {
         if (!account) return null;
         if ((nk(account.status) || 'active') !== 'active') return null;
         ensureAccountId(account, payload.sub);
+        let resolvedMemberships = Array.isArray(payload.memberships) ? payload.memberships : null;
+        if (!resolvedMemberships) {
+          const membershipData = await resolveAccountMemberships(env, account);
+          resolvedMemberships = membershipData.memberships;
+          if (membershipData.membershipIds?.length) {
+            account.membershipIds = membershipData.membershipIds;
+          }
+        }
+        if (resolvedMemberships) {
+          account.memberships = resolvedMemberships;
+        }
+        let organizations = [];
+        if (Array.isArray(payload.organizations) && payload.organizations.length) {
+          organizations = normalizeOrganizationList(payload.organizations);
+        } else {
+          organizations = resolveOrganizationsForAccount(account, Array.isArray(account.memberships) ? account.memberships : []);
+        }
+        if (organizations.length) {
+          account.organizations = organizations;
+          account.primaryOrganizationIds = organizations.map((org) => org.id);
+        }
         return { account, payload, token };
       } catch (err) {
         console.warn('authenticateRequest failed', err);
@@ -3013,6 +3086,8 @@ export default {
       invitedBy,
       metadata = {},
       ttlSeconds = INVITE_TTL_SECONDS,
+      organizationId = null,
+      organizationName = null,
     }) {
       const inviteId = crypto.randomUUID();
       const token = generateInviteToken();
@@ -3029,6 +3104,8 @@ export default {
         expiresAt,
         status: 'pending',
         metadata,
+        organizationId: organizationId || null,
+        organizationName: organizationName || null,
       };
       await kvPutJSONWithOptions(env, inviteKey(inviteId), invite, { expirationTtl: ttlSeconds });
       if (tokenHash) {
@@ -3313,7 +3390,6 @@ export default {
             if (!organizationIds.includes(recordOrgId)) {
               continue;
             }
-            continue;
           }
           collected.push(sanitizeAdminRequest(record));
           if (collected.length >= limit) break;
@@ -3475,6 +3551,7 @@ export default {
       loginId,
       profile = {},
       invitedBy,
+      organizations = [],
     }) {
       const normalizedEmail = normalizeEmail(email);
       if (!normalizedEmail) {
@@ -3493,6 +3570,13 @@ export default {
       const accountUuid = crypto.randomUUID();
       const accountId = `account:${accountUuid}`;
       const nowIso = new Date().toISOString();
+      const organizationSummaries = normalizeOrganizationList(organizations);
+      if (!organizationSummaries.length) {
+        const fallbackOrg = cloneOrganizationMeta(DEFAULT_ORGANIZATION);
+        if (fallbackOrg) {
+          organizationSummaries.push(fallbackOrg);
+        }
+      }
       const accountRecord = {
         id: accountId,
         loginId: uniqueLoginId,
@@ -3503,9 +3587,13 @@ export default {
         profile,
         securityQuestion: null,
         membershipIds: [],
+        primaryOrganizationIds: organizationSummaries.map((org) => org.id),
         createdAt: nowIso,
         updatedAt: nowIso,
       };
+      if (organizationSummaries.length) {
+        accountRecord.organizations = organizationSummaries;
+      }
       if (invitedBy) {
         accountRecord.invitedBy = invitedBy;
       }
@@ -3618,6 +3706,10 @@ export default {
       const membershipId = `membership:${membershipUuid}`;
       const nowIso = new Date().toISOString();
       const normalizedRoles = Array.isArray(roles) && roles.length ? roles : ['clinicStaff'];
+      const organizationSummary = normalizeOrganizationEntry({
+        id: organizationId,
+        name: organizationName,
+      }) || cloneOrganizationMeta(DEFAULT_ORGANIZATION);
       const membershipRecord = {
         id: membershipId,
         clinicId,
@@ -3627,8 +3719,8 @@ export default {
         primaryRole: normalizedRoles[0] || null,
         status,
         invitedBy: invitedBy || null,
-        organizationId: organizationId || null,
-        organizationName: organizationName || null,
+        organizationId: organizationSummary?.id || null,
+        organizationName: organizationSummary?.name || null,
         departments: normalizeStringArray(departments),
         committees: normalizeStringArray(committees),
         groups: normalizeStringArray(groups),
@@ -3717,10 +3809,42 @@ export default {
       }
 
       const membershipMap = new Map();
+      const clinicCache = new Map();
+
+      const ensureMembershipOrganization = async (membership) => {
+        if (!membership) return membership;
+        if (membership.organizationId) return membership;
+        const clinicId = membership.clinicId;
+        if (!clinicId) {
+          membership.organizationId = DEFAULT_ORGANIZATION_ID;
+          membership.organizationName = DEFAULT_ORGANIZATION_NAME;
+          return membership;
+        }
+        if (!clinicCache.has(clinicId)) {
+          const clinic = await getClinicById(env, clinicId).catch((err) => {
+            console.warn('resolveAccountMemberships: failed to load clinic', clinicId, err);
+            return null;
+          });
+          clinicCache.set(clinicId, clinic || null);
+        }
+        const clinic = clinicCache.get(clinicId);
+        if (clinic) {
+          membership.organizationId = clinic.organizationId || DEFAULT_ORGANIZATION_ID;
+          membership.organizationName = clinic.organizationName
+            || clinic.organization?.name
+            || DEFAULT_ORGANIZATION_NAME;
+        } else {
+          membership.organizationId = DEFAULT_ORGANIZATION_ID;
+          membership.organizationName = DEFAULT_ORGANIZATION_NAME;
+        }
+        return membership;
+      };
+
       if (Array.isArray(account?.memberships)) {
         for (const entry of account.memberships) {
           const sanitized = sanitizeMembershipRecord(entry);
           if (sanitized && sanitized.id && seenIds.has(sanitized.id) && !membershipMap.has(sanitized.id)) {
+            await ensureMembershipOrganization(sanitized);
             membershipMap.set(sanitized.id, sanitized);
           }
         }
@@ -3732,6 +3856,7 @@ export default {
           const record = await getMembershipById(env, membershipId);
           const sanitized = sanitizeMembershipRecord(record);
           if (sanitized && sanitized.id) {
+            await ensureMembershipOrganization(sanitized);
             membershipMap.set(sanitized.id, sanitized);
           }
         } catch (err) {
@@ -4603,6 +4728,18 @@ export default {
         profile: account.profile && typeof account.profile === 'object' ? account.profile : {},
         membershipIds,
       };
+      const sanitizedOrganizations = normalizeOrganizationList(account.organizations);
+      if (sanitizedOrganizations.length) {
+        result.organizations = sanitizedOrganizations;
+        result.organizationIds = sanitizedOrganizations.map((org) => org.id);
+      } else if (Array.isArray(account.primaryOrganizationIds)) {
+        const normalizedOrgIds = account.primaryOrganizationIds
+          .map((orgId) => normalizeOrganizationId(orgId))
+          .filter(Boolean);
+        if (normalizedOrgIds.length) {
+          result.organizationIds = normalizedOrgIds;
+        }
+      }
       const securityQuestion = publicSecurityQuestionView(account.securityQuestion);
       result.hasSecurityQuestion = Boolean(securityQuestion);
       if (securityQuestion) {
@@ -4712,6 +4849,8 @@ export default {
         role: 'clinicAdmin',
         invitedBy,
         metadata,
+        organizationId: clinic.organizationId || null,
+        organizationName: clinic.organizationName || clinic.organization?.name || null,
       });
 
       const pendingInvites = cleanClinicPendingInvites(clinic, now).filter((item) => item.id !== invite.id);
@@ -4823,6 +4962,8 @@ export default {
         role: inviteRole,
         invitedBy,
         metadata,
+        organizationId: clinic.organizationId || null,
+        organizationName: clinic.organizationName || clinic.organization?.name || null,
       });
 
       const pendingInvites = cleanClinicPendingInvites(clinic, now).filter((item) => item.id !== invite.id);
@@ -4920,12 +5061,19 @@ export default {
         displayName: profileInput.displayName || invite.metadata?.displayName || '',
       };
 
+      const clinicOrganizationSummary = normalizeOrganizationEntry({
+        id: clinic.organizationId,
+        name: clinic.organizationName || clinic.organization?.name,
+      });
+      const initialOrganizations = clinicOrganizationSummary ? [clinicOrganizationSummary] : [];
+
       const { account, accountKey } = await createAccountRecord(env, {
         email,
         password,
         role,
         profile,
         invitedBy: invite.invitedBy || null,
+        organizations: initialOrganizations,
       });
 
       const membershipRoles = [role];
@@ -4942,7 +5090,6 @@ export default {
       const membershipSet = new Set(Array.isArray(account.membershipIds) ? account.membershipIds : []);
       membershipSet.add(membership.id);
       account.membershipIds = Array.from(membershipSet);
-      await saveAccountRecord(env, account);
 
       const staffMemberships = new Set(Array.isArray(clinic.staffMemberships) ? clinic.staffMemberships : []);
       staffMemberships.add(membership.id);
@@ -4966,14 +5113,19 @@ export default {
 
       const { membershipIds, memberships } = await resolveAccountMemberships(env, account);
       account.memberships = memberships;
+      const organizations = resolveOrganizationsForAccount(account, memberships);
+      const organizationIds = organizations.map((org) => org.id);
+      account.organizations = organizations;
+      account.primaryOrganizationIds = organizationIds;
+      await saveAccountRecord(env, account);
 
       const sessionId = generateSessionId();
       const accessTokenData = await createToken(
-        { sub: account.id, role, membershipIds, memberships, tokenType: 'access' },
+        { sub: account.id, role, membershipIds, memberships, organizations, organizationIds, tokenType: 'access' },
         { env, sessionId, ttlSeconds: ACCESS_TOKEN_TTL_SECONDS },
       );
       const refreshTokenData = await createToken(
-        { sub: account.id, role, membershipIds, memberships, tokenType: 'refresh', remember: false },
+        { sub: account.id, role, membershipIds, memberships, organizations, organizationIds, tokenType: 'refresh', remember: false },
         { env, sessionId, ttlSeconds: REFRESH_TOKEN_TTL_SECONDS },
       );
       await writeSessionMeta(env, sessionId, {
@@ -4981,6 +5133,8 @@ export default {
         role,
         membershipIds,
         memberships,
+        organizationIds,
+        organizations,
         remember: false,
         createdAt: new Date(accessTokenData.issuedAt * 1000).toISOString(),
         refreshExpiresAt: new Date(refreshTokenData.expiresAt * 1000).toISOString(),
@@ -4993,6 +5147,7 @@ export default {
         account: publicAccountView(account, { memberships }),
         membership: membershipSanitized,
         memberships,
+        organizations,
         tokens: {
           accessToken: accessTokenData.token,
           accessTokenExpiresAt: new Date(accessTokenData.expiresAt * 1000).toISOString(),
@@ -5302,6 +5457,11 @@ export default {
       const role = nk(account.role) || 'clinicStaff';
       const { membershipIds, memberships } = await resolveAccountMemberships(env, account);
       account.memberships = memberships;
+      const organizations = resolveOrganizationsForAccount(account, memberships);
+      const organizationIds = organizations.map((org) => org.id);
+      account.organizations = organizations;
+      account.primaryOrganizationIds = organizationIds;
+      await saveAccountRecord(env, account);
       const remember = Boolean(body?.remember);
       const sessionId = generateSessionId();
       const sessionStore = getSessionStore(env);
@@ -5309,12 +5469,12 @@ export default {
       let refreshTokenData;
       try {
         accessTokenData = await createToken(
-          { sub: accountId, role, membershipIds, memberships, tokenType: 'access' },
+          { sub: accountId, role, membershipIds, memberships, organizations, organizationIds, tokenType: 'access' },
           { env, sessionId, ttlSeconds: ACCESS_TOKEN_TTL_SECONDS },
         );
         const refreshTtl = remember ? REFRESH_TOKEN_TTL_REMEMBER_SECONDS : REFRESH_TOKEN_TTL_SECONDS;
         refreshTokenData = await createToken(
-          { sub: accountId, role, membershipIds, memberships, tokenType: 'refresh', remember },
+          { sub: accountId, role, membershipIds, memberships, organizations, organizationIds, tokenType: 'refresh', remember },
           { env, sessionId, ttlSeconds: refreshTtl },
         );
       } catch (err) {
@@ -5333,6 +5493,8 @@ export default {
         role,
         membershipIds,
         memberships,
+        organizationIds,
+        organizations,
         remember,
         createdAt: new Date(accessTokenData.issuedAt * 1000).toISOString(),
         refreshExpiresAt: new Date(refreshTokenData.expiresAt * 1000).toISOString(),
@@ -5342,6 +5504,7 @@ export default {
         ok: true,
         account: publicAccountView(account, { memberships }),
         memberships,
+        organizations,
         tokens: {
           accessToken: accessTokenData.token,
           accessTokenExpiresAt: new Date(accessTokenData.expiresAt * 1000).toISOString(),
@@ -5434,18 +5597,22 @@ export default {
       const role = nk(account.role) || payload.role || 'clinicStaff';
       const { membershipIds, memberships } = await resolveAccountMemberships(env, account);
       account.memberships = memberships;
+      const organizations = resolveOrganizationsForAccount(account, memberships);
+      const organizationIds = organizations.map((org) => org.id);
+      account.organizations = organizations;
+      account.primaryOrganizationIds = organizationIds;
       const remember = Boolean(payload.remember);
       const newSessionId = generateSessionId();
       let accessTokenData;
       let refreshTokenData;
       try {
         accessTokenData = await createToken(
-          { sub: accountId, role, membershipIds, memberships, tokenType: 'access' },
+          { sub: accountId, role, membershipIds, memberships, organizations, organizationIds, tokenType: 'access' },
           { env, sessionId: newSessionId, ttlSeconds: ACCESS_TOKEN_TTL_SECONDS },
         );
         const refreshTtl = remember ? REFRESH_TOKEN_TTL_REMEMBER_SECONDS : REFRESH_TOKEN_TTL_SECONDS;
         refreshTokenData = await createToken(
-          { sub: accountId, role, membershipIds, memberships, tokenType: 'refresh', remember },
+          { sub: accountId, role, membershipIds, memberships, organizations, organizationIds, tokenType: 'refresh', remember },
           { env, sessionId: newSessionId, ttlSeconds: refreshTtl },
         );
       } catch (err) {
@@ -5464,6 +5631,8 @@ export default {
         role,
         membershipIds,
         memberships,
+        organizationIds,
+        organizations,
         remember,
         createdAt: new Date(accessTokenData.issuedAt * 1000).toISOString(),
         refreshExpiresAt: new Date(refreshTokenData.expiresAt * 1000).toISOString(),
@@ -5475,6 +5644,7 @@ export default {
         ok: true,
         account: publicAccountView(account, { memberships }),
         memberships,
+        organizations,
         tokens: {
           accessToken: accessTokenData.token,
           accessTokenExpiresAt: new Date(accessTokenData.expiresAt * 1000).toISOString(),
@@ -5659,6 +5829,11 @@ export default {
         const membershipSet = new Set(normalizeMembershipIds(account));
         membershipSet.add(membership.id);
         account.membershipIds = Array.from(membershipSet);
+        const resolvedMemberships = await resolveAccountMemberships(env, account);
+        account.memberships = resolvedMemberships.memberships;
+        const orgsForAccount = resolveOrganizationsForAccount(account, resolvedMemberships.memberships);
+        account.organizations = orgsForAccount;
+        account.primaryOrganizationIds = orgsForAccount.map((org) => org.id);
         await saveAccountRecord(env, account);
 
         const staffMemberships = new Set(Array.isArray(clinic.staffMemberships) ? clinic.staffMemberships : []);
@@ -5692,6 +5867,8 @@ export default {
           role,
           invitedBy,
           metadata,
+          organizationId: clinic.organizationId || null,
+          organizationName: clinic.organizationName || clinic.organization?.name || null,
         });
         invite = newInvite;
         const pendingInvites = cleanClinicPendingInvites(clinic, now).filter((item) => item.id !== invite.id);

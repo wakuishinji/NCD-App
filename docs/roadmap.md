@@ -30,6 +30,7 @@
 
 ### Phase A: NCD Core 拡張（診療所→病院・他医師会へ）
 1. **多テナント化**: 施設・医療者レコードに `organizationId` を追加し、医師会/地域単位で設定を分離。  
+   - 2025-11-11: 認証 API・セッションに `organizations` / `organizationIds` を同梱し、アカウント/メンバーシップ作成時に必ず `organizationId` を付与するよう更新。Cloudflare Workers 側で JWT・セッションメタ・invites/adminRequests がテナント境界を尊重するようになった。
 2. **ロール強化**: `systemRoot` / `systemAdmin` / `clinicAdmin` / `clinicStaff` の認証・権限を実装し、管理画面へのアクセスを `systemRoot` 限定モードへ切り替える。  
    - 2025-02: 管理者権限を先生方自身が申請できるよう `adminRequest` スキーマと API を追加済み。`adminReviewer` ロールを新設し、医師会事務が申請承認を担当できる体制に移行中。  
    - `POST /api/auth/requestAdminAccess` で申請受付、`GET/POST /api/admin/accessRequests*` で承認・却下を処理。通知メールの宛先は `ADMIN_NOTIFY_EMAILS` 環境変数で管理。  

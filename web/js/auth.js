@@ -324,6 +324,82 @@
     return result;
   }
 
+  const DEFAULT_ORGANIZATION_ID = 'organization:nakano-med';
+  const DEFAULT_ORGANIZATION_NAME = '中野区医師会';
+
+  function normalizeOrganizationRecord(entry) {
+    if (!entry) return null;
+    if (typeof entry === 'string') {
+      const trimmed = entry.trim();
+      if (!trimmed) return null;
+      const normalizedId = trimmed.startsWith('organization:')
+        ? trimmed
+        : `organization:${trimmed.replace(/^:+/, '')}`;
+      return {
+        id: normalizedId,
+        slug: normalizedId.replace(/^organization:/, ''),
+        name: DEFAULT_ORGANIZATION_NAME,
+      };
+    }
+    if (typeof entry !== 'object') return null;
+    const idCandidate = entry.id || entry.organizationId || entry.slug;
+    const normalizedId = idCandidate
+      ? (String(idCandidate).trim().startsWith('organization:')
+        ? String(idCandidate).trim()
+        : `organization:${String(idCandidate).trim().replace(/^:+/, '')}`)
+      : '';
+    const slug = (entry.slug || (normalizedId ? normalizedId.replace(/^organization:/, '') : '')).trim();
+    const name = (entry.name || entry.organizationName || slug || normalizedId || DEFAULT_ORGANIZATION_NAME).trim();
+    if (!normalizedId && !name) {
+      return null;
+    }
+    return {
+      id: normalizedId || DEFAULT_ORGANIZATION_ID,
+      slug: slug || (normalizedId ? normalizedId.replace(/^organization:/, '') : 'default'),
+      name: name || DEFAULT_ORGANIZATION_NAME,
+    };
+  }
+
+  function getOrganizations(auth = getStoredAuth()) {
+    const sources = [];
+    if (Array.isArray(auth?.organizations)) {
+      sources.push(auth.organizations);
+    }
+    if (Array.isArray(auth?.account?.organizations)) {
+      sources.push(auth.account.organizations);
+    }
+    const organizations = [];
+    const seen = new Set();
+    for (const list of sources) {
+      if (!Array.isArray(list)) continue;
+      for (const entry of list) {
+        const normalized = normalizeOrganizationRecord(entry);
+        if (!normalized || !normalized.id || seen.has(normalized.id)) continue;
+        seen.add(normalized.id);
+        organizations.push(normalized);
+      }
+    }
+    if (!organizations.length && Array.isArray(auth?.account?.primaryOrganizationIds)) {
+      auth.account.primaryOrganizationIds.forEach((orgId) => {
+        const normalized = normalizeOrganizationRecord(orgId);
+        if (!normalized || !normalized.id || seen.has(normalized.id)) return;
+        seen.add(normalized.id);
+        organizations.push(normalized);
+      });
+    }
+    if (!organizations.length) {
+      const fallback = normalizeOrganizationRecord(DEFAULT_ORGANIZATION_ID);
+      if (fallback && !seen.has(fallback.id)) {
+        organizations.push(fallback);
+      }
+    }
+    return organizations;
+  }
+
+  function getOrganizationIds(auth = getStoredAuth()) {
+    return getOrganizations(auth).map((org) => org.id);
+  }
+
   function getMembershipForClinic(clinicId, auth = getStoredAuth()) {
     if (!clinicId) return null;
     const target = String(clinicId).trim();
@@ -626,6 +702,8 @@
     getMembershipForClinic,
     hasClinicRole,
     getMembershipLabels,
+    getOrganizations,
+    getOrganizationIds,
     requireRole,
     roleHierarchy: ROLE_INHERITANCE,
   };

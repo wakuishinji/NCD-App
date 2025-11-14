@@ -211,6 +211,11 @@
   - `auth/inviteStaff` / `auth/registerFacilityAdmin` … メンバーシップ作成時に `roles` を保存し、招待メールにも施設名・ロールを記載。
   - `auth/listMemberships`（新規） … 管理者向けに施設別メンバー一覧を返す API を追加。
 
+### 3.3 実装メモ（2025-11-11）
+- `auth/login` / `auth/refresh` のレスポンスに、サニタイズ済み `memberships` 配列を追加した。既存の `account.memberships` に加えてトップレベルでも同じ配列を返すため、フロントは `auth.memberships` から直接参照できる。  
+- JWT ペイロード／セッションメタには既に `memberships` が含まれており、`NcdAuth.hasClinicRole` で施設別ロール判定が可能。
+- `organizations` / `organizationIds` を JWT とセッションメタに同梱し、アカウント・メンバーシップ作成時に `primaryOrganizationIds` を必ず保持する。招待 (`invite`)・申請 (`adminRequest`) も `organizationId` を記録するため、自治体単位のフィルタリングが可能になった。
+
 ### 3.2 施設技能とスタッフ技能の結び付き
 - SkilBank 側で保持するスタッフプロフィール（案）:
   ```json
