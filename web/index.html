@@ -7,6 +7,14 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- FontAwesome -->
   <script src="https://kit.fontawesome.com/a2d9d6b3e2.js" crossorigin="anonymous"></script>
+  <script>
+    window.NCD_CF_ENV = {
+      NCD_API_BASE: window.__CF_PAGES_ENV?.NCD_API_BASE,
+      ENV_LABEL: window.__CF_PAGES_ENV?.ENV_LABEL,
+    };
+  </script>
+  <script src="./js/env.js" defer></script>
+
   <script src="./js/auth.js" defer></script>
   <script src="./js/userMenu.js" defer></script>
   <script src="./js/loginPrompt.js" defer></script>
@@ -14,11 +22,24 @@
 <body class="bg-gray-100 min-h-screen flex flex-col">
 
   <!-- 右上 管理者ダッシュボードリンク + ユーザーメニュー -->
-  <div class="absolute top-4 right-4 z-20 flex items-center gap-2">
-    <a href="admin/admin.html" data-admin-link
-       class="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow hover:bg-blue-700 transition">
-      <i class="fas fa-cog"></i> 管理ダッシュボード
-    </a>
+  <div class="absolute top-4 right-4 z-20 flex flex-col items-end gap-2">
+    <div class="flex flex-wrap items-center justify-end gap-2">
+      <a href="/admin/systemHub.html" data-admin-link data-required-role="systemRoot"
+         class="inline-flex items-center gap-2 rounded-md bg-slate-800/90 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white shadow hover:bg-slate-900 transition">
+        <i class="fas fa-shield-alt"></i>
+        システム管理
+      </a>
+      <a href="/admin/admin.html" data-admin-link data-required-role="systemRoot,masterAdmin"
+         class="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white shadow hover:bg-blue-700 transition">
+        <i class="fas fa-layer-group"></i>
+        共通マスター
+      </a>
+      <a href="/admin/municipalityHub.html" data-admin-link data-required-role="systemRoot,organizationAdmin"
+         class="inline-flex items-center gap-2 rounded-md bg-emerald-500 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white shadow hover:bg-emerald-600 transition">
+        <i class="fas fa-city"></i>
+        自治体管理
+      </a>
+    </div>
     <div class="relative" data-user-menu data-user-menu-variant="dark" data-user-menu-login="/auth/login.html"></div>
   </div>
 

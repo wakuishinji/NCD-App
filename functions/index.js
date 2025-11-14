@@ -2955,6 +2955,7 @@ export default {
       sysroot: 'systemRoot',
       root: 'systemRoot',
       systemadmin: 'systemAdmin',
+      masteradmin: 'masterAdmin',
       adminreviewer: 'adminReviewer',
       reviewer: 'adminReviewer',
       organizationadmin: 'organizationAdmin',
@@ -2966,15 +2967,17 @@ export default {
     };
 
     const ROLE_INHERITANCE = {
-      systemRoot: ['systemRoot', 'systemAdmin', 'organizationAdmin', 'clinicAdmin', 'clinicStaff'],
-      systemAdmin: ['systemAdmin', 'organizationAdmin', 'clinicAdmin', 'clinicStaff'],
+      systemRoot: ['systemRoot', 'masterAdmin', 'systemAdmin', 'organizationAdmin', 'adminReviewer', 'clinicAdmin', 'clinicStaff'],
+      masterAdmin: ['masterAdmin', 'clinicAdmin', 'clinicStaff'],
+      systemAdmin: ['systemAdmin', 'organizationAdmin', 'adminReviewer', 'clinicAdmin', 'clinicStaff'],
       organizationAdmin: ['organizationAdmin', 'clinicAdmin', 'clinicStaff'],
       adminReviewer: ['adminReviewer', 'clinicStaff'],
       clinicAdmin: ['clinicAdmin', 'clinicStaff'],
       clinicStaff: ['clinicStaff'],
     };
 
-  const SYSTEM_ROOT_ONLY = ['systemRoot'];
+    const SYSTEM_ROOT_ONLY = ['systemRoot'];
+    const MASTER_ADMIN_ROLES = ['systemRoot', 'masterAdmin'];
 
     function hasRole(payload, roles) {
       if (!payload) return false;
@@ -7712,6 +7715,13 @@ if (routeMatch(url, "POST", "registerClinic")) {
 
     // <<< START: MASTER_ADD >>>
     if (routeMatch(url, "POST", "addMasterItem")) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      if (!hasRole(authContext.payload, MASTER_ADMIN_ROLES)) {
+        return jsonResponse({ error: 'FORBIDDEN', message: '共通マスター管理権限が必要です。' }, 403);
+      }
       try {
         const body = await request.json();
         const { type, category, name, desc, source, status, referenceUrl } = body || {};
@@ -7941,6 +7951,13 @@ if (routeMatch(url, "POST", "registerClinic")) {
 
     // <<< START: MASTER_UPDATE >>>
     if (routeMatch(url, "POST", "updateMasterItem")) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      if (!hasRole(authContext.payload, MASTER_ADMIN_ROLES)) {
+        return jsonResponse({ error: 'FORBIDDEN', message: '共通マスター管理権限が必要です。' }, 403);
+      }
       try {
         const body = await request.json();
         const {
@@ -8181,6 +8198,13 @@ if (routeMatch(url, "POST", "registerClinic")) {
     // <<< END: MASTER_UPDATE >>>
 
     if (routeMatch(url, "POST", "master/addExplanation")) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      if (!hasRole(authContext.payload, MASTER_ADMIN_ROLES)) {
+        return jsonResponse({ error: 'FORBIDDEN', message: '共通マスター管理権限が必要です。' }, 403);
+      }
       try {
         const payload = await request.json();
         const { type, category, name, text, status, audience, context, source } = payload || {};
@@ -8240,6 +8264,13 @@ if (routeMatch(url, "POST", "registerClinic")) {
 
     // <<< START: MASTER_DELETE >>>
     if (routeMatch(url, "POST", "deleteMasterItem")) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      if (!hasRole(authContext.payload, MASTER_ADMIN_ROLES)) {
+        return jsonResponse({ error: 'FORBIDDEN', message: '共通マスター管理権限が必要です。' }, 403);
+      }
       try {
         const body = await request.json();
         const { id, type: bodyType, category, name } = body || {};
@@ -8303,6 +8334,13 @@ if (routeMatch(url, "POST", "registerClinic")) {
 
     // <<< START: MASTER_EXPORT >>>
     if (routeMatch(url, "GET", "exportMaster")) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      if (!hasRole(authContext.payload, MASTER_ADMIN_ROLES)) {
+        return jsonResponse({ error: 'FORBIDDEN', message: '共通マスター管理権限が必要です。' }, 403);
+      }
       try {
         const type = url.searchParams.get("type"); // 任意
         const format = (url.searchParams.get("format") || "json").toLowerCase();
@@ -8343,6 +8381,13 @@ if (routeMatch(url, "POST", "registerClinic")) {
     // <<< END: MASTER_EXPORT >>>
 
     if (routeMatch(url, 'POST', 'maintenance/masterCleanup')) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      if (!hasRole(authContext.payload, SYSTEM_ROOT_ONLY)) {
+        return jsonResponse({ error: 'FORBIDDEN', message: 'systemRoot 権限が必要です。' }, 403);
+      }
       try {
         let body = {};
         try {
@@ -8472,6 +8517,13 @@ if (routeMatch(url, "POST", "registerClinic")) {
 
     // <<< START: CATEGORIES_ADD >>>
     if (routeMatch(url, "POST", "addCategory")) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      if (!hasRole(authContext.payload, MASTER_ADMIN_ROLES)) {
+        return jsonResponse({ error: 'FORBIDDEN', message: '共通マスター管理権限が必要です。' }, 403);
+      }
       try {
         const body = await request.json();
         const type = body?.type;
@@ -8498,6 +8550,13 @@ if (routeMatch(url, "POST", "registerClinic")) {
 
     // <<< START: CATEGORIES_RENAME >>>
     if (routeMatch(url, "POST", "renameCategory")) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      if (!hasRole(authContext.payload, MASTER_ADMIN_ROLES)) {
+        return jsonResponse({ error: 'FORBIDDEN', message: '共通マスター管理権限が必要です。' }, 403);
+      }
       try {
         const body = await request.json();
         const type = body?.type;
@@ -8525,6 +8584,13 @@ if (routeMatch(url, "POST", "registerClinic")) {
 
     // <<< START: CATEGORIES_DELETE >>>
     if (routeMatch(url, "POST", "deleteCategory")) {
+      const authContext = await authenticateRequest(request, env);
+      if (!authContext) {
+        return jsonResponse({ error: 'UNAUTHORIZED', message: '認証が必要です。' }, 401);
+      }
+      if (!hasRole(authContext.payload, MASTER_ADMIN_ROLES)) {
+        return jsonResponse({ error: 'FORBIDDEN', message: '共通マスター管理権限が必要です。' }, 403);
+      }
       try {
         const body = await request.json();
         const type = body?.type;

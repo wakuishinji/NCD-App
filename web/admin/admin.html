@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>NCD 管理ハブ</title>
+  <title>共通マスター管理ハブ</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://cdn.tailwindcss.com"></script>
   
@@ -12,14 +12,14 @@
   <script src="../js/auth.js" defer></script>
   <script src="../js/sessionGuard.js" defer></script>
 </head>
-<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col" data-require-role="systemRoot" data-guard-message="システム管理者専用ページです。トップページへ戻ります。">
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col" data-require-role="systemRoot,masterAdmin" data-guard-message="共通マスター管理者専用ページです。トップページへ戻ります。">
   <header class="bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 text-white shadow">
     <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between gap-3">
       <a href="/index.html" class="inline-flex items-center gap-2 rounded bg-white/10 px-3 py-2 text-sm font-semibold tracking-wide transition hover:bg-white/20">
         <span aria-hidden="true">⌂</span>
         Top
       </a>
-      <h1 class="text-lg font-semibold tracking-wide">NCD 管理ハブ</h1>
+      <h1 class="text-lg font-semibold tracking-wide">共通マスター管理ハブ</h1>
       <div class="flex items-center gap-2">
         <span class="hidden sm:inline text-sm text-white/80">Nakano Clinic Database</span>
         <button id="adminLogout" class="inline-flex items-center gap-2 rounded bg-white/10 px-3 py-2 text-xs font-semibold tracking-wide transition hover:bg-red-500/80 hover:text-white">
@@ -34,8 +34,13 @@
     <section class="border-b border-slate-200 bg-white/70">
       <div class="max-w-6xl mx-auto px-4 py-6">
         <p class="text-sm text-slate-600">
-          管理業務をカテゴリ別に整理しました。必要なカードをクリックして各マスター/設定画面へ移動してください。
+          全国共通で利用するマスター（診療/検査/資格/部位 等）の整備用ハブです。自治体単位の運用や厚労省インポートはシステム管理ハブから実行してください。
         </p>
+        <div class="mt-3 text-xs text-slate-500">
+          <a href="/admin/systemHub.html" data-admin-link data-required-role="systemRoot" class="inline-flex items-center gap-2 rounded border border-white/40 bg-slate-900/70 px-3 py-1.5 font-semibold text-white shadow hover:bg-slate-900/90 transition text-sm">
+            システム管理ハブへ
+          </a>
+        </div>
       </div>
     </section>
 
@@ -45,10 +50,6 @@
           <h2 class="text-base font-semibold text-blue-900">診療所・標榜診療科</h2>
         </div>
         <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          <a href="clinicList.html" class="group block rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:border-blue-400 hover:shadow-lg">
-            <h3 class="text-base font-semibold text-slate-900">自治体管理（中野区）</h3>
-            <p class="mt-2 text-sm text-slate-600">中野区医師会の施設一覧・管理者招待・申請承認など自治体単位の運用ハブです。</p>
-          </a>
           <a href="/categoriesAdmin.html?type=department" class="group block rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:border-blue-400 hover:shadow-lg">
             <h3 class="text-base font-semibold text-slate-900">標榜診療科分類マスター</h3>
             <p class="mt-2 text-sm text-slate-600">標榜診療科で利用する分類ラベルを追加・改名・削除します。</p>
@@ -129,18 +130,6 @@
           <a href="bodySiteMaster.html" class="group block rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:border-blue-400 hover:shadow-lg">
             <h3 class="text-base font-semibold text-slate-900">部位マスター</h3>
             <p class="mt-2 text-sm text-slate-600">解剖部位の階層・患者向け名称・別名を管理し、症状との紐付けに備えます。</p>
-          </a>
-        </div>
-      </section>
-
-      <section>
-        <div class="flex items-center justify-between mb-4">
-          <h2 class="text-base font-semibold text-blue-900">アカウント・権限</h2>
-        </div>
-        <div class="grid gap-4 sm:grid-cols-2">
-          <a href="accessRequests.html" class="group block rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:border-blue-400 hover:shadow-lg">
-            <h3 class="text-base font-semibold text-slate-900">管理者申請の承認</h3>
-            <p class="mt-2 text-sm text-slate-600">医師会スタッフからの管理者権限リクエストを確認し、施設管理者ロールを付与・却下します。</p>
           </a>
         </div>
       </section>

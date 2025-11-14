@@ -86,13 +86,24 @@
     document.body.style.overflow = previousBodyOverflow || '';
   }
 
-  async function hasSystemRootAccess() {
+  function parseRequiredRoles(anchor) {
+    if (!anchor) return ['systemRoot'];
+    const attr = anchor.getAttribute('data-required-role');
+    if (!attr) return ['systemRoot'];
+    return attr
+      .split(',')
+      .map((role) => role.trim())
+      .filter((role) => role.length);
+  }
+
+  async function hasRequiredAccess(requiredRoles) {
     if (!global.NcdAuth) return false;
     try {
       const auth = await global.NcdAuth.ensureAuth({ optional: true });
       if (!auth) return false;
+      if (!requiredRoles || !requiredRoles.length) return true;
       const role = global.NcdAuth.getCurrentRole(auth);
-      return global.NcdAuth.roleIncludes(role, 'systemRoot');
+      return requiredRoles.some((required) => global.NcdAuth.roleIncludes(role, required));
     } catch (_) {
       return false;
     }
@@ -102,8 +113,9 @@
     if (!event || !event.currentTarget) return;
     const anchor = event.currentTarget;
     const href = anchor.getAttribute('href') || DEFAULT_TARGET;
+    const requiredRoles = parseRequiredRoles(anchor);
     event.preventDefault();
-    const authorized = await hasSystemRootAccess();
+    const authorized = await hasRequiredAccess(requiredRoles);
     if (authorized) {
       window.location.href = href;
       return;

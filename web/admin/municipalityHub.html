@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>自治体管理ハブ</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>window.NCD_CF_ENV=window.__CF_PAGES_ENV||(window.__CF_PAGES_ENV?{NCD_API_BASE:window.__CF_PAGES_ENV.NCD_API_BASE,ENV_LABEL:window.__CF_PAGES_ENV.ENV_LABEL}:{NCD_API_BASE:'https://ncd-app.altry.workers.dev',ENV_LABEL:'production'});</script>
+  <script src="../js/env.js"></script>
+  <script src="../js/auth.js" defer></script>
+  <script src="../js/sessionGuard.js" defer></script>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col" data-require-role="systemRoot,organizationAdmin" data-guard-message="自治体管理者専用ページです。トップページへ戻ります。">
+  <header class="bg-gradient-to-r from-blue-900 via-indigo-900 to-blue-900 text-white shadow">
+    <div class="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between gap-3">
+      <a href="/index.html" class="inline-flex items-center gap-2 rounded bg-white/10 px-3 py-2 text-sm font-semibold tracking-wide transition hover:bg-white/20">
+        <span aria-hidden="true">⌂</span>
+        Top
+      </a>
+      <h1 class="text-lg font-semibold tracking-wide">自治体管理ハブ</h1>
+      <div class="flex items-center gap-2">
+        <span class="hidden sm:inline text-sm text-white/80">Nakano Clinic Database</span>
+        <button id="municipalityLogout" class="inline-flex items-center gap-2 rounded bg-white/10 px-3 py-2 text-xs font-semibold tracking-wide transition hover:bg-red-500/80 hover:text-white">
+          <span class="hidden sm:inline">ログアウト</span>
+          <span class="sm:hidden">退出</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="flex-1">
+    <section class="border-b border-slate-200 bg-white/70">
+      <div class="max-w-5xl mx-auto px-4 py-6 space-y-2">
+        <p class="text-sm text-slate-600">
+          自治体（医師会）単位で施設データや管理者をメンテナンスするためのハブです。施設ホームの公開情報とローカルマスターを整備し、必要に応じて systemRoot にエスカレーションしてください。
+        </p>
+        <p class="text-xs text-slate-500">
+          システム全体の設定や厚労省データ取り込みは <a href="/admin/systemHub.html" data-admin-link data-required-role="systemRoot" class="underline text-slate-200 hover:text-white">システム管理ハブ</a> から実施します。
+        </p>
+      </div>
+    </section>
+
+    <div class="max-w-5xl mx-auto px-4 py-8 space-y-8">
+      <section>
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-base font-semibold text-blue-900">施設・アカウント</h2>
+        </div>
+        <div class="grid gap-4 md:grid-cols-2">
+          <a href="clinicList.html" class="group block rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:border-blue-400 hover:shadow-lg">
+            <h3 class="text-base font-semibold text-slate-900">施設一覧 &amp; 管理者設定</h3>
+            <p class="mt-2 text-sm text-slate-600">自治体に紐づく施設を検索し、施設管理者やスタッフ招待の状況を確認します。</p>
+          </a>
+          <a href="accessRequests.html" class="group block rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:border-blue-400 hover:shadow-lg">
+            <h3 class="text-base font-semibold text-slate-900">管理者申請の確認</h3>
+            <p class="mt-2 text-sm text-slate-600">施設からの管理者申請をレビューし、承認/却下コメントを記録します。</p>
+          </a>
+        </div>
+      </section>
+
+      <section>
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-base font-semibold text-blue-900">ローカルマスター（準備中）</h2>
+        </div>
+        <div class="grid gap-4 md:grid-cols-2">
+          <div class="rounded-xl border border-dashed border-slate-200 bg-slate-50/80 p-5 shadow-sm">
+            <h3 class="text-base font-semibold text-slate-900">地域固有マスター</h3>
+            <p class="mt-2 text-sm text-slate-600">自治体ごとの特記事項や公開タグをここで管理できるよう拡張予定です。</p>
+            <p class="mt-2 text-xs text-slate-500">要望があれば systemRoot へお知らせください。</p>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    (function setupMunicipalityLogout(global) {
+      async function executeLogout() {
+        const apiBase = (global.NcdAuth && global.NcdAuth.resolveApiBase && global.NcdAuth.resolveApiBase()) || 'https://ncd-app.altry.workers.dev';
+        const auth = global.NcdAuth?.getStoredAuth?.();
+        const payload = auth?.tokens ? {
+          refreshToken: auth.tokens.refreshToken,
+          sessionId: auth.tokens.sessionId,
+        } : {};
+        try {
+          await fetch(`${apiBase}/api/auth/logout`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+        } catch (error) {
+          console.warn('[municipalityHub] logout request failed', error);
+        } finally {
+          try {
+            global.NcdAuth?.clearAuth?.();
+          } catch (_) {}
+          global.location.replace('/index.html');
+        }
+      }
+
+      function init() {
+        const button = document.getElementById('municipalityLogout');
+        if (!button) return;
+        button.addEventListener('click', () => {
+          button.disabled = true;
+          executeLogout();
+        });
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init, { once: true });
+      } else {
+        init();
+      }
+    })(window);
+  </script>
+</body>
+</html>

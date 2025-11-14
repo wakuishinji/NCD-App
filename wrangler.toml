@@ -26,6 +26,17 @@ preview_database_id = "888a0e58-a8b3-40d9-a709-0231f63ac720"
 name = "ncd-app-staging"
 main = "./functions/index.js"
 compatibility_date = "2025-09-07"
+pages_build_output_dir = "./web"
+
+  [[env.staging.kv_namespaces]]
+  binding = "SETTINGS"
+  id = "93471e6681f74377ab8c654c08c19eac"
+  preview_id = "0bab0d461acc4e54bca925c9ca383db2"
+
+  [[env.staging.r2_buckets]]
+  binding = "MEDIA"
+  bucket_name = "ncd-clinic-media"
+  preview_bucket_name = "ncd-clinic-media-preview"
 
   [[env.staging.d1_databases]]
   binding = "MASTERS_D1"
@@ -36,6 +47,16 @@ compatibility_date = "2025-09-07"
 name = "ncd-app-production"
 main = "./functions/index.js"
 compatibility_date = "2025-09-07"
+
+  [[env.production.kv_namespaces]]
+  binding = "SETTINGS"
+  id = "93471e6681f74377ab8c654c08c19eac"
+  preview_id = "0bab0d461acc4e54bca925c9ca383db2"
+
+  [[env.production.r2_buckets]]
+  binding = "MEDIA"
+  bucket_name = "ncd-clinic-media"
+  preview_bucket_name = "ncd-clinic-media-preview"
 
   [[env.production.d1_databases]]
   binding = "MASTERS_D1"
